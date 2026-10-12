@@ -56,7 +56,7 @@ const CUSTOMER_REVIEWS = [
     name: 'Murthy Kasturi',
     city: 'Ahmedabad',
     quote:
-      'The entire process was seamless and very quick. I checked the quote online and Spinny executive came for evaluation the same day. The entire...',
+      'The entire process was seamless and very quick. I checked the quote online and EVegah executive came for evaluation the same day. The entire...',
     readMore: true,
     badge: 'Rent Evegah City',
     image:
@@ -67,7 +67,7 @@ const CUSTOMER_REVIEWS = [
     name: 'Surinder Pal Singh',
     city: 'Guwahati',
     quote:
-      'From inspection to paperwork, I completed the entire process from the comfort of home. Spinny team was very professional and friendly.',
+      'From inspection to paperwork, I completed the entire process from the comfort of home. EVegah team was very professional and friendly.',
     readMore: false,
     badge: 'Rent Evegeh Mink',
     image:
@@ -89,7 +89,7 @@ const CUSTOMER_REVIEWS = [
     name: 'Tejashree Kale',
     city: 'Vadodara',
     quote:
-      'I love my car and with Spinny I got the confidence that the car will be in safe custody till it gets transferred to the new owner.',
+      'I love my car and with EVegah I got the confidence that the car will be in safe custody till it gets transferred to the new owner.',
     readMore: false,
     badge: 'Rent Evegah Pro',
     image:
@@ -100,7 +100,7 @@ const CUSTOMER_REVIEWS = [
     name: 'Vikrant Jadhav',
     city: 'Aatapi',
     quote:
-      "Spinny valued our car with the best price for our car and I don't think anyone can compete with the prices offered",
+      "EVegah valued our car with the best price for our car and I don't think anyone can compete with the prices offered",
     readMore: false,
     badge: 'Rent Evegah City',
     image:

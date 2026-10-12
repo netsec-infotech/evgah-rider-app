@@ -37,7 +37,7 @@ const EVEGAH_PURPLE = '#4F2CA0';
 const EVEGAH_PURPLE_MUTED = '#C4B6DE';
 const VIDEO_WIDTH = 1492;
 const VIDEO_HEIGHT = 1440;
-const BANNER_HEIGHT = SCREEN_W * (VIDEO_HEIGHT / VIDEO_WIDTH);
+const BANNER_HEIGHT = Math.round(SCREEN_H * 0.52);
 const TOAST_OFFSCREEN_Y = -120;
 const TOAST_ENTER_MS = 560;
 const TOAST_EXIT_MS = 480;
@@ -50,9 +50,7 @@ const SCOOTER_HEIGHT = 32;
 const TRAIL_WIDTH = 30;
 const RIDE_GROUP_WIDTH = SCOOTER_WIDTH + TRAIL_WIDTH;
 const ROAD_DASHES = Array.from({ length: 16 }, (_, index) => index);
-const BOTTOM_ASSET_W = 2172;
-const BOTTOM_ASSET_H = 325;
-const BOTTOM_ASSET_HEIGHT = SCREEN_W * (BOTTOM_ASSET_H / BOTTOM_ASSET_W);
+const BOTTOM_ASSET_HEIGHT = Math.round(SCREEN_W * 0.335);
 const INTRO_VIDEO = require('../assets/intro-ride.mp4');
 const INTRO_VIDEO_REVERSE = require('../assets/intro-ride-reverse.mp4');
 // Digit 1–10 of the Indian mobile number, matched to a time in the ride clip.
@@ -477,7 +475,7 @@ export default function LoginScreen({ onContinue }) {
         <VideoView
           player={playingReverse ? reversePlayer : forwardPlayer}
           style={styles.bannerVideo}
-          contentFit="contain"
+          contentFit="cover"
           nativeControls={false}
           allowsPictureInPicture={false}
           surfaceType="textureView"
@@ -485,11 +483,20 @@ export default function LoginScreen({ onContinue }) {
       </View>
 
       <Animated.View
-        style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 8) }, sheetAnimStyle]}
+        style={[
+          styles.sheet,
+          {
+            paddingBottom:
+              Platform.OS === 'android' && insets.bottom >= 36
+                ? insets.bottom
+                : 0,
+          },
+          sheetAnimStyle,
+        ]}
       >
         <View style={styles.handle} />
 
-        <View style={[styles.sheetContent, { paddingBottom: BOTTOM_ASSET_HEIGHT + insets.bottom + 12 }]}>
+        <View style={styles.sheetContent}>
           <View style={styles.welcomeRow}>
             <Text style={styles.welcomeText}>Welcome to</Text>
             <Image
@@ -619,8 +626,9 @@ export default function LoginScreen({ onContinue }) {
         </View>
         <Image
           source={require('../assets/login/login-bottom-asset.png')}
-          style={[styles.bottomAsset, { bottom: insets.bottom }]}
-          contentFit="contain"
+          style={styles.bottomAsset}
+          contentFit="cover"
+          contentPosition="bottom"
         />
       </Animated.View>
     </Pressable>
@@ -649,11 +657,10 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    minHeight: SCREEN_H * 0.64,
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 36,
-    borderTopRightRadius: 36,
-    paddingTop: 16,
+    borderTopLeftRadius: 34,
+    borderTopRightRadius: 34,
+    paddingTop: 14,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.08,
@@ -840,7 +847,7 @@ const styles = StyleSheet.create({
     height: SCOOTER_HEIGHT,
   },
   terms: {
-    marginTop: 16,
+    marginTop: 14,
     textAlign: 'center',
     fontSize: 12,
     color: '#808080',
@@ -855,12 +862,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   bottomAsset: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    width: '100%',
+    marginTop: 10,
+    marginBottom: -4,
+    width: SCREEN_W,
     height: BOTTOM_ASSET_HEIGHT,
-    opacity: 0.4,
+    alignSelf: 'center',
+    opacity: 0.96,
   },
   toast: {
     position: 'absolute',

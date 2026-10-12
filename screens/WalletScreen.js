@@ -157,7 +157,11 @@ export default function WalletScreen({
         </View>
         <Animated.View entering={enter(2)} style={styles.actions}>
           {ACTIONS.map((item) => (
-            <Pressable key={item.label} style={styles.action}>
+            <Pressable
+              key={item.label}
+              onPress={item.label === 'Offers' ? onOffers : undefined}
+              style={styles.action}
+            >
               <Ionicons name={item.icon} size={20} color={PURPLE} />
               <Text style={styles.actionLabel}>{item.label}</Text>
             </Pressable>

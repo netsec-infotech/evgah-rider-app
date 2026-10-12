@@ -15,6 +15,8 @@ import EditProfileScreen from './screens/EditProfileScreen';
 import KycScreen from './screens/KycScreen';
 import ReferScreen from './screens/ReferScreen';
 import OffersScreen from './screens/OffersScreen';
+import GiftCardScreen from './screens/GiftCardScreen';
+import RedeemGiftCardScreen from './screens/RedeemGiftCardScreen';
 import HelpScreen from './screens/HelpScreen';
 import PreferencesScreen from './screens/PreferencesScreen';
 import AboutScreen from './screens/AboutScreen';
@@ -57,6 +59,7 @@ export default function App() {
   });
   const [kyc, setKyc] = useState({ selfie: false, front: false, back: false });
   const [offersFrom, setOffersFrom] = useState('profile');
+  const [redeemFrom, setRedeemFrom] = useState('profile');
   const [prefs, setPrefs] = useState({ push: true, email: false });
   const [tx, setTx] = useState(null);
   const [notes, setNotes] = useState([
@@ -199,7 +202,12 @@ export default function App() {
         <VehicleDetailsScreen
           vehicle={vehicle}
           onBack={() => setScreen(vehicleFrom)}
-          onBook={() => setScreen('rent')}
+          onBook={(flexiData) => {
+            if (flexiData && typeof flexiData === 'object') {
+              setVehicle((prev) => ({ ...(prev || {}), ...flexiData }));
+            }
+            setScreen('rent');
+          }}
         />
       ) : screen === 'bms' ? (
         <BmsScreen onBack={() => setScreen('home')} />
@@ -239,7 +247,12 @@ export default function App() {
           onReadAll={() => setNotes((list) => list.map((item) => ({ ...item, read: true })))}
         />
       ) : screen === 'about' ? (
-        <AboutScreen onBack={() => setScreen('profile')} onExplore={() => setScreen('home')} />
+        <AboutScreen
+          phone={profile.phone}
+          name={profile.name}
+          onBack={() => setScreen('profile')}
+          onExplore={() => setScreen('home')}
+        />
       ) : screen === 'preferences' ? (
         <PreferencesScreen
           prefs={prefs}
@@ -248,6 +261,20 @@ export default function App() {
         />
       ) : screen === 'help' ? (
         <HelpScreen onBack={() => setScreen('profile')} />
+      ) : screen === 'giftCard' ? (
+        <GiftCardScreen
+          onBack={() => setScreen('profile')}
+          onHelp={() => setScreen('help')}
+          onRedeem={() => {
+            setRedeemFrom('giftCard');
+            setScreen('redeemGiftCard');
+          }}
+        />
+      ) : screen === 'redeemGiftCard' ? (
+        <RedeemGiftCardScreen
+          onBack={() => setScreen(redeemFrom)}
+          onRedeemed={() => setScreen('wallet')}
+        />
       ) : screen === 'offers' ? (
         <OffersScreen onBack={() => setScreen(offersFrom)} />
       ) : screen === 'refer' ? (
@@ -288,6 +315,11 @@ export default function App() {
           onOffers={() => {
             setOffersFrom('profile');
             setScreen('offers');
+          }}
+          onGiftCard={() => setScreen('giftCard')}
+          onRedeemGiftCard={() => {
+            setRedeemFrom('profile');
+            setScreen('redeemGiftCard');
           }}
           onHelp={() => setScreen('help')}
           onPreferences={() => setScreen('preferences')}
