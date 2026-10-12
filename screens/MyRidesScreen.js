@@ -183,21 +183,7 @@ export default function MyRidesScreen({ onOpenHome, onOpenScan, onOpenProfile, o
           })}
         </ScrollView>
 
-        <View style={styles.searchRow}>
-          <View style={styles.search}>
-            <Ionicons name="search" size={18} color="#9A9AA2" />
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search by vehicle, booking ID or zone..."
-              placeholderTextColor="#A3A3AB"
-              style={styles.searchInput}
-            />
-          </View>
-          <Pressable style={styles.filterBtn}>
-            <Ionicons name="options-outline" size={18} color="#3A3A3A" />
-          </Pressable>
-        </View>
+        
 
         <View style={styles.dropdowns}>
           <Pressable style={styles.dropdown}>

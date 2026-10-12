@@ -25,6 +25,7 @@ import SecurityScreen from './screens/SecurityScreen';
 import BmsScreen from './screens/BmsScreen';
 import WalletScreen from './screens/WalletScreen';
 import VehicleDetailsScreen from './screens/VehicleDetailsScreen';
+import VehicleListScreen from './screens/VehicleListScreen';
 import RentScreen from './screens/RentScreen';
 import PayScreen from './screens/PayScreen';
 import BookingConfirmedScreen from './screens/BookingConfirmedScreen';
@@ -39,6 +40,7 @@ export default function App() {
   const [locationOpen, setLocationOpen] = useState(false);
   const [walletIntro, setWalletIntro] = useState(false);
   const [vehicle, setVehicle] = useState(null);
+  const [vehicleFrom, setVehicleFrom] = useState('home');
   const [trip, setTrip] = useState(null);
   const [receipt, setReceipt] = useState(null);
   const [rideSummary, setRideSummary] = useState(null);
@@ -172,10 +174,31 @@ export default function App() {
             </View>
           ) : null}
         </View>
+      ) : screen === 'vehicleList' ? (
+        <View style={styles.stage}>
+          <VehicleListScreen
+            onBack={() => setScreen('home')}
+            onOpenLocation={() => setLocationOpen(true)}
+            onSelectVehicle={(next) => {
+              setVehicle(next);
+              setVehicleFrom('vehicleList');
+              setScreen('vehicle');
+            }}
+          />
+          <Modal
+            visible={locationOpen}
+            animationType="slide"
+            presentationStyle="fullScreen"
+            statusBarTranslucent
+            onRequestClose={() => setLocationOpen(false)}
+          >
+            <LocationScreen onBack={() => setLocationOpen(false)} />
+          </Modal>
+        </View>
       ) : screen === 'vehicle' ? (
         <VehicleDetailsScreen
           vehicle={vehicle}
-          onBack={() => setScreen('home')}
+          onBack={() => setScreen(vehicleFrom)}
           onBook={() => setScreen('rent')}
         />
       ) : screen === 'bms' ? (
@@ -343,8 +366,10 @@ export default function App() {
             onOpenScan={() => setScreen('scan')}
             onOpenProfile={() => setScreen('profile')}
             onOpenWallet={openWallet}
+            onOpenVehicleList={() => setScreen('vehicleList')}
             onOpenVehicle={(next) => {
               setVehicle(next);
+              setVehicleFrom('home');
               setScreen('vehicle');
             }}
             onOpenNotifications={() => setScreen('notifications')}
