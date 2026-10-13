@@ -72,7 +72,7 @@ function toOriginalTime(reverseTime, duration) {
   return Math.max(0, clipSpan(duration) - reverseTime);
 }
 
-export default function LoginScreen({ onContinue }) {
+export default function LoginScreen({ onContinue, onBack }) {
   const insets = useSafeAreaInsets();
   const forwardPlayer = useVideoPlayer(INTRO_VIDEO, (video) => {
     video.loop = false;
@@ -461,6 +461,19 @@ export default function LoginScreen({ onContinue }) {
     <Pressable style={styles.root} onPress={dismissInputs}>
       <StatusBar style="dark" />
 
+      {onBack ? (
+        <Pressable
+          onPress={onBack}
+          hitSlop={12}
+          style={[
+            styles.backBtn,
+            { top: Math.max(insets.top, 14) + 6 },
+          ]}
+        >
+          <Ionicons name="arrow-back" size={20} color="#24083C" />
+        </Pressable>
+      ) : null}
+
       {toastMessage ? (
         <Animated.View
           style={[styles.toast, { top: Math.max(insets.top, 12) + 8 }, toastAnimStyle]}
@@ -640,6 +653,22 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F4F5F7',
     overflow: 'hidden',
+  },
+  backBtn: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 30,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 4,
   },
   banner: {
     width: '100%',

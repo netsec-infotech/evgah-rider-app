@@ -1163,7 +1163,7 @@ function BookingCalendarModal({
           {/* Scrollable Pickup Time & Drop Off Time Wheels */}
           <View style={styles.calTimeColumnsRow}>
             <TimeWheelColumn
-              title="Pickup Time (Scroll)"
+              title="Pickup Time"
               hour24={pickupHour}
               onChangeHour={(nextH) => {
                 const pkg = PACKAGE_OPTIONS.find((p) => p.id === packageId);
@@ -1176,7 +1176,7 @@ function BookingCalendarModal({
             />
 
             <TimeWheelColumn
-              title="Drop Off Time (Scroll)"
+              title="Drop Off Time"
               hour24={dropHour}
               onChangeHour={(nextH) => onChangeHours(pickupHour, nextH)}
             />
@@ -1227,9 +1227,12 @@ export default function HomeScreen({
   useEffect(() => {
     if (calendarTriggerTick && calendarTriggerTick > 0) {
       setLocalZone(selectedZone || AVAILABLE_ZONES_QUICK[0]);
-      setCalendarModalOpen(true);
+      const timer = setTimeout(() => {
+        setCalendarModalOpen(true);
+      }, 350);
+      return () => clearTimeout(timer);
     }
-  }, [calendarTriggerTick, selectedZone]);
+  }, [calendarTriggerTick]);
 
   const handleSelectPackage = (nextPkgId) => {
     setPackageId(nextPkgId);
@@ -1476,12 +1479,7 @@ export default function HomeScreen({
         <View style={styles.sheet}>
           {/* Search EV Vehicle Booking Card */}
           <Animated.View entering={cardEnter(0)} style={styles.bookingSearchCard}>
-            <View style={styles.bookingCardTitleRow}>
-              <Text style={styles.bookingCardHeading}>
-                Search <Text style={styles.customerReviewAccent}>EV Vehicle</Text>
-              </Text>
-            </View>
-
+            
             {/* Location Search Row (Opens Zone Selection Page) */}
             <Pressable
               onPress={() => onOpenLocation?.()}
@@ -1497,9 +1495,7 @@ export default function HomeScreen({
                 <Text style={styles.bookingLocationText} numberOfLines={1}>
                   {activeZoneLabel}
                 </Text>
-                <Text style={styles.bookingZoneHintText} numberOfLines={1}>
-                  Tap to change pickup zone or radar scan
-                </Text>
+               
               </View>
               <Ionicons name="chevron-forward" size={18} color="#8A819C" />
             </Pressable>
@@ -1512,7 +1508,7 @@ export default function HomeScreen({
               >
                 <View style={styles.bookingDateLabelRow}>
                   <Ionicons name="calendar-outline" size={13} color={TAB_PURPLE} />
-                  <Text style={styles.bookingDateLabel}>Trip Start</Text>
+                  <Text style={styles.bookingDateLabel}>Ride Start</Text>
                 </View>
                 <Text style={styles.bookingDateValue} numberOfLines={1}>
                   {formatBoxDateTime(startDay, pickupHour)}
@@ -1525,7 +1521,7 @@ export default function HomeScreen({
               >
                 <View style={styles.bookingDateLabelRow}>
                   <Text style={[styles.bookingDateLabel, styles.textRight]}>
-                    Trip End
+                    Ride End
                   </Text>
                   <Ionicons name="time-outline" size={13} color={TAB_PURPLE} />
                 </View>
@@ -1566,8 +1562,8 @@ export default function HomeScreen({
                 pressed && { opacity: 0.92, transform: [{ scale: 0.99 }] },
               ]}
             >
-              <Ionicons name="flash" size={16} color="#FFFFFF" />
-              <Text style={styles.bookingSearchBtnText}>Search EV</Text>
+              
+              <Text style={styles.bookingSearchBtnText}>Rent Your EV</Text>
               <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
             </Pressable>
           </Animated.View>

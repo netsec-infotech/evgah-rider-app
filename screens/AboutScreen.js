@@ -351,7 +351,7 @@ export default function AboutScreen({ onBack, onExplore }) {
 
         <View style={styles.sectionDivider} />
 
-        {/* 3. Squad Evegah Section (Matches video4.mp4 Squad Spinny section) */}
+        {/* 3. Squad Evegah Section (Matches video4.mp4 Squad EVegah section) */}
         <Animated.View entering={cardEnter(2)} style={styles.sectionWrap}>
           <View style={styles.squadPhotoWrap}>
             <Image

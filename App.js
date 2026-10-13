@@ -3,6 +3,7 @@ import { Modal, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LoginScreen from './screens/LoginScreen';
 import OtpScreen from './screens/OtpScreen';
+import OnboardingScreen from './screens/OnboardingScreen';
 import HomeScreen from './screens/HomeScreen';
 import LocationScreen, { EVEGAH_ZONES } from './screens/LocationScreen';
 import MyRidesScreen from './screens/MyRidesScreen';
@@ -37,7 +38,10 @@ import WalletIntro from './components/WalletIntro';
 import { apiGet, apiPost, last10 } from './services/api';
 
 export default function App() {
-  const [screen, setScreen] = useState('login');
+  const [screen, setScreen] = useState('home');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [pendingBooking, setPendingBooking] = useState(null);
+  const [loginReturnTo, setLoginReturnTo] = useState('home');
   const [phone, setPhone] = useState('');
   const [locationOpen, setLocationOpen] = useState(false);
   const [selectedZone, setSelectedZone] = useState(EVEGAH_ZONES[0]);
@@ -118,7 +122,9 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <View style={styles.stage}>
-      {screen === 'rent' || screen === 'pay' || screen === 'booked' || screen === 'ride' || screen === 'ended' ? (
+      {screen === 'onboarding' ? (
+        <OnboardingScreen onFinish={() => setScreen('home')} />
+      ) : screen === 'rent' || screen === 'pay' || screen === 'booked' || screen === 'ride' || screen === 'ended' ? (
         <View style={styles.stage}>
           <RentScreen
             vehicle={vehicle}
@@ -126,6 +132,16 @@ export default function App() {
             onContinue={(next) => {
               setTrip(next);
               setPayBackTo('rent');
+              if (!isLoggedIn) {
+                setPendingBooking({
+                  vehicle,
+                  trip: next,
+                  target: 'pay',
+                });
+                setLoginReturnTo('rent');
+                setScreen('login');
+                return;
+              }
               setScreen('pay');
             }}
           />
@@ -226,23 +242,37 @@ export default function App() {
           vehicle={vehicle}
           onBack={() => setScreen(vehicleFrom)}
           onBook={(flexiData) => {
+            let nextVehicle = vehicle;
+            let nextTrip = trip;
             if (flexiData && typeof flexiData === 'object') {
-              setVehicle((prev) => ({ ...(prev || {}), ...flexiData }));
+              nextVehicle = { ...(vehicle || {}), ...flexiData };
+              setVehicle(nextVehicle);
               if (flexiData.flexiPickup || flexiData.flexiDrop) {
-                setTrip((prev) => ({
-                  ...(prev || {
+                nextTrip = {
+                  ...(trip || {
                     pickupAt: Date.now(),
                     dropAt: Date.now() + 24 * 3600 * 1000,
                     packageId: 'daily',
                     durationText: '24 hrs',
                   }),
-                  pickupName: flexiData.flexiPickup || prev?.pickupName || selectedZone?.name || 'Gotri',
-                  dropName: flexiData.flexiDrop || prev?.dropName || selectedZone?.name || 'Gotri',
+                  pickupName: flexiData.flexiPickup || trip?.pickupName || selectedZone?.name || 'Gotri',
+                  dropName: flexiData.flexiDrop || trip?.dropName || selectedZone?.name || 'Gotri',
                   deliveryAnywhere: Boolean(flexiData.flexiEnabled),
-                }));
+                };
+                setTrip(nextTrip);
               }
             }
-            if (trip) {
+            if (!isLoggedIn) {
+              setPendingBooking({
+                vehicle: nextVehicle,
+                trip: nextTrip,
+                target: nextTrip ? 'pay' : 'rent',
+              });
+              setLoginReturnTo('vehicle');
+              setScreen('login');
+              return;
+            }
+            if (nextTrip) {
               setPayBackTo('vehicle');
               setScreen('pay');
             } else {
@@ -257,7 +287,11 @@ export default function App() {
         <SecurityScreen
           phone={profile.phone}
           onBack={() => setScreen('profile')}
-          onLogout={() => setScreen('login')}
+          onLogout={() => {
+            setIsLoggedIn(false);
+            setPendingBooking(null);
+            setScreen('home');
+          }}
         />
       ) : screen === 'insights' ? (
         <InsightsScreen onBack={() => setScreen('home')} />
@@ -328,8 +362,41 @@ export default function App() {
       ) : screen === 'kyc' ? (
         <KycScreen
           kyc={kyc}
-          onBack={() => setScreen('profile')}
+          profile={profile}
+          onBack={() => {
+            if (pendingBooking) {
+              const pb = pendingBooking;
+              setPendingBooking(null);
+              if (pb.vehicle) setVehicle(pb.vehicle);
+              if (pb.trip) setTrip(pb.trip);
+              setPayBackTo('vehicle');
+              setScreen(pb.target || 'pay');
+            } else {
+              setScreen(isLoggedIn ? 'home' : 'profile');
+            }
+          }}
           onStep={(key) => setKyc((current) => ({ ...current, [key]: true }))}
+          onKycComplete={(verifiedData) => {
+            setKyc({ selfie: true, front: true, back: true });
+            if (verifiedData?.name) {
+              setProfile((prev) => ({
+                ...prev,
+                name: verifiedData.name || prev.name,
+                dob: verifiedData.dob || prev.dob,
+                gender: verifiedData.gender || prev.gender,
+                aadhaar: verifiedData.aadhaar || prev.aadhaar,
+                address: verifiedData.address || prev.address,
+              }));
+              apiPost('/renters', {
+                rider_name: verifiedData.name,
+                mobile: profile.phone || phone,
+                gender: verifiedData.gender,
+                date_of_birth: verifiedData.dob,
+                address: verifiedData.address,
+                aadhaar: verifiedData.aadhaar,
+              }).catch(() => {});
+            }
+          }}
         />
       ) : screen === 'editProfile' ? (
         <EditProfileScreen
@@ -476,11 +543,23 @@ export default function App() {
             />
           </Modal>
         </View>
+      ) : screen === 'login' ? (
+        <LoginScreen
+          onBack={() => {
+            setPendingBooking(null);
+            setScreen(loginReturnTo || 'home');
+          }}
+          onContinue={(nextPhone) => {
+            setPhone(nextPhone);
+            setScreen('otp');
+          }}
+        />
       ) : screen === 'otp' ? (
         <OtpScreen
           phone={phone}
           onEdit={() => setScreen('login')}
           onSuccess={() => {
+            setIsLoggedIn(true);
             const mobile = last10(phone);
             if (mobile) {
               apiGet(`/renters/check-mobile/${mobile}`)
@@ -502,16 +581,49 @@ export default function App() {
                 })
                 .catch(() => {});
             }
-            setScreen('home');
+
+            const isKycDone = kyc.selfie && kyc.front && kyc.back;
+            if (!isKycDone) {
+              setScreen('kyc');
+            } else if (pendingBooking) {
+              const pb = pendingBooking;
+              setPendingBooking(null);
+              if (pb.vehicle) setVehicle(pb.vehicle);
+              if (pb.trip) setTrip(pb.trip);
+              setPayBackTo('vehicle');
+              setScreen(pb.target || 'pay');
+            } else {
+              setScreen('home');
+            }
           }}
         />
       ) : (
-        <LoginScreen
-          onContinue={(nextPhone) => {
-            setPhone(nextPhone);
-            setScreen('otp');
-          }}
-        />
+        <View style={styles.stage}>
+          <HomeScreen
+            selectedZone={selectedZone}
+            calendarTriggerTick={calendarTriggerTick}
+            onOpenLocation={() => setLocationOpen(true)}
+            onOpenMyRide={() => setScreen('rides')}
+            onOpenScan={() => setScreen('scan')}
+            onOpenProfile={() => setScreen('profile')}
+            onOpenWallet={openWallet}
+            onOpenVehicleList={() => setScreen('vehicleList')}
+            onSearchVehicles={(tripPayload) => {
+              setTrip(tripPayload);
+              setPayBackTo('vehicle');
+              setScreen('vehicleList');
+            }}
+            onOpenVehicle={(next) => {
+              setVehicle(next);
+              setVehicleFrom('home');
+              setScreen('vehicle');
+            }}
+            onOpenNotifications={() => setScreen('notifications')}
+            onOpenInsights={() => setScreen('insights')}
+            onOpenBms={() => setScreen('bms')}
+            hasUnread={notes.some((item) => !item.read)}
+          />
+        </View>
       )}
       {walletIntro ? (
         <WalletIntro

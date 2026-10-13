@@ -1,14 +1,30 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import Animated from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
 import { apiGet, last10, shortDate } from '../services/api';
 
 const PURPLE = '#4A168C';
+const PURPLE_DEEP = '#24083C';
+const PURPLE_SUB = '#280D42';
+const TEXT_MUTED = '#736B82';
 const FILTERS = ['All', 'Rides', 'Wallet', 'Offers', 'System'];
+
+const NOTIF_ICONS = {
+  Rides: { icon: 'bicycle', bg: '#EDE4F7', color: PURPLE },
+  Wallet: { icon: 'wallet-outline', bg: '#E0F2FE', color: '#0284C7' },
+  Offers: { icon: 'pricetag-outline', bg: '#FEF3C7', color: '#D97706' },
+  System: { icon: 'information-circle-outline', bg: '#F1F5F9', color: '#64748B' },
+};
 
 function kindFor(type) {
   const value = String(type || '').toLowerCase();
@@ -18,7 +34,13 @@ function kindFor(type) {
   return 'System';
 }
 
-export default function NotificationsScreen({ notes, phone, onRead, onReadAll, onBack }) {
+export default function NotificationsScreen({
+  notes,
+  phone,
+  onRead,
+  onReadAll,
+  onBack,
+}) {
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState('All');
   const [items, setItems] = useState(notes || []);
@@ -30,83 +52,151 @@ export default function NotificationsScreen({ notes, phone, onRead, onReadAll, o
       .then((body) => {
         const rows = body?.data || [];
         if (!rows.length) return;
-        setItems(rows.map((item) => ({
-          id: String(item.id),
-          kind: kindFor(item.type),
-          title: item.title,
-          text: item.message,
-          time: shortDate(item.created_at),
-          read: Boolean(item.read),
-        })));
+        setItems(
+          rows.map((item) => ({
+            id: String(item.id),
+            kind: kindFor(item.type),
+            title: item.title,
+            text: item.message,
+            time: shortDate(item.created_at),
+            read: Boolean(item.read),
+          }))
+        );
       })
       .catch(() => {});
   }, [phone]);
 
   const visible = items.filter((item) => filter === 'All' || item.kind === filter);
-  const unread = items.some((item) => !item.read);
+  const unreadCount = items.filter((item) => !item.read).length;
 
   return (
     <View style={styles.root}>
       <StatusBar style="dark" />
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable hitSlop={8} style={styles.back} onPress={onBack}>
-          <Ionicons name="chevron-back" size={20} color="#1C1C1C" />
+
+      {/* Sober Minimal Header */}
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+        <Pressable hitSlop={8} style={styles.backBtn} onPress={onBack}>
+          <Ionicons name="chevron-back" size={20} color={PURPLE_DEEP} />
         </Pressable>
-        <Text style={styles.headerTitle}>Notifications</Text>
-        <Pressable
-          hitSlop={8}
-          disabled={!unread}
-          onPress={() => {
-            setItems((list) => list.map((item) => ({ ...item, read: true })));
-            onReadAll?.();
-          }}
-          style={styles.mark}
-        >
-          <Text style={[styles.markText, !unread && styles.markOff]}>Read all</Text>
-        </Pressable>
+
+        <View style={styles.headerTitleWrap}>
+          <Text style={styles.headerTitle}>Notifications</Text>
+          {unreadCount > 0 ? (
+            <View style={styles.unreadBadgePill}>
+              <Text style={styles.unreadBadgeText}>{unreadCount} new</Text>
+            </View>
+          ) : null}
+        </View>
+
+        {unreadCount > 0 ? (
+          <Pressable
+            hitSlop={8}
+            onPress={() => {
+              setItems((list) => list.map((item) => ({ ...item, read: true })));
+              onReadAll?.();
+            }}
+            style={styles.markAllBtn}
+          >
+            <Text style={styles.markAllText}>Mark read</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.headerRightSpacer} />
+        )}
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filters}
-      >
-        {FILTERS.map((item) => {
-          const on = filter === item;
-          return (
-            <Pressable key={item} onPress={() => setFilter(item)} style={[styles.chip, on && styles.chipOn]}>
-              <Text style={[styles.chipText, on && styles.chipTextOn]}>{item}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      {/* Clean Category Filter Strip */}
+      <View style={styles.filtersWrapper}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filtersScroll}
+        >
+          {FILTERS.map((item) => {
+            const on = filter === item;
+            return (
+              <Pressable
+                key={item}
+                onPress={() => setFilter(item)}
+                style={[styles.filterChip, on && styles.filterChipOn]}
+              >
+                <Text style={[styles.filterChipText, on && styles.filterChipTextOn]}>
+                  {item}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
 
+      {/* Main List */}
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 28 }}
+        contentContainerStyle={[
+          styles.listContainer,
+          { paddingBottom: insets.bottom + 32 },
+        ]}
       >
         {visible.length === 0 ? (
-          <Text style={styles.empty}>Nothing in {filter.toLowerCase()}.</Text>
+          <View style={styles.emptyWrap}>
+            <View style={styles.emptyIconCircle}>
+              <Ionicons name="notifications-off-outline" size={24} color="#A39BAE" />
+            </View>
+            <Text style={styles.emptyTitle}>No notifications</Text>
+            <Text style={styles.emptySubtitle}>
+              You have no {filter === 'All' ? '' : filter.toLowerCase()} alerts right now.
+            </Text>
+          </View>
         ) : (
-          <Animated.View entering={cardEnter(0)} style={styles.list}>
-            {visible.map((item, index) => (
-              <Pressable
+          visible.map((item, index) => {
+            const conf = NOTIF_ICONS[item.kind] || NOTIF_ICONS.System;
+            return (
+              <Animated.View
                 key={item.id}
-                onPress={() => {
-                  setItems((list) => list.map((row) => (row.id === item.id ? { ...row, read: true } : row)));
-                  onRead?.(item.id);
-                }}
-                style={[styles.row, index > 0 && styles.rowLine]}
+                entering={FadeInDown.delay(index * 45).duration(240)}
               >
-                <View style={[styles.dot, item.read && styles.dotRead]} />
-                <View style={styles.copy}>
-                  <Text style={styles.title}>{item.title}</Text>
-                  <Text style={styles.text}>{item.text}</Text>
-                  <Text style={styles.time}>{item.time}</Text>
-                </View>
-              </Pressable>
-            ))}
-          </Animated.View>
+                <Pressable
+                  onPress={() => {
+                    setItems((list) =>
+                      list.map((row) =>
+                        row.id === item.id ? { ...row, read: true } : row
+                      )
+                    );
+                    onRead?.(item.id);
+                  }}
+                  style={[
+                    styles.notifRow,
+                    !item.read && styles.notifRowUnread,
+                  ]}
+                >
+                  {/* Category Accent Dot / Icon Circle */}
+                  <View style={[styles.kindIconCircle, { backgroundColor: conf.bg }]}>
+                    <Ionicons name={conf.icon} size={16} color={conf.color} />
+                  </View>
+
+                  <View style={styles.notifContent}>
+                    <View style={styles.titleRow}>
+                      <Text
+                        style={[
+                          styles.notifTitle,
+                          !item.read && styles.notifTitleUnread,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {item.title}
+                      </Text>
+                      <Text style={styles.notifTime}>{item.time}</Text>
+                    </View>
+
+                    <Text style={styles.notifText} numberOfLines={2}>
+                      {item.text}
+                    </Text>
+                  </View>
+
+                  {!item.read ? <View style={styles.unreadPip} /> : null}
+                </Pressable>
+              </Animated.View>
+            );
+          })
         )}
       </ScrollView>
     </View>
@@ -116,114 +206,183 @@ export default function NotificationsScreen({ notes, phone, onRead, onReadAll, o
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#F7F7F8',
+    backgroundColor: '#FAFAFC',
   },
   header: {
     paddingHorizontal: 16,
-    paddingBottom: 8,
+    paddingBottom: 12,
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0EDF5',
   },
-  back: {
+  backBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F6F3FA',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: {
-    color: '#1C1C1C',
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  mark: {
-    minWidth: 64,
-    alignItems: 'flex-end',
-  },
-  markText: {
-    color: PURPLE,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  markOff: {
-    color: '#C8C0D4',
-  },
-  filters: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+  headerTitleWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
-  chip: {
-    height: 34,
-    paddingHorizontal: 14,
-    borderRadius: 17,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: PURPLE_DEEP,
+    letterSpacing: -0.3,
   },
-  chipOn: {
-    backgroundColor: PURPLE,
+  unreadBadgePill: {
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 99,
   },
-  chipText: {
-    color: '#3C3846',
+  unreadBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: PURPLE,
+  },
+  markAllBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  markAllText: {
     fontSize: 13,
     fontWeight: '700',
+    color: PURPLE,
   },
-  chipTextOn: {
-    color: '#FFFFFF',
+  headerRightSpacer: {
+    width: 36,
   },
-  list: {
-    marginHorizontal: 16,
+
+  /* Filter Strip */
+  filtersWrapper: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    paddingHorizontal: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F0F7',
+    paddingVertical: 10,
   },
-  row: {
+  filtersScroll: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 13,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#F5F3F8',
+  },
+  filterChipOn: {
+    backgroundColor: PURPLE,
+  },
+  filterChipText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#635B72',
+  },
+  filterChipTextOn: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+
+  /* List */
+  listContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    gap: 8,
+  },
+  notifRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingVertical: 14,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 13,
     gap: 12,
+    borderWidth: 1,
+    borderColor: '#ECE8F2',
   },
-  rowLine: {
-    borderTopWidth: 1,
-    borderTopColor: '#F1F1F3',
+  notifRowUnread: {
+    borderColor: '#E1D3F3',
+    backgroundColor: '#FCFBFE',
   },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginTop: 6,
-    backgroundColor: PURPLE,
+  kindIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
   },
-  dotRead: {
-    backgroundColor: '#E4DEEC',
-  },
-  copy: {
+  notifContent: {
     flex: 1,
   },
-  title: {
-    color: '#1C1C1C',
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+    marginBottom: 3,
+  },
+  notifTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#383244',
+    flex: 1,
+  },
+  notifTitleUnread: {
+    color: PURPLE_DEEP,
+    fontWeight: '800',
+  },
+  notifTime: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#938B9F',
+  },
+  notifText: {
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: '#615A6E',
+    fontWeight: '500',
+  },
+  unreadPip: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: PURPLE,
+    marginTop: 6,
+  },
+
+  /* Empty State */
+  emptyWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  emptyIconCircle: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#F0ECF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  emptyTitle: {
     fontSize: 15,
     fontWeight: '700',
+    color: PURPLE_DEEP,
   },
-  text: {
+  emptySubtitle: {
     marginTop: 4,
-    color: '#6E6878',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  time: {
-    marginTop: 6,
-    color: '#8A8496',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  empty: {
-    marginTop: 24,
-    marginHorizontal: 20,
-    color: '#8A8496',
-    fontSize: 14,
+    fontSize: 12.5,
+    color: TEXT_MUTED,
+    textAlign: 'center',
+    paddingHorizontal: 30,
   },
 });
