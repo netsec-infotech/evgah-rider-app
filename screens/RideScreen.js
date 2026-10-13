@@ -1,34 +1,67 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Linking,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import MapView, { Circle, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import MapView, { Circle, Marker, Polyline, UrlTile } from 'react-native-maps';
+import Animated, {
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const PURPLE = '#4A168C';
+const DARK_TEXT = '#24083C';
+const SUB_TEXT = '#280D42';
+
 const PLACES = {
+  Bill: { latitude: 22.2587, longitude: 73.1496 },
   Gotri: { latitude: 22.3106, longitude: 73.1248 },
+  Alkapuri: { latitude: 22.3106, longitude: 73.1726 },
   Manjalpur: { latitude: 22.2705, longitude: 73.1889 },
   Aatapi: { latitude: 22.3488, longitude: 73.1612 },
   KPGU: { latitude: 22.3694, longitude: 73.1086 },
 };
 
+const RIDE_MODES = [
+  { id: 'eco', label: 'Eco Mode', baseSpeed: 19, rangeKm: 72 },
+  { id: 'city', label: 'City Mode', baseSpeed: 27, rangeKm: 58 },
+  { id: 'sport', label: 'Sport Mode', baseSpeed: 36, rangeKm: 46 },
+];
+
+const EXTEND_OPTIONS = [
+  { id: '2h', label: '+2 Hours', sub: 'Quick city errand extension', hours: 2, price: 39, tag: 'Quick' },
+  { id: '6h', label: '+6 Hours', sub: 'Half-day shift extension', hours: 6, price: 79, tag: 'Popular' },
+  { id: '1d', label: '+1 Day (24 hrs)', sub: 'Full 24-hour package extension', hours: 24, price: 119, tag: 'Best Value' },
+  { id: '3d', label: '+3 Days', sub: 'Multi-day commuter extension', hours: 72, price: 329, tag: 'Save 12%' },
+  { id: '7d', label: '+7 Days (Weekly)', sub: 'Weekly fleet saver pack', hours: 168, price: 699, tag: 'Super Saver' },
+];
+
 function placeFor(name) {
-  const key = Object.keys(PLACES).find((item) => String(name || '').toLowerCase().includes(item.toLowerCase()));
-  return PLACES[key] || PLACES.Gotri;
+  const key = Object.keys(PLACES).find((item) =>
+    String(name || '').toLowerCase().includes(item.toLowerCase())
+  );
+  return PLACES[key] || PLACES.Bill;
 }
 
-function ridePoint(trip, seconds) {
-  const from = placeFor(trip?.pickupName);
-  const to = placeFor(trip?.dropName);
-  const progress = 1 - Math.exp(-seconds / 80);
-  const wobble = Math.sin(seconds / 6) * 0.00035;
-  return {
-    latitude: from.latitude + (to.latitude - from.latitude) * progress + Math.cos(seconds / 6) * 0.0002,
-    longitude: from.longitude + (to.longitude - from.longitude) * progress + wobble,
-  };
+function buildRouteWaypoints(from) {
+  return [
+    from,
+    { latitude: from.latitude + 0.0022, longitude: from.longitude - 0.0014 },
+    { latitude: from.latitude + 0.0046, longitude: from.longitude + 0.0008 },
+    { latitude: from.latitude + 0.0068, longitude: from.longitude + 0.0028 },
+    { latitude: from.latitude + 0.0085, longitude: from.longitude + 0.0042 },
+  ];
 }
 
 function clock(total) {
@@ -42,153 +75,663 @@ function clock(total) {
   return `${mm}:${ss}`;
 }
 
-function timeLeft(dropAt, now) {
-  if (!dropAt) return 'Scheduled';
-  const left = Math.floor((dropAt - now) / 1000);
-  if (left <= 0) return 'Drop time';
-  const d = Math.floor(left / 86400);
-  const h = Math.floor((left % 86400) / 3600);
-  const m = Math.floor((left % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return clock(left);
+function formatDropTimeOnly(ms) {
+  if (!ms) return '8:00 AM';
+  const d = new Date(ms);
+  return d.toLocaleTimeString('en-IN', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).toUpperCase();
 }
 
-export default function RideScreen({ vehicle, trip, receipt, onBack, onEnd }) {
+function formatDropDate(ms) {
+  if (!ms) return 'Scheduled';
+  const d = new Date(ms);
+  return `${d.toLocaleDateString('en-IN', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  })} · ${d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`;
+}
+
+function getTopDownVehicleAsset(name) {
+  const lower = String(name || '').toLowerCase();
+  if (lower.includes('city')) return require('../assets/home/city-top.png');
+  if (lower.includes('fly')) return require('../assets/home/fly-top.png');
+  if (lower.includes('pro')) return require('../assets/home/pro-top.png');
+  return require('../assets/home/mink-top.png');
+}
+
+export default function RideScreen({
+  vehicle,
+  trip,
+  receipt,
+  onBack,
+  onExtendRide,
+  onEnd,
+}) {
   const insets = useSafeAreaInsets();
-  const [seconds, setSeconds] = useState(0);
-  const [now, setNow] = useState(Date.now());
+  const [seconds, setSeconds] = useState(1);
+  const [rideMode, setRideMode] = useState('city');
+  const [pausedLock, setPausedLock] = useState(false);
+  const [hazardOn, setHazardOn] = useState(false);
+  const [quickToast, setQuickToast] = useState(null);
+  const [extraMs, setExtraMs] = useState(0);
+  const [extraFareTotal, setExtraFareTotal] = useState(0);
+  const [extendModalOpen, setExtendModalOpen] = useState(false);
+  const [selectedExtendId, setSelectedExtendId] = useState('1d');
+  const [extendBanner, setExtendBanner] = useState(null);
+
   const mapRef = useRef(null);
   const btnScale = useSharedValue(1);
   const btnStyle = useAnimatedStyle(() => ({
     transform: [{ scale: btnScale.value }],
   }));
-  const position = ridePoint(trip, seconds);
-  const start = placeFor(trip?.pickupName);
 
-  useEffect(() => {
-    mapRef.current?.animateToRegion(
-      {
-        ...position,
-        latitudeDelta: 0.015,
-        longitudeDelta: 0.015,
-      },
-      900,
-    );
-  }, [position.latitude, position.longitude]);
+  const startCoord = placeFor(trip?.pickupName);
+  const waypoints = buildRouteWaypoints(startCoord);
+  const progress = Math.min(0.88, 0.42 + (seconds % 90) * 0.005);
+  const segCount = waypoints.length - 1;
+  const exactIdx = progress * segCount;
+  const segIdx = Math.min(segCount - 1, Math.floor(exactIdx));
+  const segFrac = exactIdx - segIdx;
+  const pA = waypoints[segIdx];
+  const pB = waypoints[segIdx + 1];
+  const position = {
+    latitude: pA.latitude + (pB.latitude - pA.latitude) * segFrac,
+    longitude: pA.longitude + (pB.longitude - pA.longitude) * segFrac,
+  };
+  const midCalloutCoord = waypoints[2];
+
+  const baseDropAt = trip?.dropAt || Date.now() + 24 * 3600 * 1000;
+  const effectiveDropAt = baseDropAt + extraMs;
+  const bookingIdText = receipt?.bookingId || 'EVG39745433';
 
   useEffect(() => {
     const id = setInterval(() => {
-      setSeconds((value) => value + 1);
-      setNow(Date.now());
+      setSeconds((value) => (pausedLock ? value : value + 1));
     }, 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [pausedLock]);
 
-  const speed = 16 + Math.round(6 * Math.abs(Math.sin(seconds / 8)));
-  const distance = (seconds / 3600) * 18;
+  const activeModeObj =
+    RIDE_MODES.find((m) => m.id === rideMode) || RIDE_MODES[1];
+  const speed = pausedLock
+    ? 0
+    : activeModeObj.baseSpeed + Math.round(2 * Math.sin(seconds / 5));
+  const distance = (seconds / 3600) * 22;
+  const chosenOption =
+    EXTEND_OPTIONS.find((item) => item.id === selectedExtendId) ||
+    EXTEND_OPTIONS[2];
+  const previewNewDropAt = effectiveDropAt + chosenOption.hours * 3600 * 1000;
+
+  const cycleMode = () => {
+    const idx = RIDE_MODES.findIndex((m) => m.id === rideMode);
+    const next = RIDE_MODES[(idx + 1) % RIDE_MODES.length];
+    setRideMode(next.id);
+    triggerQuickAction(`Switched to ${next.label}`);
+  };
+
+  const triggerQuickAction = (msg) => {
+    setQuickToast(msg);
+    setTimeout(() => {
+      setQuickToast((prev) => (prev === msg ? null : prev));
+    }, 2200);
+  };
+
+  const handleConfirmExtend = () => {
+    const addedMs = chosenOption.hours * 3600 * 1000;
+    const nextExtraMs = extraMs + addedMs;
+    const nextExtraFare = extraFareTotal + chosenOption.price;
+    setExtraMs(nextExtraMs);
+    setExtraFareTotal(nextExtraFare);
+    setExtendModalOpen(false);
+    setExtendBanner({
+      label: chosenOption.label,
+      newDropText: formatDropDate(baseDropAt + nextExtraMs),
+      price: chosenOption.price,
+    });
+    onExtendRide?.({
+      addedHours: chosenOption.hours,
+      addedPrice: chosenOption.price,
+      newDropAt: baseDropAt + nextExtraMs,
+    });
+  };
+
+  const recenterMap = () => {
+    mapRef.current?.animateToRegion(
+      {
+        latitude: (startCoord.latitude + position.latitude) / 2,
+        longitude: (startCoord.longitude + position.longitude) / 2,
+        latitudeDelta: 0.014,
+        longitudeDelta: 0.014,
+      },
+      450
+    );
+  };
 
   return (
     <View style={styles.root}>
       <StatusBar style="dark" />
-      <MapView
-        ref={mapRef}
-        provider={PROVIDER_GOOGLE}
-        style={StyleSheet.absoluteFill}
-        initialRegion={{
-          ...start,
-          latitudeDelta: 0.015,
-          longitudeDelta: 0.015,
-        }}
-        mapPadding={{ top: insets.top + 64, right: 12, bottom: 340, left: 12 }}
-        toolbarEnabled={false}
-        rotateEnabled={false}
-        pitchEnabled={false}
-        showsCompass={false}
-        loadingBackgroundColor="#E7E4EA"
-      >
-        <Circle
-          center={position}
-          radius={46 + ((seconds % 3) / 3) * 70}
-          fillColor="rgba(74, 22, 140, 0.16)"
-          strokeColor="rgba(74, 22, 140, 0.28)"
-          strokeWidth={1}
-        />
-        <Marker coordinate={position} anchor={{ x: 0.5, y: 0.5 }}>
-          <View style={styles.dot} />
-        </Marker>
-      </MapView>
 
-      <View style={[styles.top, { top: insets.top + 10 }]}>
-        <Pressable hitSlop={8} style={styles.iconBtn} onPress={onBack}>
-          <Ionicons name="chevron-back" size={20} color="#1C1C1C" />
-        </Pressable>
-        <View style={styles.topCard}>
-          <Text style={styles.topId} numberOfLines={1}>{receipt?.bookingId || 'EVG'}</Text>
-          <View style={styles.topSplit} />
-          <Ionicons name="time-outline" size={14} color={PURPLE} />
-          <Text style={styles.topLeft}>{timeLeft(trip?.dropAt, now)}</Text>
+      {/* Leaflet / OpenStreetMap Map Area */}
+      <View style={styles.mapContainer}>
+        <MapView
+          ref={mapRef}
+          mapType="none"
+          style={StyleSheet.absoluteFill}
+          initialRegion={{
+            latitude: (startCoord.latitude + position.latitude) / 2,
+            longitude: (startCoord.longitude + position.longitude) / 2,
+            latitudeDelta: 0.014,
+            longitudeDelta: 0.014,
+          }}
+          toolbarEnabled={false}
+          rotateEnabled={false}
+          pitchEnabled={false}
+          showsCompass={false}
+          loadingBackgroundColor="#ECEFF4"
+        >
+          {/* OpenStreetMap / Carto Voyager Leaflet Tile Layer */}
+          <UrlTile
+            urlTemplate="https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+            maximumZ={19}
+            flipY={false}
+          />
+
+          {/* Origin Soft Green Halo */}
+          <Circle
+            center={startCoord}
+            radius={85}
+            fillColor="rgba(34, 197, 94, 0.18)"
+            strokeColor="rgba(34, 197, 94, 0.35)"
+            strokeWidth={1.5}
+          />
+
+          {/* Route Polyline in Evegah Purple */}
+          <Polyline
+            coordinates={waypoints}
+            strokeColor={PURPLE}
+            strokeWidth={5}
+            lineCap="round"
+            lineJoin="round"
+          />
+
+          {/* Green Origin Dot Marker */}
+          <Marker coordinate={startCoord} anchor={{ x: 0.5, y: 0.5 }}>
+            <View style={styles.originMarkerOuter}>
+              <View style={styles.originMarkerInner} />
+            </View>
+          </Marker>
+
+          {/* Mid-Route Turn Callout Bubble (2.3 km / 8 min) */}
+          <Marker coordinate={midCalloutCoord} anchor={{ x: 0.5, y: 1.1 }}>
+            <View style={styles.routeCalloutBubble}>
+              <View style={styles.routeCalloutIconWrap}>
+                <Ionicons name="return-up-forward" size={14} color={PURPLE} />
+              </View>
+              <View>
+                <Text style={styles.routeCalloutDist}>2.3 km</Text>
+                <Text style={styles.routeCalloutTime}>8 min</Text>
+              </View>
+            </View>
+          </Marker>
+
+          {/* Rider Current Position Soft Purple Halo */}
+          <Circle
+            center={position}
+            radius={75}
+            fillColor="rgba(109, 40, 217, 0.15)"
+            strokeColor="rgba(109, 40, 217, 0.32)"
+            strokeWidth={1.5}
+          />
+
+          {/* Top-Down 3D Evegah Scooter Marker (Rapido Style) */}
+          <Marker coordinate={position} anchor={{ x: 0.5, y: 0.5 }}>
+            <View style={styles.scooterMarkerWrap}>
+              <View style={styles.scooterMarkerHalo} />
+              <Image
+                source={getTopDownVehicleAsset(vehicle?.name)}
+                style={styles.scooterMarkerImg}
+                contentFit="contain"
+              />
+            </View>
+          </Marker>
+        </MapView>
+
+        {/* Leaflet / OpenStreetMap Attribution Badge */}
+        <View style={styles.osmBadge}>
+          <Text style={styles.osmBadgeText}>Leaflet · © OpenStreetMap</Text>
         </View>
+
+        {/* Top Floating Rapido-Style Bar: Back | [● EVG39745433 ⌄] | Menu */}
+        <View style={[styles.topBar, { top: insets.top + 10 }]}>
+          <Pressable hitSlop={8} style={styles.topCircleBtn} onPress={onBack}>
+            <Ionicons name="chevron-back" size={20} color="#1E162B" />
+          </Pressable>
+
+          <Pressable
+            style={styles.topCenterPill}
+            onPress={() =>
+              triggerQuickAction(
+                `Hub: ${trip?.pickupName || 'Bill'} · Helpline 1800 889 8791`
+              )
+            }
+          >
+            <View
+              style={[
+                styles.topPillDot,
+                pausedLock && { backgroundColor: '#F59E0B' },
+              ]}
+            />
+            <Text style={styles.topPillIdText}>{bookingIdText}</Text>
+            <Ionicons name="chevron-down" size={15} color="#6E657F" />
+          </Pressable>
+
+          <Pressable
+            hitSlop={8}
+            style={styles.topCircleBtn}
+            onPress={() => Linking.openURL('tel:18008898791')}
+          >
+            <Ionicons name="ellipsis-vertical" size={18} color="#1E162B" />
+          </Pressable>
+        </View>
+
+        {/* Right Floating Map Controls (Recenter + Navigate) */}
+        <View style={styles.mapRightControls}>
+          <Pressable style={styles.mapFloatBtn} onPress={recenterMap}>
+            <Ionicons name="locate" size={20} color={PURPLE} />
+          </Pressable>
+          <Pressable
+            style={styles.mapFloatBtn}
+            onPress={() =>
+              triggerQuickAction(
+                `Navigating to ${trip?.dropName || 'Bill Hub, Vadodara'}`
+              )
+            }
+          >
+            <Ionicons name="navigate" size={19} color={PURPLE} />
+          </Pressable>
+        </View>
+
+        {/* Extended Ride Confirmation Toast */}
+        {extendBanner ? (
+          <Animated.View
+            entering={FadeInDown.duration(260)}
+            style={[styles.extendToast, { top: insets.top + 64 }]}
+          >
+            <Ionicons name="checkmark-circle" size={18} color="#15803D" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.extendToastTitle}>
+                Ride Extended ({extendBanner.label})
+              </Text>
+              <Text style={styles.extendToastSub}>
+                New drop: {extendBanner.newDropText}
+              </Text>
+            </View>
+            <Pressable hitSlop={8} onPress={() => setExtendBanner(null)}>
+              <Ionicons name="close" size={16} color="#15803D" />
+            </Pressable>
+          </Animated.View>
+        ) : null}
+
+        {/* Quick EV Action Toast */}
+        {quickToast ? (
+          <Animated.View
+            entering={FadeInDown.duration(220)}
+            style={[styles.quickToastPill, { top: insets.top + 64 }]}
+          >
+            <Ionicons name="radio-outline" size={15} color="#FFFFFF" />
+            <Text style={styles.quickToastText}>{quickToast}</Text>
+          </Animated.View>
+        ) : null}
       </View>
 
-      <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-        <View style={styles.handle} />
-        <View style={styles.hero}>
-          <View style={[styles.heroArt, { backgroundColor: vehicle?.tint || '#F6F1FC' }]}>
-            {vehicle?.image ? (
-              <Image source={vehicle.image} style={styles.heroImage} contentFit="contain" />
-            ) : null}
+      {/* Rapido-Style Bottom Sheet in Evegah Purple Theme */}
+      <View
+        style={[
+          styles.bottomSheet,
+          { paddingBottom: Math.max(insets.bottom, 16) },
+        ]}
+      >
+        <View style={styles.sheetHandle} />
+
+        {/* Row 1: Vehicle Identity + Riding Live Badge + City Mode Pill */}
+        <View style={styles.vehicleHeaderRow}>
+          <View style={styles.vehicleThumbBox}>
+            <Image
+              source={
+                vehicle?.image || require('../assets/vehicles/mink-left.png')
+              }
+              style={styles.vehicleThumbImg}
+              contentFit="contain"
+            />
           </View>
-          <View style={styles.heroCopy}>
-            <Text style={styles.heroName}>{vehicle?.name || 'Your scooter'}</Text>
-            <Text style={styles.heroRoute} numberOfLines={1}>
-              {trip?.pickupName || 'Pickup'}  →  {trip?.dropName || 'Drop'}
+
+          <View style={styles.vehicleHeaderInfo}>
+            <Text style={styles.vehicleTitle} numberOfLines={1}>
+              {vehicle?.name || 'Evegah Mink'}
             </Text>
-            <View style={styles.liveRow}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>Riding</Text>
+            <View style={styles.vehicleSubRow}>
+              <Text style={styles.vehicleCodeText}>{bookingIdText}</Text>
+              <View
+                style={[
+                  styles.ridingLiveBadge,
+                  pausedLock && styles.ridingPausedBadge,
+                ]}
+              >
+                <View
+                  style={[
+                    styles.ridingLiveDot,
+                    pausedLock && { backgroundColor: '#D97706' },
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.ridingLiveText,
+                    pausedLock && { color: '#B45309' },
+                  ]}
+                >
+                  {pausedLock ? 'Paused' : 'Riding Live'}
+                </Text>
+              </View>
             </View>
           </View>
+
+          <Pressable onPress={cycleMode} style={styles.cityModePill}>
+            <Ionicons name="leaf" size={13} color={PURPLE} />
+            <Text style={styles.cityModeText}>{activeModeObj.label}</Text>
+          </Pressable>
         </View>
 
-        <Text style={styles.timer}>{clock(seconds)}</Text>
-        <Text style={styles.timerLabel}>On this ride</Text>
+        {/* Row 2: 3-Column Telemetry Stat Cards (Duration | Speed | Distance) */}
+        <View style={styles.statsThreeColRow}>
+          <View style={styles.statBox}>
+            <Text style={styles.statValueText}>{clock(seconds)}</Text>
+            <Text style={styles.statLabelText}>Duration</Text>
+          </View>
 
-        <View style={styles.stats}>
-          <View style={styles.stat}>
-            <Text style={styles.statValue}>{distance.toFixed(1)} km</Text>
-            <Text style={styles.statLabel}>Distance</Text>
+          <View style={styles.statBox}>
+            <Text style={styles.statValueText}>
+              {speed} <Text style={styles.statUnitText}>km/h</Text>
+            </Text>
+            <Text style={styles.statLabelText}>Speed</Text>
           </View>
-          <View style={styles.statLine} />
-          <View style={styles.stat}>
-            <Text style={styles.statValue}>86%</Text>
-            <Text style={styles.statLabel}>Battery</Text>
-          </View>
-          <View style={styles.statLine} />
-          <View style={styles.stat}>
-            <Text style={styles.statValue}>{speed} km/h</Text>
-            <Text style={styles.statLabel}>Speed</Text>
+
+          <View style={styles.statBox}>
+            <Text style={styles.statValueText}>
+              {distance.toFixed(1)} <Text style={styles.statUnitText}>km</Text>
+            </Text>
+            <Text style={styles.statLabelText}>Distance</Text>
           </View>
         </View>
 
-        <Pressable
-          onPress={() => onEnd?.({
-            elapsed: clock(seconds),
-            distance: distance.toFixed(1),
-          })}
-          onPressIn={() => {
-            btnScale.value = withSpring(0.96, { damping: 18, stiffness: 280 });
-          }}
-          onPressOut={() => {
-            btnScale.value = withSpring(1, { damping: 14, stiffness: 220 });
-          }}
-        >
-          <Animated.View style={[styles.end, btnStyle]}>
-            <Ionicons name="lock-closed" size={16} color="#FFFFFF" />
-            <Text style={styles.endText}>End ride</Text>
+        {/* Row 3: 2-Column Info Cards (Battery + Progress Bar | Drop By) */}
+        <View style={styles.infoTwoColRow}>
+          <View style={styles.infoCard}>
+            <View style={styles.infoCardTopRow}>
+              <View style={styles.batteryIconBadge}>
+                <Ionicons name="battery-charging" size={14} color="#16A34A" />
+              </View>
+              <Text style={styles.infoCardLabel}>Battery</Text>
+            </View>
+            <Text style={styles.infoCardMainVal}>
+              86% <Text style={styles.infoCardSubVal}>· {activeModeObj.rangeKm} km</Text>
+            </Text>
+            <View style={styles.batteryBarTrack}>
+              <View style={[styles.batteryBarFill, { width: '86%' }]} />
+            </View>
+          </View>
+
+          <View style={styles.infoCard}>
+            <View style={styles.infoCardTopRow}>
+              <View style={styles.dropIconBadge}>
+                <Ionicons name="calendar" size={13} color={PURPLE} />
+              </View>
+              <Text style={styles.infoCardLabel}>Drop By</Text>
+            </View>
+            <Text style={styles.infoCardMainVal}>
+              {formatDropTimeOnly(effectiveDropAt)}
+            </Text>
+            <Text style={styles.dropCardSubNote} numberOfLines={1}>
+              {extraFareTotal > 0
+                ? `Extended (+₹${extraFareTotal})`
+                : trip?.dropName || 'Bill Hub, Vadodara'}
+            </Text>
+          </View>
+        </View>
+
+        {/* Row 4: 3 Action Tiles (Pause | Beep EV | Hazard) */}
+        <View style={styles.actionsThreeColRow}>
+          <Pressable
+            onPress={() => {
+              const next = !pausedLock;
+              setPausedLock(next);
+              triggerQuickAction(
+                next
+                  ? 'Ride Paused — Wheel Immobilizer Locked'
+                  : 'Ride Resumed — Motor Active'
+              );
+            }}
+            style={[
+              styles.actionTile,
+              pausedLock && styles.actionTileActivePurple,
+            ]}
+          >
+            <Ionicons
+              name={pausedLock ? 'play' : 'pause'}
+              size={16}
+              color={pausedLock ? PURPLE : '#3B3054'}
+            />
+            <Text
+              style={[
+                styles.actionTileText,
+                pausedLock && { color: PURPLE, fontWeight: '800' },
+              ]}
+            >
+              {pausedLock ? 'Resume' : 'Pause'}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() =>
+              triggerQuickAction('BEEP! EV Horn & Indicators Flashed')
+            }
+            style={styles.actionTile}
+          >
+            <Ionicons name="volume-high" size={17} color="#3B3054" />
+            <Text style={styles.actionTileText}>Beep EV</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => {
+              const next = !hazardOn;
+              setHazardOn(next);
+              triggerQuickAction(
+                next ? 'Hazard Blinkers Turned ON' : 'Hazard Blinkers OFF'
+              );
+            }}
+            style={[
+              styles.actionTileHazard,
+              hazardOn && styles.actionTileHazardActive,
+            ]}
+          >
+            <Ionicons name="warning" size={16} color="#E11D48" />
+            <Text style={styles.actionTileHazardText}>Hazard</Text>
+          </Pressable>
+        </View>
+
+        {/* Row 5: Bottom Dual Buttons (Extend ride | End ride) */}
+        <View style={styles.bottomBtnsRow}>
+          <Pressable
+            onPress={() => setExtendModalOpen(true)}
+            style={({ pressed }) => [
+              styles.extendBtn,
+              pressed && { opacity: 0.88 },
+            ]}
+          >
+            <Ionicons name="add-circle-outline" size={18} color={PURPLE} />
+            <Text style={styles.extendBtnText}>Extend ride</Text>
+          </Pressable>
+
+          <Animated.View style={[styles.endBtnWrap, btnStyle]}>
+            <Pressable
+              onPressIn={() => {
+                btnScale.value = withSpring(0.97, {
+                  damping: 15,
+                  stiffness: 300,
+                });
+              }}
+              onPressOut={() => {
+                btnScale.value = withSpring(1, {
+                  damping: 15,
+                  stiffness: 300,
+                });
+              }}
+              onPress={onEnd}
+              style={styles.endBtn}
+            >
+              <Ionicons name="lock-closed" size={16} color="#FFFFFF" />
+              <Text style={styles.endBtnText}>End ride</Text>
+            </Pressable>
           </Animated.View>
-        </Pressable>
+        </View>
       </View>
+
+      {/* Extend Ride Bottom Sheet Modal */}
+      <Modal
+        visible={extendModalOpen}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => setExtendModalOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <Pressable
+            style={styles.modalBackdropTouch}
+            onPress={() => setExtendModalOpen(false)}
+          />
+
+          <View
+            style={[
+              styles.modalSheet,
+              { paddingBottom: Math.max(insets.bottom, 18) },
+            ]}
+          >
+            <View style={styles.modalHandle} />
+
+            <View style={styles.modalHeaderRow}>
+              <View>
+                <Text style={styles.modalTitle}>Extend Your EV Ride</Text>
+                <Text style={styles.modalSubtitle}>
+                  Keep riding {vehicle?.name || 'Evegah Mink'} without visiting
+                  the hub
+                </Text>
+              </View>
+              <Pressable
+                hitSlop={10}
+                onPress={() => setExtendModalOpen(false)}
+                style={styles.modalCloseBtn}
+              >
+                <Ionicons name="close" size={18} color="#4A4458" />
+              </Pressable>
+            </View>
+
+            <View style={styles.previewDropCard}>
+              <View style={styles.previewCol}>
+                <Text style={styles.previewKicker}>CURRENT DROP</Text>
+                <Text style={styles.previewVal}>
+                  {formatDropDate(effectiveDropAt)}
+                </Text>
+              </View>
+              <Ionicons name="arrow-forward" size={16} color={PURPLE} />
+              <View style={[styles.previewCol, { alignItems: 'flex-end' }]}>
+                <Text style={[styles.previewKicker, { color: PURPLE }]}>
+                  NEW DROP TIME
+                </Text>
+                <Text style={[styles.previewVal, { color: PURPLE }]}>
+                  {formatDropDate(previewNewDropAt)}
+                </Text>
+              </View>
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              style={styles.optionsList}
+            >
+              {EXTEND_OPTIONS.map((opt) => {
+                const active = opt.id === selectedExtendId;
+                return (
+                  <Pressable
+                    key={opt.id}
+                    onPress={() => setSelectedExtendId(opt.id)}
+                    style={[
+                      styles.optionRow,
+                      active && styles.optionRowActive,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.optionRadio,
+                        active && styles.optionRadioActive,
+                      ]}
+                    >
+                      {active ? <View style={styles.optionRadioDot} /> : null}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.optionTitleLine}>
+                        <Text
+                          style={[
+                            styles.optionLabel,
+                            active && { color: PURPLE },
+                          ]}
+                        >
+                          {opt.label}
+                        </Text>
+                        <View
+                          style={[
+                            styles.optionTagPill,
+                            active && styles.optionTagPillActive,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.optionTagText,
+                              active && styles.optionTagTextActive,
+                            ]}
+                          >
+                            {opt.tag}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.optionSub}>{opt.sub}</Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.optionPrice,
+                        active && { color: PURPLE },
+                      ]}
+                    >
+                      ₹{opt.price}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            <Pressable
+              onPress={handleConfirmExtend}
+              style={styles.confirmExtendBtn}
+            >
+              <Text style={styles.confirmExtendBtnText}>
+                Confirm Extension · ₹{chosenOption.price}
+              </Text>
+              <Ionicons name="arrow-forward" size={17} color="#FFFFFF" />
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -196,178 +739,661 @@ export default function RideScreen({ vehicle, trip, receipt, onBack, onEnd }) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#E7E4EA',
+    backgroundColor: '#ECEFF4',
   },
-  dot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: PURPLE,
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
+  mapContainer: {
+    flex: 1,
+    position: 'relative',
   },
-  top: {
+  osmBadge: {
     position: 'absolute',
-    left: 16,
-    right: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+    left: 12,
+    bottom: 22,
+    backgroundColor: 'rgba(255,255,255,0.86)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  osmBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  originMarkerOuter: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
-  topCard: {
-    flex: 1,
-    height: 40,
-    borderRadius: 20,
+  originMarkerInner: {
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
+    backgroundColor: '#16A34A',
+  },
+  routeCalloutBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
     backgroundColor: '#FFFFFF',
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+    shadowColor: '#1E1035',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.14,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  routeCalloutIconWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
+    backgroundColor: '#F3E8FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  routeCalloutDist: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: DARK_TEXT,
+  },
+  routeCalloutTime: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: '#6E657F',
+  },
+  scooterMarkerWrap: {
+    width: 58,
+    height: 58,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scooterMarkerHalo: {
+    position: 'absolute',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(109, 40, 217, 0.18)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(109, 40, 217, 0.45)',
+  },
+  scooterMarkerImg: {
+    width: 44,
+    height: 44,
+  },
+  topBar: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  topCircleBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#140826',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  topCenterPill: {
+    height: 42,
+    paddingHorizontal: 16,
+    borderRadius: 21,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    shadowColor: '#140826',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  topPillDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: '#22C55E',
+  },
+  topPillIdText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: DARK_TEXT,
+    letterSpacing: 0.2,
+  },
+  mapRightControls: {
+    position: 'absolute',
+    right: 14,
+    bottom: 24,
+    gap: 10,
+  },
+  mapFloatBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#140826',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  extendToast: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  extendToastTitle: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  extendToastSub: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#047857',
+  },
+  quickToastPill: {
+    position: 'absolute',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(36, 8, 60, 0.94)',
     paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  quickToastText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  bottomSheet: {
+    marginTop: -16,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    shadowColor: '#18092E',
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 14,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E2DCEB',
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  vehicleHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  vehicleThumbBox: {
+    width: 60,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#F6F3FA',
+    borderWidth: 1,
+    borderColor: '#EAE4F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vehicleThumbImg: {
+    width: 50,
+    height: 40,
+  },
+  vehicleHeaderInfo: {
+    flex: 1,
+  },
+  vehicleTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: DARK_TEXT,
+    letterSpacing: -0.3,
+  },
+  vehicleSubRow: {
+    marginTop: 4,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  topId: {
-    flex: 1,
-    color: '#1C1C1C',
-    fontSize: 13,
-    fontWeight: '800',
+  vehicleCodeText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#6E657F',
   },
-  topSplit: {
-    width: 1,
-    height: 16,
-    backgroundColor: '#E8E4EE',
-  },
-  topLeft: {
-    color: PURPLE,
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-  },
-  handle: {
-    alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#E4E0E8',
-    marginBottom: 16,
-  },
-  hero: {
+  ridingLiveBadge: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
   },
-  heroArt: {
-    width: 84,
-    height: 64,
-    borderRadius: 16,
+  ridingPausedBadge: {
+    backgroundColor: '#FEF3C7',
+  },
+  ridingLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#16A34A',
+  },
+  ridingLiveText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#15803D',
+  },
+  cityModePill: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: '#F3E8FF',
+    borderWidth: 1,
+    borderColor: '#E2CEF8',
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 999,
   },
-  heroImage: {
-    width: 76,
-    height: 52,
+  cityModeText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: PURPLE,
   },
-  heroCopy: {
+  statsThreeColRow: {
+    marginTop: 14,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  statBox: {
     flex: 1,
-    marginLeft: 12,
+    backgroundColor: '#FAF8FC',
+    borderWidth: 1,
+    borderColor: '#ECE7F4',
+    borderRadius: 16,
+    paddingVertical: 11,
+    paddingHorizontal: 10,
+    alignItems: 'center',
   },
-  heroName: {
-    color: '#1C1C1C',
+  statValueText: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '800',
+    color: DARK_TEXT,
+    letterSpacing: -0.3,
+    fontVariant: ['tabular-nums'],
   },
-  heroRoute: {
-    marginTop: 2,
-    color: '#6E6878',
+  statUnitText: {
     fontSize: 13,
+    fontWeight: '700',
+    color: SUB_TEXT,
   },
-  liveRow: {
-    marginTop: 6,
+  statLabelText: {
+    marginTop: 3,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#736B82',
+  },
+  infoTwoColRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  infoCard: {
+    flex: 1,
+    backgroundColor: '#FAF8FC',
+    borderWidth: 1,
+    borderColor: '#ECE7F4',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  infoCardTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  liveDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: '#1F8A4C',
+  batteryIconBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  liveText: {
-    color: '#1F8A4C',
+  dropIconBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    backgroundColor: '#F3E8FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  infoCardLabel: {
     fontSize: 12,
-    fontWeight: '700',
-  },
-  timer: {
-    marginTop: 18,
-    textAlign: 'center',
-    color: '#1C1C1C',
-    fontSize: 44,
-    fontWeight: '800',
-    letterSpacing: -1,
-  },
-  timerLabel: {
-    textAlign: 'center',
-    color: '#8A8496',
-    fontSize: 13,
     fontWeight: '600',
+    color: '#736B82',
   },
-  stats: {
-    marginTop: 18,
-    marginBottom: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F7F7F8',
-    borderRadius: 18,
-    paddingVertical: 14,
-  },
-  stat: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statValue: {
-    color: '#1C1C1C',
-    fontSize: 15,
+  infoCardMainVal: {
+    marginTop: 5,
+    fontSize: 16,
     fontWeight: '800',
+    color: DARK_TEXT,
   },
-  statLabel: {
-    marginTop: 2,
-    color: '#8A8496',
+  infoCardSubVal: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#5B526B',
+  },
+  batteryBarTrack: {
+    marginTop: 7,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#E2E8F0',
+    overflow: 'hidden',
+  },
+  batteryBarFill: {
+    height: '100%',
+    borderRadius: 3,
+    backgroundColor: '#16A34A',
+  },
+  dropCardSubNote: {
+    marginTop: 4,
     fontSize: 11,
     fontWeight: '600',
+    color: '#736B82',
   },
-  statLine: {
-    width: 1,
-    height: 28,
-    backgroundColor: '#E8E4EE',
+  actionsThreeColRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    gap: 10,
   },
-  end: {
-    height: 52,
+  actionTile: {
+    flex: 1,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: '#F7F4FB',
+    borderWidth: 1,
+    borderColor: '#E8E2F2',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  actionTileActivePurple: {
+    backgroundColor: '#F3E8FF',
+    borderColor: PURPLE,
+  },
+  actionTileText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: SUB_TEXT,
+  },
+  actionTileHazard: {
+    flex: 1,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: '#FFF1F2',
+    borderWidth: 1,
+    borderColor: '#FECDD3',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  actionTileHazardActive: {
+    backgroundColor: '#FFE4E6',
+    borderColor: '#E11D48',
+  },
+  actionTileHazardText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#E11D48',
+  },
+  bottomBtnsRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  extendBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 14,
+    borderWidth: 1.6,
+    borderColor: PURPLE,
+    backgroundColor: '#FAF7FE',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  extendBtnText: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: PURPLE,
+  },
+  endBtnWrap: {
+    flex: 1,
+  },
+  endBtn: {
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: PURPLE,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    shadowColor: PURPLE,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  endBtnText: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(18, 8, 34, 0.52)',
+    justifyContent: 'flex-end',
+  },
+  modalBackdropTouch: {
+    flex: 1,
+  },
+  modalSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    maxHeight: '82%',
+  },
+  modalHandle: {
+    width: 38,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#DED8E8',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: DARK_TEXT,
+    letterSpacing: -0.3,
+  },
+  modalSubtitle: {
+    marginTop: 3,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#736B82',
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
     borderRadius: 16,
+    backgroundColor: '#F4F1F8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewDropCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8F5FC',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderWidth: 1,
+    borderColor: '#E9E1F5',
+    marginBottom: 12,
+  },
+  previewCol: {
+    flex: 1,
+  },
+  previewKicker: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#888098',
+    letterSpacing: 0.6,
+  },
+  previewVal: {
+    marginTop: 3,
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: DARK_TEXT,
+  },
+  optionsList: {
+    maxHeight: 280,
+  },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1.2,
+    borderColor: '#ECE8F4',
+    backgroundColor: '#FFFFFF',
+    marginBottom: 9,
+  },
+  optionRowActive: {
+    borderColor: PURPLE,
+    backgroundColor: '#FAF6FE',
+  },
+  optionRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.8,
+    borderColor: '#C5BDD4',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionRadioActive: {
+    borderColor: PURPLE,
+  },
+  optionRadioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: PURPLE,
+  },
+  optionTitleLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  optionLabel: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: DARK_TEXT,
+  },
+  optionTagPill: {
+    backgroundColor: '#F2EEF8',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  optionTagPillActive: {
+    backgroundColor: PURPLE,
+  },
+  optionTagText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#6A617A',
+  },
+  optionTagTextActive: {
+    color: '#FFFFFF',
+  },
+  optionSub: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#7C748C',
+    fontWeight: '500',
+  },
+  optionPrice: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: DARK_TEXT,
+  },
+  confirmExtendBtn: {
+    marginTop: 8,
+    height: 50,
+    borderRadius: 14,
     backgroundColor: PURPLE,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
-  endText: {
+  confirmExtendBtnText: {
+    fontSize: 15,
+    fontWeight: '800',
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
   },
 });

@@ -1,10 +1,17 @@
-import { useState } from 'react';
-import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Dimensions, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import Animated from 'react-native-reanimated';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
 
@@ -103,6 +110,65 @@ export default function VehicleListScreen({
   const [priceFilterActive, setPriceFilterActive] = useState(true);
   const [savedFilter, setSavedFilter] = useState(false);
 
+  const bannerFloat = useSharedValue(0);
+  const bannerZoom = useSharedValue(1);
+  const bannerShimmer = useSharedValue(-SCREEN_W);
+  const badgePulse = useSharedValue(1);
+
+  useEffect(() => {
+    bannerFloat.value = withRepeat(
+      withSequence(
+        withTiming(-6, { duration: 1500, easing: Easing.inOut(Easing.quad) }),
+        withTiming(4, { duration: 1500, easing: Easing.inOut(Easing.quad) })
+      ),
+      -1,
+      true
+    );
+    bannerZoom.value = withRepeat(
+      withSequence(
+        withTiming(1.06, { duration: 3200, easing: Easing.inOut(Easing.quad) }),
+        withTiming(1, { duration: 3200, easing: Easing.inOut(Easing.quad) })
+      ),
+      -1,
+      true
+    );
+    bannerShimmer.value = withRepeat(
+      withSequence(
+        withTiming(SCREEN_W * 1.3, { duration: 2400, easing: Easing.inOut(Easing.quad) }),
+        withTiming(-SCREEN_W, { duration: 0 })
+      ),
+      -1,
+      false
+    );
+    badgePulse.value = withRepeat(
+      withSequence(
+        withTiming(1.05, { duration: 900, easing: Easing.inOut(Easing.quad) }),
+        withTiming(0.97, { duration: 900, easing: Easing.inOut(Easing.quad) })
+      ),
+      -1,
+      true
+    );
+  }, []);
+
+  const bannerBgAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: bannerZoom.value }],
+  }));
+
+  const bannerArtAnimStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: bannerFloat.value },
+      { rotate: `${bannerFloat.value * 0.45}deg` },
+    ],
+  }));
+
+  const bannerBadgeAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: badgePulse.value }],
+  }));
+
+  const bannerShimmerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: bannerShimmer.value }, { rotate: '-20deg' }],
+  }));
+
   const toggleSave = (id) => {
     setSavedIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
@@ -117,7 +183,6 @@ export default function VehicleListScreen({
             <Ionicons name="arrow-back" size={22} color={PURPLE} />
           </Pressable>
           <View style={styles.brandWrap}>
-           
             <Text style={styles.brandTitle}>EVegah</Text>
           </View>
         </View>
@@ -141,27 +206,44 @@ export default function VehicleListScreen({
         contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
       >
         <View style={styles.bannerWrap}>
-          <Image
-            source={require('../assets/home/ride-more-slide.png')}
-            style={styles.bannerBg}
-            contentFit="cover"
-          />
+          <Animated.View style={[StyleSheet.absoluteFillObject, bannerBgAnimStyle]}>
+            <Image
+              source={require('../assets/home/ride-more-slide.png')}
+              style={styles.bannerBg}
+              contentFit="cover"
+            />
+          </Animated.View>
           <LinearGradient
             colors={['rgba(180, 48, 24, 0.35)', 'rgba(255, 180, 90, 0.1)']}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
             style={StyleSheet.absoluteFillObject}
           />
-          <View style={styles.bannerLeftBadge}>
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              {
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                width: 90,
+                backgroundColor: 'rgba(255, 255, 255, 0.22)',
+              },
+              bannerShimmerStyle,
+            ]}
+          />
+          <Animated.View style={[styles.bannerLeftBadge, bannerBadgeAnimStyle]}>
             <Ionicons name="sparkles" size={14} color="#FFD24C" />
             <Text style={styles.bannerHello}>HELLO,</Text>
             <Text style={styles.bannerNavratri}>NAVRATRI</Text>
-          </View>
-          <Image
-            source={require('../assets/home/garba.png')}
-            style={styles.bannerRightArt}
-            contentFit="contain"
-          />
+          </Animated.View>
+          <Animated.View style={[styles.bannerRightArt, bannerArtAnimStyle]}>
+            <Image
+              source={require('../assets/home/garba.png')}
+              style={{ width: '100%', height: '100%' }}
+              contentFit="contain"
+            />
+          </Animated.View>
         </View>
 
         <ScrollView
@@ -306,7 +388,10 @@ export default function VehicleListScreen({
         })}
       </ScrollView>
 
-      <Pressable style={[styles.callFab, { bottom: Math.max(insets.bottom, 16) + 16 }]}>
+      <Pressable
+        onPress={() => Linking.openURL('tel:18008898791')}
+        style={[styles.callFab, { bottom: Math.max(insets.bottom, 16) + 16 }]}
+      >
         <Ionicons name="call" size={24} color="#FFFFFF" />
       </Pressable>
     </View>

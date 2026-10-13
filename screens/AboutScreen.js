@@ -253,7 +253,7 @@ export default function AboutScreen({ onBack, onExplore }) {
   }, [cultureCardW]);
 
   const handleCallSupport = () => {
-    Linking.openURL('tel:7277277275').catch(() => {});
+    Linking.openURL('tel:18008898791').catch(() => {});
   };
 
   return (
@@ -611,7 +611,7 @@ export default function AboutScreen({ onBack, onExplore }) {
 
             <Pressable onPress={handleCallSupport} style={styles.footerCallBtn}>
               <Ionicons name="call" size={14} color="#FFFFFF" />
-              <Text style={styles.footerCallText}>727-727-7275</Text>
+              <Text style={styles.footerCallText}>1800 889 8791</Text>
             </Pressable>
           </View>
 

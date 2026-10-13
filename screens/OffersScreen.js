@@ -37,13 +37,13 @@ const PURPLE_DARK = '#2A0B52';
 
 const POPUP_CARD_W = 280;
 const POPUP_CARD_H = 300;
-const FOIL_COLS = 10;
-const FOIL_ROWS = 10;
+const FOIL_COLS = 14;
+const FOIL_ROWS = 14;
 const FOIL_TOTAL = FOIL_COLS * FOIL_ROWS;
 const CELL_W = POPUP_CARD_W / FOIL_COLS;
 const CELL_H = POPUP_CARD_H / FOIL_ROWS;
-const BRUSH_RADIUS = 42;
-const UNLOCK_THRESHOLD = 0.32;
+const BRUSH_RADIUS = 38;
+const UNLOCK_THRESHOLD = 0.45;
 
 const INITIAL_COUPONS = [
   {
@@ -310,6 +310,7 @@ function PopupScratchFoilOverlay({ theme, onComplete }) {
   const [erasedMap, setErasedMap] = useState({});
   const [touchCursor, setTouchCursor] = useState(null);
   const erasedRef = useRef({});
+  const prevPtRef = useRef(null);
   const completedRef = useRef(false);
 
   const foilOpacity = useSharedValue(1);
@@ -340,10 +341,10 @@ function PopupScratchFoilOverlay({ theme, onComplete }) {
     if (completedRef.current) return;
     completedRef.current = true;
     setTouchCursor(null);
-    foilScale.value = withTiming(1.08, { duration: 280 });
+    foilScale.value = withTiming(1.1, { duration: 280 });
     foilOpacity.value = withTiming(
       0,
-      { duration: 300, easing: Easing.out(Easing.cubic) },
+      { duration: 320, easing: Easing.out(Easing.cubic) },
       (done) => {
         if (done) {
           runOnJS(onComplete)();
@@ -352,23 +353,32 @@ function PopupScratchFoilOverlay({ theme, onComplete }) {
     );
   };
 
-  const eraseAtPoint = (x, y) => {
+  const eraseAlongSegment = (x, y) => {
     if (completedRef.current) return;
     setTouchCursor({ x, y });
+
+    const prev = prevPtRef.current || { x, y };
+    prevPtRef.current = { x, y };
+
+    const distSeg = Math.hypot(x - prev.x, y - prev.y);
+    const steps = Math.max(1, Math.ceil(distSeg / 10));
 
     let changed = false;
     const next = { ...erasedRef.current };
 
-    for (let r = 0; r < FOIL_ROWS; r++) {
-      for (let c = 0; c < FOIL_COLS; c++) {
-        const key = `${r}-${c}`;
-        if (next[key]) continue;
-        const cx = (c + 0.5) * CELL_W;
-        const cy = (r + 0.5) * CELL_H;
-        const dist = Math.hypot(cx - x, cy - y);
-        if (dist <= BRUSH_RADIUS) {
-          next[key] = true;
-          changed = true;
+    for (let s = 0; s <= steps; s++) {
+      const px = prev.x + ((x - prev.x) * s) / steps;
+      const py = prev.y + ((y - prev.y) * s) / steps;
+      for (let r = 0; r < FOIL_ROWS; r++) {
+        for (let c = 0; c < FOIL_COLS; c++) {
+          const key = `${r}-${c}`;
+          if (next[key]) continue;
+          const cx = (c + 0.5) * CELL_W;
+          const cy = (r + 0.5) * CELL_H;
+          if (Math.hypot(cx - px, cy - py) <= BRUSH_RADIUS) {
+            next[key] = true;
+            changed = true;
+          }
         }
       }
     }
@@ -390,16 +400,19 @@ function PopupScratchFoilOverlay({ theme, onComplete }) {
       onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: (evt) => {
         const { locationX, locationY } = evt.nativeEvent;
-        eraseAtPoint(locationX, locationY);
+        prevPtRef.current = { x: locationX, y: locationY };
+        eraseAlongSegment(locationX, locationY);
       },
       onPanResponderMove: (evt) => {
         const { locationX, locationY } = evt.nativeEvent;
-        eraseAtPoint(locationX, locationY);
+        eraseAlongSegment(locationX, locationY);
       },
       onPanResponderRelease: () => {
+        prevPtRef.current = null;
         setTouchCursor(null);
       },
       onPanResponderTerminate: () => {
+        prevPtRef.current = null;
         setTouchCursor(null);
       },
     })
@@ -412,7 +425,7 @@ function PopupScratchFoilOverlay({ theme, onComplete }) {
 
   const handAnimStyle = useAnimatedStyle(() => ({
     transform: [
-      { translateX: interpolate(handWave.value, [0, 1], [-24, 24]) },
+      { translateX: interpolate(handWave.value, [0, 1], [-26, 26]) },
       { translateY: interpolate(handWave.value, [0, 1], [6, -6]) },
       { rotate: `${interpolate(handWave.value, [0, 1], [-12, 12])}deg` },
     ],
@@ -423,7 +436,10 @@ function PopupScratchFoilOverlay({ theme, onComplete }) {
   }));
 
   const erasedCount = Object.keys(erasedMap).length;
-  const pct = Math.min(100, Math.round((erasedCount / (FOIL_TOTAL * UNLOCK_THRESHOLD)) * 100));
+  const pct = Math.min(
+    100,
+    Math.round((erasedCount / (FOIL_TOTAL * UNLOCK_THRESHOLD)) * 100)
+  );
   const isPurple = theme === 'royalPurple';
 
   return (
@@ -431,7 +447,7 @@ function PopupScratchFoilOverlay({ theme, onComplete }) {
       style={[styles.popupFoilOverlay, overlayAnimStyle]}
       {...panResponder.panHandlers}
     >
-      {/* 10x10 Grid of Metallic Scratchable Foil Tiles */}
+      {/* Smooth 14x14 Foil Grid that Erases Along Finger Stroke */}
       <View style={styles.foilTilesGrid} pointerEvents="none">
         {Array.from({ length: FOIL_ROWS }).map((_, r) => (
           <View key={r} style={styles.foilTileRow}>
@@ -449,10 +465,10 @@ function PopupScratchFoilOverlay({ theme, onComplete }) {
                         ? 'transparent'
                         : isPurple
                         ? altShade
-                          ? '#581C87'
-                          : '#4C1D95'
+                          ? '#5B1A91'
+                          : '#4A168C'
                         : altShade
-                        ? '#3730A3'
+                        ? '#3B349E'
                         : '#312E81',
                     },
                   ]}
@@ -463,27 +479,69 @@ function PopupScratchFoilOverlay({ theme, onComplete }) {
         ))}
       </View>
 
-      {/* Shimmer & Center Graphic (fades as user scratches) */}
-      {erasedCount < 14 ? (
-        <View pointerEvents="none" style={styles.foilCenterDecor}>
-          <Animated.View style={[styles.foilShimmerBar, shimmerStyle]} />
+      {/* Exact Same Card Artwork as Grid Card (Rays + Sparkles + 3D Gift Box / Chest) */}
+      <View
+        pointerEvents="none"
+        style={[
+          styles.foilCenterDecor,
+          { opacity: Math.max(0.12, 1 - pct / 95) },
+        ]}
+      >
+        <View style={styles.scratchRay1} />
+        <View style={styles.scratchRay2} />
+        <Animated.View style={[styles.foilShimmerBar, shimmerStyle]} />
 
-          <View style={styles.foilGiftMedallion}>
-            <Ionicons name="gift" size={38} color="#FDE047" />
+        <Text style={[styles.sparkleChar, { top: 22, left: 32, fontSize: 18 }]}>✦</Text>
+        <Text style={[styles.sparkleChar, { top: 20, right: 26, fontSize: 16 }]}>✧</Text>
+        <Text style={[styles.sparkleChar, { top: 82, left: 18, fontSize: 15 }]}>✦</Text>
+        <Text style={[styles.sparkleChar, { bottom: 68, left: 26, fontSize: 16 }]}>✦</Text>
+        <Text style={[styles.sparkleChar, { bottom: 72, right: 24, fontSize: 17 }]}>✦</Text>
+
+        {isPurple ? (
+          <View style={[styles.giftCircle, { transform: [{ scale: 1.25 }], marginBottom: 14 }]}>
+            <View style={styles.giftBowRow}>
+              <View
+                style={[styles.giftBowLoop, { transform: [{ rotate: '-24deg' }] }]}
+              />
+              <View
+                style={[styles.giftBowLoop, { transform: [{ rotate: '24deg' }] }]}
+              />
+            </View>
+            <View style={styles.giftLid}>
+              <View style={styles.giftRibbonVLid} />
+            </View>
+            <View style={styles.giftBoxBody}>
+              <View style={styles.giftRibbonVBody} />
+            </View>
           </View>
+        ) : (
+          <View style={[styles.chestWrap, { transform: [{ scale: 1.25 }], marginBottom: 14 }]}>
+            <View style={styles.chestLid}>
+              <View style={styles.chestStripeLeft} />
+              <View style={styles.chestStripeRight} />
+            </View>
+            <View style={styles.chestLock}>
+              <View style={styles.chestKeyholeDot} />
+            </View>
+            <View style={styles.chestBase}>
+              <View style={styles.chestBaseInner} />
+            </View>
+          </View>
+        )}
 
-          <Text style={styles.foilMainTitle}>Scratch & Win!</Text>
-          <Text style={styles.foilSubTitle}>
-            Rub your finger across the card
-          </Text>
+        <Text style={styles.foilMainTitle}>Scratch &amp; Win!</Text>
+        <Text style={styles.foilSubTitle}>
+          Rub smoothly across the card to unlock
+        </Text>
 
+        {erasedCount < 10 ? (
           <Animated.View style={[styles.foilHandPrompt, handAnimStyle]}>
             <View style={styles.foilCoinPrompt}>
               <Ionicons name="sparkles" size={15} color="#78350F" />
             </View>
           </Animated.View>
-        </View>
-      ) : null}
+        ) : null}
+      </View>
 
       {/* Live Sparkle Coin Cursor Following Finger */}
       {touchCursor ? (
@@ -506,7 +564,9 @@ function PopupScratchFoilOverlay({ theme, onComplete }) {
       {/* Progress Pill at Bottom of Foil */}
       <View pointerEvents="none" style={styles.foilProgressPill}>
         <Text style={styles.foilProgressText}>
-          {pct > 0 ? `Scratching... ${pct}%` : 'Rub card to reveal code'}
+          {pct > 0
+            ? `Scratching... ${pct}% (Scratch to 100% to reveal)`
+            : 'Rub card to scratch & unlock'}
         </Text>
       </View>
     </Animated.View>
@@ -557,7 +617,7 @@ export default function OffersScreen({ onBack }) {
     );
     setJustRevealedId(couponId);
     cardPopScale.value = withSequence(
-      withSpring(1.08, { damping: 10, stiffness: 220 }),
+      withSpring(1.09, { damping: 10, stiffness: 220 }),
       withSpring(1, { damping: 12, stiffness: 180 })
     );
   };
@@ -711,71 +771,124 @@ export default function OffersScreen({ onBack }) {
           {/* Center Floating Reward / Scratch Card Stage */}
           {selectedCoupon ? (
             <View style={styles.popupCenterStage}>
-              <Animated.View
-                entering={ZoomIn.duration(260)}
-                style={[styles.rewardPopupCardWrap, cardPopStyle]}
-              >
-                {/* Underneath Revealed Reward Card */}
-                <View style={styles.rewardPopupCard}>
-                  <BrandLogo type={selectedCoupon.logoType} size={64} />
-                  <Text style={styles.rewardPopupBrand}>
-                    {selectedCoupon.brand}
-                  </Text>
-                  <Text style={styles.rewardPopupOffer}>
-                    {selectedCoupon.title}
-                  </Text>
+              <Animated.View entering={ZoomIn.duration(260)}>
+                <Animated.View
+                  style={[styles.rewardPopupCardWrap, cardPopStyle]}
+                >
+                  {selectedCoupon.scratched ? (
+                    /* Real Offer Displayed ONLY After Full Scratch Completion */
+                    <Animated.View
+                      entering={ZoomIn.duration(300)}
+                      style={styles.rewardPopupCard}
+                    >
+                      <BrandLogo type={selectedCoupon.logoType} size={64} />
+                      <Text style={styles.rewardPopupBrand}>
+                        {selectedCoupon.brand}
+                      </Text>
+                      <Text style={styles.rewardPopupOffer}>
+                        {selectedCoupon.title}
+                      </Text>
 
-                  <View style={styles.rewardPopupCodePill}>
-                    <Text style={styles.rewardPopupCodePillText}>
-                      {selectedCoupon.code}
-                    </Text>
-                  </View>
+                      <View style={styles.rewardPopupCodePill}>
+                        <Text style={styles.rewardPopupCodePillText}>
+                          {selectedCoupon.code}
+                        </Text>
+                      </View>
 
-                  <Text style={styles.rewardPopupValid}>
-                    {selectedCoupon.validTill}
-                  </Text>
+                      <Text style={styles.rewardPopupValid}>
+                        {selectedCoupon.validTill}
+                      </Text>
 
-                  {/* Confetti accents */}
-                  <View
-                    style={[
-                      styles.confettiDot,
-                      { top: 18, left: 22, backgroundColor: '#C084FC' },
-                    ]}
-                  />
-                  <View
-                    style={[
-                      styles.confettiDot,
-                      { top: 24, right: 24, backgroundColor: '#FDE047' },
-                    ]}
-                  />
-                  <View
-                    style={[
-                      styles.confettiDot,
-                      { bottom: 16, left: 28, backgroundColor: '#C084FC' },
-                    ]}
-                  />
-                  <View
-                    style={[
-                      styles.confettiDot,
-                      { bottom: 26, right: 24, backgroundColor: '#F472B6' },
-                    ]}
-                  />
-                  <View
-                    style={[
-                      styles.confettiDot,
-                      { bottom: 44, right: 32, backgroundColor: '#A78BFA' },
-                    ]}
-                  />
-                </View>
+                      {/* Confetti accents */}
+                      <View
+                        style={[
+                          styles.confettiDot,
+                          { top: 18, left: 22, backgroundColor: '#C084FC' },
+                        ]}
+                      />
+                      <View
+                        style={[
+                          styles.confettiDot,
+                          { top: 24, right: 24, backgroundColor: '#FDE047' },
+                        ]}
+                      />
+                      <View
+                        style={[
+                          styles.confettiDot,
+                          { bottom: 16, left: 28, backgroundColor: '#C084FC' },
+                        ]}
+                      />
+                      <View
+                        style={[
+                          styles.confettiDot,
+                          { bottom: 26, right: 24, backgroundColor: '#F472B6' },
+                        ]}
+                      />
+                      <View
+                        style={[
+                          styles.confettiDot,
+                          { bottom: 44, right: 32, backgroundColor: '#A78BFA' },
+                        ]}
+                      />
+                    </Animated.View>
+                  ) : (
+                    /* Mystery Shimmer Vault Layer Under Scratch Foil (Hides Real Offer Until 100% Scratched) */
+                    <LinearGradient
+                      colors={['#FEF9C3', '#F3E8FF', '#EDE9FE']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.rewardPopupCard}
+                    >
+                      <View
+                        style={{
+                          width: 68,
+                          height: 68,
+                          borderRadius: 34,
+                          backgroundColor: '#F3E8FF',
+                          borderWidth: 2,
+                          borderColor: '#C084FC',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginBottom: 12,
+                        }}
+                      >
+                        <Ionicons name="sparkles" size={32} color={PURPLE} />
+                      </View>
+                      <Text
+                        style={{
+                          fontSize: 16,
+                          fontWeight: '800',
+                          color: PURPLE,
+                          textAlign: 'center',
+                        }}
+                      >
+                        Keep Scratching...
+                      </Text>
+                      <Text
+                        style={{
+                          marginTop: 6,
+                          fontSize: 12.5,
+                          fontWeight: '600',
+                          color: '#6B21A8',
+                          textAlign: 'center',
+                          paddingHorizontal: 14,
+                        }}
+                      >
+                        Finish scratching the foil to reveal your secret Evegah
+                        offer!
+                      </Text>
+                    </LinearGradient>
+                  )}
 
-                {/* Interactive Scratch Foil Overlay if Not Yet Scratched */}
-                {!selectedCoupon.scratched ? (
-                  <PopupScratchFoilOverlay
-                    key={selectedCoupon.id}
-                    theme={selectedCoupon.scratchTheme}
-                    onComplete={() => handleScratchComplete(selectedCoupon.id)}
-                  />
-                ) : null}
+                  {/* Interactive Scratch Foil Overlay if Not Yet Scratched */}
+                  {!selectedCoupon.scratched ? (
+                    <PopupScratchFoilOverlay
+                      key={selectedCoupon.id}
+                      theme={selectedCoupon.scratchTheme}
+                      onComplete={() => handleScratchComplete(selectedCoupon.id)}
+                    />
+                  ) : null}
+                </Animated.View>
               </Animated.View>
 
               {justRevealedId === selectedCoupon.id && selectedCoupon.scratched ? (

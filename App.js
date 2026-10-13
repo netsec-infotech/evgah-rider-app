@@ -4,7 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LoginScreen from './screens/LoginScreen';
 import OtpScreen from './screens/OtpScreen';
 import HomeScreen from './screens/HomeScreen';
-import LocationScreen from './screens/LocationScreen';
+import LocationScreen, { EVEGAH_ZONES } from './screens/LocationScreen';
 import MyRidesScreen from './screens/MyRidesScreen';
 import RideDetailScreen from './screens/RideDetailScreen';
 import ScanScreen from './screens/ScanScreen';
@@ -40,9 +40,12 @@ export default function App() {
   const [screen, setScreen] = useState('login');
   const [phone, setPhone] = useState('');
   const [locationOpen, setLocationOpen] = useState(false);
+  const [selectedZone, setSelectedZone] = useState(EVEGAH_ZONES[0]);
+  const [calendarTriggerTick, setCalendarTriggerTick] = useState(0);
   const [walletIntro, setWalletIntro] = useState(false);
   const [vehicle, setVehicle] = useState(null);
   const [vehicleFrom, setVehicleFrom] = useState('home');
+  const [payBackTo, setPayBackTo] = useState('rent');
   const [trip, setTrip] = useState(null);
   const [receipt, setReceipt] = useState(null);
   const [rideSummary, setRideSummary] = useState(null);
@@ -53,9 +56,11 @@ export default function App() {
   const [profile, setProfile] = useState({
     name: 'Demo Reviewer',
     phone: '+91 9999999999',
-    gender: '',
-    dob: '',
-    address: '',
+    gender: 'Male',
+    dob: '14/08/1998',
+    address: '103, New Alkapuri, Laxmipura, Vadodara - 391410',
+    aadhaar: '4829 6173 9042',
+    avatarIndex: 0,
   });
   const [kyc, setKyc] = useState({ selfie: false, front: false, back: false });
   const [offersFrom, setOffersFrom] = useState('profile');
@@ -120,6 +125,7 @@ export default function App() {
             onBack={() => setScreen('vehicle')}
             onContinue={(next) => {
               setTrip(next);
+              setPayBackTo('rent');
               setScreen('pay');
             }}
           />
@@ -128,7 +134,7 @@ export default function App() {
               <PayScreen
                 vehicle={vehicle}
                 trip={trip}
-                onBack={() => setScreen('rent')}
+                onBack={() => setScreen(payBackTo)}
                 onPay={(next) => {
                   const tail = Date.now().toString().slice(-8);
                   setReceipt({ ...next, bookingId: `EVG${tail}` });
@@ -158,6 +164,16 @@ export default function App() {
                 trip={trip}
                 receipt={receipt}
                 onBack={() => setScreen(rideFrom)}
+                onExtendRide={({ addedPrice, newDropAt }) => {
+                  setTrip((prev) =>
+                    prev ? { ...prev, dropAt: newDropAt } : prev,
+                  );
+                  setReceipt((prev) =>
+                    prev
+                      ? { ...prev, total: (prev.total || 0) + (addedPrice || 0) }
+                      : prev,
+                  );
+                }}
                 onEnd={(summary) => {
                   setRideSummary(summary);
                   setScreen('ended');
@@ -195,7 +211,14 @@ export default function App() {
             statusBarTranslucent
             onRequestClose={() => setLocationOpen(false)}
           >
-            <LocationScreen onBack={() => setLocationOpen(false)} />
+            <LocationScreen
+              selectedZone={selectedZone}
+              onBack={() => setLocationOpen(false)}
+              onSelectZone={(zone) => {
+                setSelectedZone(zone);
+                setLocationOpen(false);
+              }}
+            />
           </Modal>
         </View>
       ) : screen === 'vehicle' ? (
@@ -205,8 +228,27 @@ export default function App() {
           onBook={(flexiData) => {
             if (flexiData && typeof flexiData === 'object') {
               setVehicle((prev) => ({ ...(prev || {}), ...flexiData }));
+              if (flexiData.flexiPickup || flexiData.flexiDrop) {
+                setTrip((prev) => ({
+                  ...(prev || {
+                    pickupAt: Date.now(),
+                    dropAt: Date.now() + 24 * 3600 * 1000,
+                    packageId: 'daily',
+                    durationText: '24 hrs',
+                  }),
+                  pickupName: flexiData.flexiPickup || prev?.pickupName || selectedZone?.name || 'Gotri',
+                  dropName: flexiData.flexiDrop || prev?.dropName || selectedZone?.name || 'Gotri',
+                  deliveryAnywhere: Boolean(flexiData.flexiEnabled),
+                }));
+              }
             }
-            setScreen('rent');
+            if (trip) {
+              setPayBackTo('vehicle');
+              setScreen('pay');
+            } else {
+              setPayBackTo('rent');
+              setScreen('rent');
+            }
           }}
         />
       ) : screen === 'bms' ? (
@@ -349,8 +391,8 @@ export default function App() {
             if (!trip) {
               const start = Date.now();
               setTrip({
-                pickupName: 'Gotri',
-                dropName: 'Gotri',
+                pickupName: selectedZone?.name || 'Gotri',
+                dropName: selectedZone?.name || 'Gotri',
                 pickupAt: start,
                 dropAt: start + 2 * 60 * 60 * 1000,
               });
@@ -393,12 +435,19 @@ export default function App() {
       ) : screen === 'home' ? (
         <View style={styles.stage}>
           <HomeScreen
+            selectedZone={selectedZone}
+            calendarTriggerTick={calendarTriggerTick}
             onOpenLocation={() => setLocationOpen(true)}
             onOpenMyRide={() => setScreen('rides')}
             onOpenScan={() => setScreen('scan')}
             onOpenProfile={() => setScreen('profile')}
             onOpenWallet={openWallet}
             onOpenVehicleList={() => setScreen('vehicleList')}
+            onSearchVehicles={(tripPayload) => {
+              setTrip(tripPayload);
+              setPayBackTo('vehicle');
+              setScreen('vehicleList');
+            }}
             onOpenVehicle={(next) => {
               setVehicle(next);
               setVehicleFrom('home');
@@ -416,7 +465,15 @@ export default function App() {
             statusBarTranslucent
             onRequestClose={() => setLocationOpen(false)}
           >
-            <LocationScreen onBack={() => setLocationOpen(false)} />
+            <LocationScreen
+              selectedZone={selectedZone}
+              onBack={() => setLocationOpen(false)}
+              onSelectZone={(zone) => {
+                setSelectedZone(zone);
+                setLocationOpen(false);
+                setCalendarTriggerTick((t) => t + 1);
+              }}
+            />
           </Modal>
         </View>
       ) : screen === 'otp' ? (

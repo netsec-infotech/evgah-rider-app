@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import {
   Dimensions,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -21,7 +22,7 @@ import { cardEnter } from '../utils/cardEnter';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const PRIMARY_BLUE = '#3729E8';
-const FLEXI_GREEN = '#129A43';
+const FLEXI_PURPLE = '#4A168C';
 const STORY_VIDEO = require('../assets/home/vid1.mp4');
 
 const PRIME_LOCATIONS = [
@@ -937,7 +938,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                       <Ionicons
                         name="chevron-forward"
                         size={15}
-                        color={FLEXI_GREEN}
+                        color={FLEXI_PURPLE}
                       />
                     </View>
                   </Pressable>
@@ -998,7 +999,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                         <Ionicons
                           name="chevron-forward"
                           size={15}
-                          color={FLEXI_GREEN}
+                          color={FLEXI_PURPLE}
                         />
                       </View>
                     </Pressable>
@@ -1382,36 +1383,17 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
         </View>
       </ScrollView>
 
-      {/* Floating Sparkle / "Ask me anything" FAB */}
-      <Pressable
-        style={[styles.sparkleFabWrap, { bottom: Math.max(insets.bottom, 12) + 74 }]}
-        onPress={() => setAskExpanded((prev) => !prev)}
-      >
-        <LinearGradient
-          colors={['#885BF4', '#632CE6']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[styles.sparkleFabGradient, askExpanded && styles.sparkleFabExpanded]}
-        >
-          <Ionicons name="sparkles-sharp" size={20} color="#FFFFFF" />
-          {askExpanded ? (
-            <Text style={styles.askMeAnythingText}>Ask me anything</Text>
-          ) : null}
-        </LinearGradient>
-      </Pressable>
-
       {/* Sticky Bottom Bar */}
       <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-        <Pressable style={styles.callSquareBtn}>
+        <Pressable
+          style={styles.callSquareBtn}
+          onPress={() => Linking.openURL('tel:18008898791')}
+        >
           <Ionicons name="call" size={20} color={PRIMARY_BLUE} />
         </Pressable>
 
         <Pressable style={styles.reserveBtn} onPress={handleProceedBook}>
           <Text style={styles.reserveBtnText}>Reserve EV</Text>
-        </Pressable>
-
-        <Pressable style={styles.testDriveBtn} onPress={handleProceedBook}>
-          <Text style={styles.testDriveBtnText}>Test drive</Text>
         </Pressable>
       </View>
 
@@ -1558,7 +1540,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                     <Ionicons
                       name="chevron-forward"
                       size={14}
-                      color={FLEXI_GREEN}
+                      color={FLEXI_PURPLE}
                     />
                   </Pressable>
                 </Pressable>
@@ -1730,19 +1712,19 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
             </Text>
             <View style={{ marginTop: 14, gap: 12 }}>
               <View style={styles.keepMindBullet}>
-                <Ionicons name="checkmark-circle" size={18} color={FLEXI_GREEN} />
+                <Ionicons name="checkmark-circle" size={18} color={FLEXI_PURPLE} />
                 <Text style={styles.keepMindText}>
                   Base fare ₹150 covers doorstep delivery & pickup within 5 KMs of the hub.
                 </Text>
               </View>
               <View style={styles.keepMindBullet}>
-                <Ionicons name="checkmark-circle" size={18} color={FLEXI_GREEN} />
+                <Ionicons name="checkmark-circle" size={18} color={FLEXI_PURPLE} />
                 <Text style={styles.keepMindText}>
                   Beyond 5 KMs, an additional ₹15/KM applies based on distance.
                 </Text>
               </View>
               <View style={styles.keepMindBullet}>
-                <Ionicons name="checkmark-circle" size={18} color={FLEXI_GREEN} />
+                <Ionicons name="checkmark-circle" size={18} color={FLEXI_PURPLE} />
                 <Text style={styles.keepMindText}>
                   You can choose different Pickup and Drop locations across the city.
                 </Text>
@@ -2929,7 +2911,7 @@ const styles = StyleSheet.create({
   },
   flexiTopTabRibbon: {
     alignSelf: 'flex-start',
-    backgroundColor: '#2E323B',
+    backgroundColor: FLEXI_PURPLE,
     paddingHorizontal: 18,
     paddingTop: 9,
     paddingBottom: 11,
@@ -2947,17 +2929,22 @@ const styles = StyleSheet.create({
   flexiMainCard: {
     borderRadius: 18,
     borderTopLeftRadius: 6,
-    borderWidth: 1,
-    borderColor: '#E2E6EE',
+    borderWidth: 1.5,
+    borderColor: '#EDE7F6',
     backgroundColor: '#FFFFFF',
     overflow: 'hidden',
     zIndex: 2,
+    shadowColor: '#24083C',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
   },
   flexiMainCardActive: {
-    borderColor: '#A7F3D0',
+    borderColor: '#C9A9F5',
   },
   flexiHeaderGrey: {
-    backgroundColor: '#F2F4F8',
+    backgroundColor: '#F7F3FB',
     paddingHorizontal: 16,
     paddingTop: 14,
     paddingBottom: 16,
@@ -2965,7 +2952,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: '#EBE4F4',
   },
   flexiHeaderLeft: {
     flex: 1,
@@ -2974,8 +2961,8 @@ const styles = StyleSheet.create({
   flexiRateText: {
     fontSize: 13,
     lineHeight: 19,
-    color: '#4B5563',
-    fontWeight: '500',
+    color: '#6E657F',
+    fontWeight: '600',
   },
   flexiSwitchRow: {
     marginTop: 12,
@@ -2992,7 +2979,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   flexiSwitchTrackOn: {
-    backgroundColor: FLEXI_GREEN,
+    backgroundColor: FLEXI_PURPLE,
   },
   flexiSwitchThumb: {
     width: 24,
@@ -3009,9 +2996,9 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
   },
   flexiToggleStatusText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#111827',
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#24083C',
   },
   flexiHouseArtWrap: {
     width: 112,
@@ -3023,9 +3010,9 @@ const styles = StyleSheet.create({
     width: 104,
     height: 68,
     borderRadius: 14,
-    backgroundColor: '#D1FAE5',
+    backgroundColor: '#EDE4F7',
     borderBottomWidth: 4,
-    borderBottomColor: '#9CA3AF',
+    borderBottomColor: '#BCA3DA',
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -3037,7 +3024,7 @@ const styles = StyleSheet.create({
     right: 8,
     height: 14,
     borderRadius: 6,
-    backgroundColor: '#4B5563',
+    backgroundColor: '#4A168C',
   },
   isoTreeLeft: {
     position: 'absolute',
@@ -3046,7 +3033,7 @@ const styles = StyleSheet.create({
     width: 16,
     height: 22,
     borderRadius: 8,
-    backgroundColor: '#059669',
+    backgroundColor: '#7A25D9',
   },
   isoHouseWalls: {
     position: 'absolute',
@@ -3067,12 +3054,12 @@ const styles = StyleSheet.create({
     width: 48,
     height: 12,
     borderRadius: 4,
-    backgroundColor: '#EA580C',
+    backgroundColor: '#4A168C',
   },
   isoHouseDoor: {
     width: 10,
     height: 14,
-    backgroundColor: '#92400E',
+    backgroundColor: '#24083C',
     borderTopLeftRadius: 3,
     borderTopRightRadius: 3,
   },
@@ -3083,7 +3070,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 22,
     borderRadius: 8,
-    backgroundColor: '#2563EB',
+    backgroundColor: '#4A168C',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -3104,21 +3091,21 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 1,
     borderStyle: 'dashed',
-    borderColor: '#E5E7EB',
+    borderColor: '#EDE7F6',
   },
   flexiAddressCopy: {
     flex: 1,
   },
   flexiAddressKicker: {
     fontSize: 13.5,
-    fontWeight: '500',
-    color: '#4B5563',
+    fontWeight: '600',
+    color: '#6E657F',
   },
   flexiSelectedAddressText: {
     marginTop: 4,
     fontSize: 13.5,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: '800',
+    color: '#24083C',
     lineHeight: 18,
   },
   flexiAddAddressBtn: {
@@ -3129,7 +3116,7 @@ const styles = StyleSheet.create({
   flexiAddAddressText: {
     fontSize: 14,
     fontWeight: '800',
-    color: FLEXI_GREEN,
+    color: FLEXI_PURPLE,
   },
   flexiSameLocRow: {
     marginTop: 14,
@@ -3148,19 +3135,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   flexiCheckboxOn: {
-    backgroundColor: FLEXI_GREEN,
-    borderColor: FLEXI_GREEN,
+    backgroundColor: FLEXI_PURPLE,
+    borderColor: FLEXI_PURPLE,
   },
   flexiSameLocText: {
     fontSize: 13.5,
-    fontWeight: '500',
-    color: '#4B5563',
+    fontWeight: '600',
+    color: '#280D42',
   },
   flexiBodyDivider: {
     marginTop: 14,
     marginBottom: 12,
     height: 1,
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F3EEFA',
   },
   flexiKeepInMindRow: {
     flexDirection: 'row',
@@ -3169,8 +3156,8 @@ const styles = StyleSheet.create({
   },
   flexiKeepInMindText: {
     fontSize: 13.5,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: '800',
+    color: '#24083C',
   },
   /* Select Delivery / Drop Address Bottom Sheet Styles */
   addrSheetBackdrop: {
@@ -3223,7 +3210,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   addrTargetTabActive: {
-    backgroundColor: FLEXI_GREEN,
+    backgroundColor: FLEXI_PURPLE,
   },
   addrTargetTabText: {
     fontSize: 12.5,
@@ -3236,12 +3223,14 @@ const styles = StyleSheet.create({
   addrSheetTitle: {
     fontSize: 20,
     fontWeight: '800',
-    color: '#111827',
+    color: '#24083C',
+    letterSpacing: -0.3,
   },
   addrSheetSub: {
     marginTop: 4,
     fontSize: 13.5,
-    color: '#6B7280',
+    color: '#6E657F',
+    fontWeight: '500',
   },
   addrSheetScroll: {
     marginTop: 16,
@@ -3250,7 +3239,7 @@ const styles = StyleSheet.create({
   addrSectionHeading: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#111827',
+    color: '#24083C',
     marginBottom: 12,
   },
   primeLocRow: {
@@ -3265,7 +3254,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F3EEFA',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -3275,13 +3264,13 @@ const styles = StyleSheet.create({
   primeLocTitle: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#111827',
+    color: '#24083C',
   },
   primeLocSub: {
     marginTop: 2,
     fontSize: 13,
     lineHeight: 18,
-    color: '#6B7280',
+    color: '#6E657F',
   },
   savedAddrRow: {
     flexDirection: 'row',
@@ -3300,7 +3289,7 @@ const styles = StyleSheet.create({
   savedAddrTag: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#111827',
+    color: '#24083C',
     letterSpacing: 0.4,
   },
   savedAddrText: {
@@ -3318,15 +3307,20 @@ const styles = StyleSheet.create({
   savedAddrEditText: {
     fontSize: 14,
     fontWeight: '700',
-    color: FLEXI_GREEN,
+    color: FLEXI_PURPLE,
   },
   addNewAddressGreenBtn: {
     marginTop: 16,
     height: 52,
     borderRadius: 12,
-    backgroundColor: FLEXI_GREEN,
+    backgroundColor: FLEXI_PURPLE,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: FLEXI_PURPLE,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
   },
   addNewAddressGreenBtnText: {
     color: '#FFFFFF',
@@ -3565,7 +3559,7 @@ const styles = StyleSheet.create({
   mapConfirmGreenBtn: {
     height: 52,
     borderRadius: 12,
-    backgroundColor: FLEXI_GREEN,
+    backgroundColor: FLEXI_PURPLE,
     alignItems: 'center',
     justifyContent: 'center',
   },

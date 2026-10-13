@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
 
 const PURPLE = '#4A168C';
-const PHONE = '+919876543210';
+const PHONE = '18008898791';
 const EMAIL = 'support@evegah.com';
 
 const FAQS = [
@@ -88,7 +88,7 @@ export default function HelpScreen({ onBack }) {
             </View>
             <View style={styles.contactCopy}>
               <Text style={styles.contactTitle}>Call</Text>
-              <Text style={styles.contactText}>+91 98765 43210</Text>
+              <Text style={styles.contactText}>1800 889 8791</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color="#C8C8CC" />
           </Pressable>
