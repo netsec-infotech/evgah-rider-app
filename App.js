@@ -362,7 +362,7 @@ export default function App() {
       ) : screen === 'kyc' ? (
         <KycScreen
           kyc={kyc}
-          profile={profile}
+          profile={{ ...profile, phone: profile?.phone || phone }}
           onBack={() => {
             if (pendingBooking) {
               const pb = pendingBooking;

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Dimensions,
   Keyboard,
   Pressable,
@@ -13,6 +14,7 @@ import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { requestAadhaarOtp, verifyAadhaarOtp, getKycStatus, last10 } from '../services/api';
 import Animated, {
   Easing,
   FadeIn,
@@ -41,16 +43,19 @@ const TEXT_MUTED = '#6E657F';
 const GREEN_SUCCESS = '#12804A';
 const GREEN_BG = '#E7F7ED';
 
-// Demo verified rider profile data matching screenshot 4 & dashboard
-const DEFAULT_VERIFIED_USER = {
-  name: 'Himanshu Chavda',
-  dob: '12 Apr 2000',
-  gender: 'Male',
-  aadhaar: '1234 5678 9012',
-  address: '12, Shreeji Society, Gotri, Vadodara, Gujarat - 390021',
-  avatar:
-    'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&auto=format&fit=crop&q=80',
-};
+function formatAadhaarDisplay(val) {
+  const str = String(val || '').trim();
+  if (!str) return 'XXXX  XXXX  XXXX';
+  const clean = str.replace(/\s+/g, ' ');
+  if (clean.includes('X') || clean.includes('x')) {
+    return clean.replace(/\s+/g, '  ');
+  }
+  const digits = str.replace(/\D/g, '');
+  if (digits.length === 12) {
+    return `XXXX  XXXX  ${digits.slice(-4)}`;
+  }
+  return clean;
+}
 
 // 3-Step Flow (Step 2 removed as requested)
 const KYC_STEPS = [
@@ -81,15 +86,54 @@ export default function KycScreen({
   const [currentStep, setCurrentStep] = useState(1); // 1 = Enter Aadhaar, 2 = Enter OTP, 3 = Aadhaar Details
 
   // Form State
-  const [aadhaarNumber, setAadhaarNumber] = useState('1234 5678 9012');
+  const [aadhaarNumber, setAadhaarNumber] = useState(
+    profile?.aadhaar ? formatAadhaarInput(profile.aadhaar) : ''
+  );
   const [otpValues, setOtpValues] = useState(['', '', '', '', '', '']);
   const [activeOtpIdx, setActiveOtpIdx] = useState(0);
-  const [resendTimer, setResendTimer] = useState(28);
+  const [resendTimer, setResendTimer] = useState(30);
   const [confirmedDetails, setConfirmedDetails] = useState(true);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isSuccessComplete, setIsSuccessComplete] = useState(false);
+  const [referenceId, setReferenceId] = useState(null);
+  const [errorMessage, setErrorMessage] = useState(null);
+  const [verifiedRider, setVerifiedRider] = useState(null);
 
   const otpInputRefs = useRef([]);
+  const isVerifyingRef = useRef(false);
+
+  // Check if rider is already verified on mount
+  useEffect(() => {
+    let isMounted = true;
+    const checkStatus = async () => {
+      const phoneNum = profile?.phone || '';
+      if (!phoneNum) return;
+      try {
+        const cleanPhone = last10(phoneNum);
+        if (cleanPhone.length === 10) {
+          const res = await getKycStatus(cleanPhone);
+          if (isMounted && res.data?.is_verified && res.data?.rider_name) {
+            setVerifiedRider({
+              name: res.data.rider_name || '',
+              dob: res.data.date_of_birth || '',
+              gender: res.data.gender || '',
+              aadhaar: res.data.aadhaar_number || '',
+              address: res.data.address || '',
+              avatar: res.data.photo_url || null,
+              photo: res.data.photo_url || null,
+              kyc_status: 'Verified',
+            });
+            setCurrentStep(3);
+          }
+        }
+      } catch (_) {}
+    };
+    checkStatus();
+    return () => {
+      isMounted = false;
+    };
+  }, [profile?.phone]);
 
   // Animation values
   const floatAnim = useSharedValue(0);
@@ -147,30 +191,122 @@ export default function KycScreen({
     width: `${progressLine.value * 100}%`,
   }));
 
-  // Step 1 -> Step 2
-  const handleContinueAadhaar = () => {
+  // Step 1 -> Step 2: Request Aadhaar OTP from backend
+  const handleContinueAadhaar = async () => {
     const raw = aadhaarNumber.replace(/\D/g, '');
-    if (raw.length < 12) return;
+    if (raw.length !== 12) {
+      setErrorMessage('Please enter a valid 12-digit Aadhaar number');
+      return;
+    }
     Keyboard.dismiss();
-    setCurrentStep(2);
-    setResendTimer(28);
-    setOtpValues(['', '', '', '', '', '']);
-    setActiveOtpIdx(0);
+    setErrorMessage(null);
+    setIsSendingOtp(true);
+
+    try {
+      const riderMobile = profile?.phone || '';
+      const response = await requestAadhaarOtp(raw, riderMobile);
+
+      const refId = response.data?.reference_id || response.reference_id;
+      if (!refId) {
+        throw new Error(response.message || 'Failed to initiate OTP session. Please retry.');
+      }
+
+      setReferenceId(String(refId));
+      setCurrentStep(2);
+      setResendTimer(30);
+      setOtpValues(['', '', '', '', '', '']);
+      setActiveOtpIdx(0);
+      setTimeout(() => {
+        otpInputRefs.current[0]?.focus();
+      }, 350);
+    } catch (err) {
+      console.warn('Aadhaar Send OTP Error:', err);
+      setErrorMessage(err.message || 'Failed to send OTP to Aadhaar registered mobile.');
+    } finally {
+      setIsSendingOtp(false);
+    }
   };
 
-  // Step 2 -> Step 3
-  const handleVerifyOtp = () => {
+  // Resend OTP in Step 2
+  const handleResendOtp = async () => {
+    if (resendTimer > 0 || isSendingOtp) return;
+    const raw = aadhaarNumber.replace(/\D/g, '');
+    if (raw.length !== 12) return;
+    isVerifyingRef.current = false;
+    setIsVerifying(false);
+    setErrorMessage(null);
+    setIsSendingOtp(true);
+
+    try {
+      const riderMobile = profile?.phone || '';
+      const response = await requestAadhaarOtp(raw, riderMobile);
+      const refId = response.data?.reference_id || response.reference_id;
+      if (refId) {
+        setReferenceId(String(refId));
+      }
+      setResendTimer(30);
+      setOtpValues(['', '', '', '', '', '']);
+      setActiveOtpIdx(0);
+      setTimeout(() => {
+        otpInputRefs.current[0]?.focus();
+      }, 200);
+    } catch (err) {
+      setErrorMessage(err.message || 'Failed to resend OTP. Please try again.');
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  // Step 2 -> Step 3: Verify OTP with backend & UIDAI
+  const handleVerifyOtp = async () => {
+    if (isVerifyingRef.current) return;
     const entered = otpValues.join('');
-    if (entered.length < 6) return;
+    if (entered.length < 6) {
+      setErrorMessage('Please enter the full 6-digit OTP code');
+      return;
+    }
+    if (!referenceId) {
+      setErrorMessage('Session expired. Please restart Aadhaar verification.');
+      setCurrentStep(1);
+      return;
+    }
+
+    isVerifyingRef.current = true;
     Keyboard.dismiss();
+    setErrorMessage(null);
     setIsVerifying(true);
-    setTimeout(() => {
-      setIsVerifying(false);
+
+    try {
+      const riderMobile = profile?.phone || '';
+      const response = await verifyAadhaarOtp(referenceId, entered, riderMobile);
+
+      const data = response.data || {};
+      const userPhoto = data.photo || data.photo_link || null;
+      const verifiedInfo = {
+        name: data.name || profile?.name || '',
+        dob: data.date_of_birth || profile?.dob || '',
+        gender: data.gender || profile?.gender || '',
+        aadhaar: data.masked_aadhaar || formatAadhaarInput(aadhaarNumber),
+        address: data.address || profile?.address || '',
+        avatar: userPhoto,
+        photo: userPhoto,
+        care_of: data.care_of || '',
+        reference_id: data.reference_id || referenceId,
+        kyc_status: 'Verified',
+      };
+
+      setVerifiedRider(verifiedInfo);
       setCurrentStep(3);
       onStep?.('front');
       onStep?.('back');
       onStep?.('selfie');
-    }, 900);
+    } catch (err) {
+      console.warn('Aadhaar Verify OTP Error:', err);
+      setErrorMessage(err.message || 'Invalid OTP code entered. Please try again.');
+    } finally {
+      setIsVerifying(false);
+      isVerifyingRef.current = false;
+    }
   };
 
   // Step 3 -> Proceed / Finish
@@ -180,8 +316,9 @@ export default function KycScreen({
     onStep?.('front');
     onStep?.('back');
     onStep?.('selfie');
+    const finalData = verifiedRider || displayUser;
     if (onKycComplete) {
-      onKycComplete(DEFAULT_VERIFIED_USER);
+      onKycComplete(finalData);
     }
     setTimeout(() => {
       onBack?.();
@@ -226,13 +363,15 @@ export default function KycScreen({
   const isAadhaarValid = rawAadhaarLen === 12;
   const isOtpComplete = otpValues.join('').length === 6;
 
-  const displayUser = {
-    name: profile?.name || DEFAULT_VERIFIED_USER.name,
-    dob: profile?.dob || DEFAULT_VERIFIED_USER.dob,
-    gender: profile?.gender || DEFAULT_VERIFIED_USER.gender,
-    aadhaar: aadhaarNumber || DEFAULT_VERIFIED_USER.aadhaar,
-    address: profile?.address || DEFAULT_VERIFIED_USER.address,
-    avatar: DEFAULT_VERIFIED_USER.avatar,
+  const displayUser = verifiedRider || {
+    name: profile?.name || '',
+    dob: profile?.dob || '',
+    gender: profile?.gender || '',
+    aadhaar: aadhaarNumber || profile?.aadhaar || '',
+    address: profile?.address || '',
+    avatar: profile?.avatar || null,
+    photo: profile?.avatar || null,
+    care_of: profile?.care_of || '',
   };
 
   return (
@@ -420,18 +559,35 @@ export default function KycScreen({
               </View>
             </View>
 
+            {/* Error Banner */}
+            {errorMessage ? (
+              <View style={styles.errorBanner}>
+                <Ionicons name="alert-circle" size={18} color="#DC2626" />
+                <Text style={styles.errorText}>{errorMessage}</Text>
+              </View>
+            ) : null}
+
             {/* Continue Button */}
             <Pressable
               onPress={handleContinueAadhaar}
-              disabled={!isAadhaarValid}
+              disabled={!isAadhaarValid || isSendingOtp}
               style={({ pressed }) => [
                 styles.primaryBtn,
-                !isAadhaarValid && styles.primaryBtnDisabled,
-                pressed && isAadhaarValid && styles.primaryBtnPressed,
+                (!isAadhaarValid || isSendingOtp) && styles.primaryBtnDisabled,
+                pressed && isAadhaarValid && !isSendingOtp && styles.primaryBtnPressed,
               ]}
             >
-              <Text style={styles.primaryBtnText}>Continue</Text>
-              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+              {isSendingOtp ? (
+                <>
+                  <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+                  <Text style={styles.primaryBtnText}>Sending OTP...</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.primaryBtnText}>Continue</Text>
+                  <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+                </>
+              )}
             </Pressable>
 
             {/* Security Guarantee Pill */}
@@ -528,14 +684,37 @@ export default function KycScreen({
               ) : (
                 <Pressable
                   hitSlop={8}
-                  onPress={() => {
-                    setResendTimer(30);
-                  }}
+                  disabled={isSendingOtp}
+                  onPress={handleResendOtp}
                 >
-                  <Text style={styles.resendActionText}>Resend OTP</Text>
+                  <Text style={[styles.resendActionText, isSendingOtp && { opacity: 0.5 }]}>
+                    {isSendingOtp ? 'Sending...' : 'Resend OTP'}
+                  </Text>
                 </Pressable>
               )}
             </View>
+
+            {/* Error Banner */}
+            {errorMessage ? (
+              <View style={styles.errorBanner}>
+                <Ionicons name="alert-circle" size={18} color="#DC2626" />
+                <View style={{ flex: 1, marginLeft: 8 }}>
+                  <Text style={styles.errorText}>{errorMessage}</Text>
+                  {/expired|reference|busy|source|again/i.test(errorMessage) ? (
+                    <Pressable
+                      onPress={handleResendOtp}
+                      disabled={isSendingOtp}
+                      style={styles.retryResendBtn}
+                    >
+                      <Ionicons name="refresh" size={13} color="#B91C1C" />
+                      <Text style={styles.retryResendText}>
+                        {isSendingOtp ? 'Sending New OTP...' : 'Request Fresh OTP'}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
 
             {/* Verify & Proceed Button */}
             <Pressable
@@ -544,11 +723,14 @@ export default function KycScreen({
               style={({ pressed }) => [
                 styles.primaryBtn,
                 (!isOtpComplete || isVerifying) && styles.primaryBtnDisabled,
-                pressed && isOtpComplete && styles.primaryBtnPressed,
+                pressed && isOtpComplete && !isVerifying && styles.primaryBtnPressed,
               ]}
             >
               {isVerifying ? (
-                <Text style={styles.primaryBtnText}>Verifying with UIDAI...</Text>
+                <>
+                  <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+                  <Text style={styles.primaryBtnText}>Verifying with UIDAI...</Text>
+                </>
               ) : (
                 <>
                   <Text style={styles.primaryBtnText}>Verify OTP</Text>
@@ -590,67 +772,137 @@ export default function KycScreen({
               </View>
             </View>
 
-            {/* Aadhaar Details Card (Matches Screenshot 4) */}
-            <View style={styles.detailsCard}>
-              <View style={styles.detailsHeaderRow}>
-                <Text style={styles.detailsCardTitle}>Aadhaar Details</Text>
-                <Pressable
-                  hitSlop={8}
-                  onPress={() => setCurrentStep(1)}
-                  style={styles.editDetailsBtn}
-                >
-                  <Ionicons name="create-outline" size={16} color={PURPLE} />
-                  <Text style={styles.editDetailsText}>Edit</Text>
-                </Pressable>
-              </View>
-
-              {/* Photo + Identity Details */}
-              <View style={styles.detailsUserRow}>
-                <Image
-                  source={{ uri: displayUser.avatar }}
-                  style={styles.detailsAvatarImage}
-                  contentFit="cover"
-                />
-
-                <View style={styles.detailsUserMeta}>
-                  <View style={styles.detailFieldBlock}>
-                    <Text style={styles.detailFieldLabel}>Name</Text>
-                    <Text style={styles.detailFieldValueName}>{displayUser.name}</Text>
+            {/* Real Aadhaar Card (Front Face) */}
+            <View style={styles.aadhaarCardRealFront}>
+              {/* Government Header */}
+              <View style={styles.aadhaarGovHeader}>
+                <View style={styles.emblemCol}>
+                  <View style={styles.emblemBadge}>
+                    <Ionicons name="shield-checkmark" size={17} color={PURPLE} />
                   </View>
-
-                  <View style={styles.detailFieldBlock}>
-                    <Text style={styles.detailFieldLabel}>Date of Birth</Text>
-                    <Text style={styles.detailFieldValue}>{displayUser.dob}</Text>
+                  <View style={styles.govTextWrap}>
+                    <Text style={styles.govHindiText}>भारत सरकार</Text>
+                    <Text style={styles.govEngText}>GOVERNMENT OF INDIA</Text>
                   </View>
+                </View>
 
-                  <View style={styles.detailFieldBlock}>
-                    <Text style={styles.detailFieldLabel}>Gender</Text>
-                    <Text style={styles.detailFieldValue}>{displayUser.gender}</Text>
+                <View style={styles.uidaiCol}>
+                  <View style={styles.uidaiTextWrap}>
+                    <Text style={styles.uidaiHindiText}>भारतीय विशिष्ट पहचान प्राधिकरण</Text>
+                    <Text style={styles.uidaiEngText}>UIDAI - Government of India</Text>
+                  </View>
+                  <View style={styles.uidaiSunWrap}>
+                    <Ionicons name="sunny" size={20} color="#EA580C" />
+                    <View style={styles.uidaiRedFinger}>
+                      <Ionicons name="finger-print" size={11} color="#C2410C" />
+                    </View>
                   </View>
                 </View>
               </View>
 
-              <View style={styles.detailsDivider} />
+              {/* Tricolor Stripe */}
+              <View style={styles.aadhaarTricolorStripe}>
+                <View style={styles.stripeSaff} />
+                <View style={styles.stripeWht} />
+                <View style={styles.stripeGrn} />
+              </View>
 
-              {/* Aadhaar Number Block */}
-              <View style={styles.detailsFieldSection}>
-                <Text style={styles.detailFieldLabel}>Aadhaar Number</Text>
-                <Text style={styles.detailFieldValueAadhaar}>
-                  {displayUser.aadhaar || '1234 5678 9012'}
+              {/* Main Card Content */}
+              <View style={styles.aadhaarMainContent}>
+                {/* Left: Real Photo from UIDAI */}
+                <View style={styles.aadhaarPhotoWrap}>
+                  {displayUser.avatar || displayUser.photo ? (
+                    <Image
+                      source={{ uri: displayUser.avatar || displayUser.photo }}
+                      style={styles.aadhaarRealPhoto}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <View style={styles.aadhaarPhotoPlaceholder}>
+                      <Ionicons name="person" size={38} color="#94A3B8" />
+                      <View style={styles.aadhaarPhotoVerifyBadge}>
+                        <Ionicons name="checkmark-circle" size={16} color={GREEN_SUCCESS} />
+                      </View>
+                    </View>
+                  )}
+                </View>
+
+                {/* Middle: Real Extracted Details */}
+                <View style={styles.aadhaarInfoCol}>
+                  <Text style={styles.aadhaarLabelHindi}>नाम / Name</Text>
+                  <Text style={styles.aadhaarValName} numberOfLines={2}>
+                    {displayUser.name || 'Verified Citizen'}
+                  </Text>
+
+                  <Text style={styles.aadhaarLabelHindi}>जन्म तिथि / DOB</Text>
+                  <Text style={styles.aadhaarValText}>
+                    {displayUser.dob || 'Verified by UIDAI'}
+                  </Text>
+
+                  <Text style={styles.aadhaarLabelHindi}>लिंग / Gender</Text>
+                  <Text style={styles.aadhaarValText}>
+                    {displayUser.gender || 'Verified'}
+                  </Text>
+
+                  {displayUser.care_of ? (
+                    <>
+                      <Text style={styles.aadhaarLabelHindi}>आत्मज / C/O</Text>
+                      <Text style={styles.aadhaarValText} numberOfLines={1}>
+                        {displayUser.care_of}
+                      </Text>
+                    </>
+                  ) : null}
+                </View>
+
+                {/* Right: Secure QR Code Representation */}
+                <View style={styles.aadhaarQrWrap}>
+                  <View style={styles.aadhaarQrGraphic}>
+                    <Ionicons name="qr-code-outline" size={36} color="#0F172A" />
+                  </View>
+                  <Text style={styles.aadhaarQrLabel}>Offline e-KYC</Text>
+                </View>
+              </View>
+
+              {/* Bottom: Big Masked Aadhaar Number */}
+              <View style={styles.aadhaarNumberRow}>
+                <Text style={styles.aadhaarBigNumber}>
+                  {formatAadhaarDisplay(displayUser.aadhaar)}
                 </Text>
               </View>
 
-              <View style={styles.detailsDivider} />
+              {/* Signature Tagline */}
+              <View style={styles.aadhaarTaglineRow}>
+                <Text style={styles.aadhaarTaglineText}>
+                  मेरा आधार, मेरी पहचान
+                </Text>
+              </View>
+            </View>
 
-              {/* Address Block with Map Pin */}
-              <View style={styles.detailsAddressRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.detailFieldLabel}>Address</Text>
-                  <Text style={styles.detailFieldValueAddress}>{displayUser.address}</Text>
+            {/* Real Aadhaar Card (Back Face: Residential Address) */}
+            <View style={styles.aadhaarCardRealBack}>
+              <View style={styles.aadhaarBackHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="location" size={16} color="#DC2626" />
+                  <Text style={styles.aadhaarBackTitle}>पता / Address</Text>
                 </View>
-                <View style={styles.locationPinCircle}>
-                  <Ionicons name="location-outline" size={18} color={PURPLE} />
+                <View style={styles.aadhaarDocVerifiedBadge}>
+                  <Ionicons name="shield-checkmark" size={12} color="#15803D" />
+                  <Text style={styles.aadhaarDocVerifiedText}>UIDAI Verified</Text>
                 </View>
+              </View>
+
+              {/* Tricolor Stripe on Back */}
+              <View style={[styles.aadhaarTricolorStripe, { marginVertical: 4 }]} />
+
+              <Text style={styles.aadhaarAddressText}>
+                {displayUser.address || 'Address verified and linked to UIDAI record.'}
+              </Text>
+
+              <View style={styles.aadhaarVerifiedPill}>
+                <Ionicons name="checkmark-circle" size={15} color="#10B981" />
+                <Text style={styles.aadhaarVerifiedPillText}>
+                  Cryptographically Verified via Sandbox.co.in OKYC
+                </Text>
               </View>
             </View>
 
@@ -1403,4 +1655,286 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: PURPLE_SUB,
   },
+
+  /* Error Banner */
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginTop: 14,
+    marginBottom: 6,
+  },
+  errorText: {
+    fontSize: 13,
+    color: '#B91C1C',
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  retryResendBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 6,
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
+  },
+  retryResendText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#B91C1C',
+    textDecorationLine: 'underline',
+  },
+
+  /* Real Aadhaar Card UI (Front) */
+  aadhaarCardRealFront: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#D4CEBF',
+    padding: 14,
+    marginBottom: 16,
+    shadowColor: '#1A0E2A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  aadhaarGovHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0ECE1',
+  },
+  emblemCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  govTextWrap: {
+    justifyContent: 'center',
+  },
+  govHindiText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  govEngText: {
+    fontSize: 8,
+    fontWeight: '700',
+    color: '#334155',
+    letterSpacing: 0.4,
+  },
+  uidaiCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  uidaiTextWrap: {
+    alignItems: 'flex-end',
+  },
+  uidaiHindiText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#C2410C',
+  },
+  uidaiEngText: {
+    fontSize: 7.5,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  aadhaarTricolorStripe: {
+    height: 3,
+    flexDirection: 'row',
+    marginVertical: 6,
+    borderRadius: 1.5,
+    overflow: 'hidden',
+  },
+  stripeSaff: { flex: 1, backgroundColor: '#FF9933' },
+  stripeWht: { flex: 1, backgroundColor: '#FFFFFF' },
+  stripeGrn: { flex: 1, backgroundColor: '#138808' },
+
+  aadhaarMainContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 8,
+    gap: 12,
+  },
+  aadhaarPhotoWrap: {
+    width: 80,
+    height: 98,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#F8FAFC',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aadhaarRealPhoto: {
+    width: '100%',
+    height: '100%',
+  },
+  aadhaarPhotoPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+  },
+  aadhaarPhotoVerifyBadge: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+  },
+  aadhaarInfoCol: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: 2,
+  },
+  aadhaarLabelHindi: {
+    fontSize: 9.5,
+    color: '#64748B',
+    fontWeight: '700',
+  },
+  aadhaarValName: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 4,
+    letterSpacing: -0.2,
+  },
+  aadhaarValText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 3,
+  },
+  aadhaarQrWrap: {
+    width: 58,
+    height: 62,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 6,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+  },
+  aadhaarQrGraphic: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 4,
+  },
+  aadhaarQrLabel: {
+    fontSize: 7.5,
+    fontWeight: '800',
+    color: '#475569',
+    marginTop: 2,
+  },
+
+  aadhaarNumberRow: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingVertical: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 6,
+  },
+  aadhaarBigNumber: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#0F172A',
+    letterSpacing: 2.5,
+  },
+  aadhaarTaglineRow: {
+    alignItems: 'center',
+    marginTop: 6,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  aadhaarTaglineText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#C2410C',
+    letterSpacing: 0.8,
+  },
+
+  /* Real Aadhaar Card (Back: Address) */
+  aadhaarCardRealBack: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: '#D4CEBF',
+    padding: 14,
+    marginBottom: 16,
+    shadowColor: '#1A0E2A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  aadhaarBackHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  aadhaarBackTitle: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  aadhaarDocVerifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  aadhaarDocVerifiedText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+  aadhaarAddressText: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: '#334155',
+    fontWeight: '600',
+    paddingVertical: 4,
+  },
+  aadhaarVerifiedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    marginTop: 8,
+    gap: 6,
+  },
+  aadhaarVerifiedPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#065F46',
+  },
 });
+
