@@ -30,15 +30,15 @@ const PRIME_LOCATIONS = [
     id: 'bdq-airport',
     icon: 'airplane-outline',
     title: 'Vadodara Airport (BDQ)',
-    subtitle: "A key link for Gujarat's cultural and industrial hub.",
+    subtitle: "A key link for Gujarat's cultural and industrial Zone.",
     address: 'Vadodara Airport (BDQ), Civil Aerodrome, Harni Rd, Vadodara, Gujarat 390022',
   },
   {
-    id: 'gotri-hub',
+    id: 'gotri-Zone',
     icon: 'flash-outline',
-    title: 'Gotri EV Super Hub',
+    title: 'Gotri EV Super Zone',
     subtitle: '24/7 Fast Charging & Express EV Pickup Point.',
-    address: 'Gotri EV Super Hub, New Alkapuri, Laxmipura, Vadodara, Gujarat 390021',
+    address: 'Gotri EV Super Zone, New Alkapuri, Laxmipura, Vadodara, Gujarat 390021',
   },
 ];
 
@@ -229,7 +229,7 @@ const EXTRA = {
       rlValue: 'Dual Hydraulic',
       rrLabel: 'Rear tyre life',
       rrValue: '32k km',
-      bottomLabel: 'Hub motor & battery health',
+      bottomLabel: 'Zone motor & battery health',
       bottomValue: '3000 W • 98% SoH',
     },
     popularFeatures: [
@@ -268,7 +268,7 @@ const EXTRA = {
       rlValue: 'Contoured Foam',
       rrLabel: 'Rear tyre life',
       rrValue: '34k km',
-      bottomLabel: 'Hub motor & range health',
+      bottomLabel: 'Zone motor & range health',
       bottomValue: '2500 W • 90 km',
     },
     popularFeatures: [
@@ -380,7 +380,7 @@ const QUESTIONS = [
   },
   {
     q: 'How does charging work?',
-    a: 'Plug into any standard 15A socket or swap at the nearest Evegah charging hub.',
+    a: 'Plug into any standard 15A socket or swap at the nearest Evegah charging Zone.',
   },
   {
     q: 'Is a helmet and insurance included?',
@@ -871,9 +871,9 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
             </View>
 
             {/* Location Pill (Matches Screenshot 1) */}
-            <View style={styles.hubLocationPill}>
+            <View style={styles.ZoneLocationPill}>
               <Ionicons name="location-outline" size={16} color="#11141C" />
-              <Text style={styles.hubLocationText} numberOfLines={1}>
+              <Text style={styles.ZoneLocationText} numberOfLines={1}>
                 103, New Alkapuri, Laxmipura, Vad | 9.8 Kms Away
               </Text>
             </View>
@@ -1411,7 +1411,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
         >
           <Text style={styles.cardSectionHeading}>Reserve {vehicleName}</Text>
           <Text style={styles.reserveSubText}>
-            100% refundable reservation • Instant hub pickup or doorstep delivery
+            100% refundable reservation • Instant Zone pickup or doorstep delivery
           </Text>
 
           <View style={styles.faqCard}>
@@ -1617,15 +1617,9 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
         </View>
       </Modal>
 
-      {/* Google Maps Pin Confirmation Full-Screen Modal (Matches Screenshot 2) */}
-      <Modal
-        visible={mapPickerOpen}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        statusBarTranslucent
-        onRequestClose={() => setMapPickerOpen(false)}
-      >
-        <View style={styles.mapModalRoot}>
+      {/* Google Maps Pin Confirmation Full-Screen Overlay View (Free of iOS native modal freeze) */}
+      {mapPickerOpen ? (
+        <View style={[styles.mapModalRoot, StyleSheet.absoluteFill, { zIndex: 9999 }]}>
           <StatusBar style="dark" />
 
           {/* Interactive Map Canvas */}
@@ -1647,7 +1641,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
             <View style={[styles.mapBuildingBlock, { top: '52%', left: '48%', width: 76, height: 42 }]} />
             <View style={[styles.mapBuildingBlock, { top: '60%', left: '22%', width: 54, height: 32 }]} />
 
-            {/* Tappable Map Landmarks matching Screenshot 2 */}
+            {/* Tappable Map Landmarks */}
             {MAP_LANDMARKS.map((lm) => (
               <Pressable
                 key={lm.id}
@@ -1690,7 +1684,9 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
               <Pressable
                 onPress={() => {
                   setMapPickerOpen(false);
-                  setAddressSheetOpen(true);
+                  setTimeout(() => {
+                    setAddressSheetOpen(true);
+                  }, 150);
                 }}
                 style={styles.mapBackCircleBtn}
               >
@@ -1753,267 +1749,257 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
               }}
               style={styles.mapConfirmGreenBtn}
             >
-              <Text style={styles.mapConfirmGreenBtnText}>Confirm</Text>
+              <Text style={styles.mapConfirmGreenBtnText}>Confirm Location</Text>
             </Pressable>
           </View>
-        </View>
-      </Modal>
 
-      {/* Search Address Popup Modal (Screenshot 2 / Video Frame 7) */}
-      <Modal
-        visible={searchAddressPopupOpen}
-        transparent
-        animationType="slide"
-        statusBarTranslucent
-        onRequestClose={() => setSearchAddressPopupOpen(false)}
-      >
-        <View style={styles.modalBackdropDark}>
-          <Pressable
-            style={styles.modalBackdropTouch}
-            onPress={() => setSearchAddressPopupOpen(false)}
-          />
-          <View
-            style={[
-              styles.searchAddressSheet,
-              { paddingBottom: Math.max(insets.bottom, 20) },
-            ]}
-          >
-            {/* Header with Title & Circular Close Button */}
-            <View style={styles.searchAddressHeader}>
-              <Text style={styles.searchAddressTitle}>Search Address</Text>
+          {/* Search Address Popup Overlay View */}
+          {searchAddressPopupOpen ? (
+            <View style={[styles.modalBackdropDark, StyleSheet.absoluteFill, { zIndex: 10001 }]}>
               <Pressable
-                hitSlop={10}
+                style={styles.modalBackdropTouch}
                 onPress={() => setSearchAddressPopupOpen(false)}
-                style={styles.modalRoundCloseBtn}
+              />
+              <View
+                style={[
+                  styles.searchAddressSheet,
+                  { paddingBottom: Math.max(insets.bottom, 20) },
+                ]}
               >
-                <Ionicons name="close" size={20} color="#111827" />
-              </Pressable>
-            </View>
-
-            {/* Search Input Box */}
-            <View style={styles.searchAddressInputBox}>
-              <TextInput
-                value={searchAddressQuery}
-                onChangeText={setSearchAddressQuery}
-                placeholder="Search Address"
-                placeholderTextColor="#9CA3AF"
-                style={styles.searchAddressTextInput}
-                autoFocus
-              />
-              {searchAddressQuery ? (
-                <Pressable
-                  hitSlop={8}
-                  onPress={() => setSearchAddressQuery('')}
-                >
-                  <Ionicons name="close-circle" size={16} color="#9CA3AF" />
-                </Pressable>
-              ) : null}
-            </View>
-
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              style={{ maxHeight: 420 }}
-            >
-              {/* Recently Searched Locations */}
-              <View style={styles.searchSectionBanner}>
-                <Text style={styles.searchSectionBannerText}>
-                  Recently Searched Locations
-                </Text>
-              </View>
-
-              {filteredRecent.map((item) => (
-                <Pressable
-                  key={item.id}
-                  onPress={() => {
-                    setMapAddressDraft(item.address || item.title);
-                    setCompleteAddressDraft(item.title);
-                    setLocalityDraft(item.locality || 'vadodara');
-                    setSearchAddressPopupOpen(false);
-                  }}
-                  style={styles.searchLocationItemRow}
-                >
-                  <Ionicons
-                    name="location-outline"
-                    size={22}
-                    color="#111827"
-                    style={{ marginTop: 2 }}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.searchLocationItemTitle}>
-                      {item.title}
-                    </Text>
-                    {item.address !== item.title ? (
-                      <Text
-                        style={styles.searchLocationItemSub}
-                        numberOfLines={1}
-                      >
-                        {item.address}
-                      </Text>
-                    ) : null}
-                  </View>
-                </Pressable>
-              ))}
-
-              {/* Suggested Pickup Locations */}
-              <View style={[styles.searchSectionBanner, { marginTop: 14 }]}>
-                <Text style={styles.searchSectionBannerText}>
-                  Suggested Pickup Locations
-                </Text>
-              </View>
-
-              {filteredSuggested.map((item) => (
-                <Pressable
-                  key={item.id}
-                  onPress={() => {
-                    setMapAddressDraft(item.title);
-                    setCompleteAddressDraft(item.title);
-                    setLocalityDraft(item.locality || 'vadodara');
-                    setSearchAddressPopupOpen(false);
-                  }}
-                  style={styles.searchLocationItemRow}
-                >
-                  <Ionicons
-                    name="location-outline"
-                    size={22}
-                    color="#111827"
-                    style={{ marginTop: 2 }}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.searchLocationItemTitle}>
-                      {item.title}
-                    </Text>
-                    {item.address ? (
-                      <Text
-                        style={styles.searchLocationItemSub}
-                        numberOfLines={2}
-                      >
-                        {item.address}
-                      </Text>
-                    ) : null}
-                  </View>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Add A New Delivery Address Modal (Screenshot 3 / Video Frame 10-14) */}
-      <Modal
-        visible={addAddressSheetOpen}
-        transparent
-        animationType="slide"
-        statusBarTranslucent
-        onRequestClose={() => setAddAddressSheetOpen(false)}
-      >
-        <View style={styles.modalBackdropDark}>
-          <Pressable
-            style={styles.modalBackdropTouch}
-            onPress={() => setAddAddressSheetOpen(false)}
-          />
-          <View
-            style={[
-              styles.addAddressSheet,
-              { paddingBottom: Math.max(insets.bottom, 20) },
-            ]}
-          >
-            <View style={styles.addAddressTopRow}>
-              <Text style={styles.addAddressSheetTitle}>
-                Add A New Delivery Address
-              </Text>
-              <Pressable
-                hitSlop={10}
-                onPress={() => setAddAddressSheetOpen(false)}
-                style={styles.modalRoundCloseBtn}
-              >
-                <Ionicons name="close" size={20} color="#111827" />
-              </Pressable>
-            </View>
-
-            {/* Fieldset 1: Complete Address */}
-            <View style={styles.floatingFieldsetBox}>
-              <Text style={styles.floatingFieldsetLabel}>Complete Address</Text>
-              <TextInput
-                value={completeAddressDraft}
-                onChangeText={setCompleteAddressDraft}
-                placeholder="Complete Address"
-                placeholderTextColor="#9CA3AF"
-                style={styles.floatingFieldsetInput}
-                multiline
-              />
-            </View>
-
-            {/* Fieldset 2: Locality */}
-            <View style={styles.floatingFieldsetBox}>
-              <Text style={styles.floatingFieldsetLabel}>Locality</Text>
-              <TextInput
-                value={localityDraft}
-                onChangeText={setLocalityDraft}
-                placeholder="Locality"
-                placeholderTextColor="#9CA3AF"
-                style={styles.floatingFieldsetInput}
-              />
-            </View>
-
-            {/* Category Tag Tabs: HOME | WORK | OTHERS */}
-            <View style={styles.addrCategoryTabsRow}>
-              {['HOME', 'WORK', 'OTHERS'].map((cat) => {
-                const active = addressCategoryTag === cat;
-                return (
+                {/* Header with Title & Circular Close Button */}
+                <View style={styles.searchAddressHeader}>
+                  <Text style={styles.searchAddressTitle}>Search Address</Text>
                   <Pressable
-                    key={cat}
-                    onPress={() => setAddressCategoryTag(cat)}
-                    style={styles.addrCategoryTabItem}
+                    hitSlop={10}
+                    onPress={() => setSearchAddressPopupOpen(false)}
+                    style={styles.modalRoundCloseBtn}
                   >
-                    <Text
-                      style={[
-                        styles.addrCategoryTabText,
-                        active && styles.addrCategoryTabTextActive,
-                      ]}
-                    >
-                      {cat}
-                    </Text>
-                    <View
-                      style={[
-                        styles.addrCategoryUnderline,
-                        active && styles.addrCategoryUnderlineActive,
-                      ]}
-                    />
+                    <Ionicons name="close" size={20} color="#111827" />
                   </Pressable>
-                );
-              })}
-            </View>
+                </View>
 
-            {/* Save Address Button */}
-            <Pressable
-              onPress={() => {
-                const finalAddr = completeAddressDraft.trim() || mapAddressDraft;
-                if (editingAddressId) {
-                  setSavedAddresses((prev) =>
-                    prev.map((item) =>
-                      item.id === editingAddressId
-                        ? { ...item, address: finalAddr, tag: addressCategoryTag }
-                        : item
-                    )
-                  );
-                  setEditingAddressId(null);
-                } else {
-                  setSavedAddresses((prev) => [
-                    { id: `addr-${Date.now()}`, tag: addressCategoryTag, address: finalAddr },
-                    ...prev,
-                  ]);
-                }
-                setAddAddressSheetOpen(false);
-                setMapPickerOpen(false);
-                applySelectedAddress(finalAddr);
-              }}
-              style={styles.saveAddressGreenBtn}
-            >
-              <Text style={styles.saveAddressGreenBtnText}>Save Address</Text>
-            </Pressable>
-          </View>
+                {/* Search Input Box */}
+                <View style={styles.searchAddressInputBox}>
+                  <TextInput
+                    value={searchAddressQuery}
+                    onChangeText={setSearchAddressQuery}
+                    placeholder="Search Address"
+                    placeholderTextColor="#9CA3AF"
+                    style={styles.searchAddressTextInput}
+                    autoFocus
+                  />
+                  {searchAddressQuery ? (
+                    <Pressable
+                      hitSlop={8}
+                      onPress={() => setSearchAddressQuery('')}
+                    >
+                      <Ionicons name="close-circle" size={16} color="#9CA3AF" />
+                    </Pressable>
+                  ) : null}
+                </View>
+
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  style={{ maxHeight: 420 }}
+                >
+                  {/* Recently Searched Locations */}
+                  <View style={styles.searchSectionBanner}>
+                    <Text style={styles.searchSectionBannerText}>
+                      Recently Searched Locations
+                    </Text>
+                  </View>
+
+                  {filteredRecent.map((item) => (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => {
+                        setMapAddressDraft(item.address || item.title);
+                        setCompleteAddressDraft(item.title);
+                        setLocalityDraft(item.locality || 'vadodara');
+                        setSearchAddressPopupOpen(false);
+                      }}
+                      style={styles.searchLocationItemRow}
+                    >
+                      <View style={styles.locationPinCircle}>
+                        <Ionicons
+                          name="location"
+                          size={18}
+                          color={FLEXI_PURPLE}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.searchLocationItemTitle}>
+                          {item.title}
+                        </Text>
+                        {item.address !== item.title ? (
+                          <Text
+                            style={styles.searchLocationItemSub}
+                            numberOfLines={1}
+                          >
+                            {item.address}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  ))}
+
+                  {/* Suggested Pickup Locations */}
+                  <View style={[styles.searchSectionBanner, { marginTop: 14 }]}>
+                    <Text style={styles.searchSectionBannerText}>
+                      Suggested Pickup Locations
+                    </Text>
+                  </View>
+
+                  {filteredSuggested.map((item) => (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => {
+                        setMapAddressDraft(item.title);
+                        setCompleteAddressDraft(item.title);
+                        setLocalityDraft(item.locality || 'vadodara');
+                        setSearchAddressPopupOpen(false);
+                      }}
+                      style={styles.searchLocationItemRow}
+                    >
+                      <View style={styles.locationPinCircle}>
+                        <Ionicons
+                          name="location"
+                          size={18}
+                          color={FLEXI_PURPLE}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.searchLocationItemTitle}>
+                          {item.title}
+                        </Text>
+                        {item.address ? (
+                          <Text
+                            style={styles.searchLocationItemSub}
+                            numberOfLines={2}
+                          >
+                            {item.address}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+          ) : null}
+
+          {/* Add A New Delivery Address Overlay View */}
+          {addAddressSheetOpen ? (
+            <View style={[styles.modalBackdropDark, StyleSheet.absoluteFill, { zIndex: 10002 }]}>
+              <Pressable
+                style={styles.modalBackdropTouch}
+                onPress={() => setAddAddressSheetOpen(false)}
+              />
+              <View
+                style={[
+                  styles.addAddressSheet,
+                  { paddingBottom: Math.max(insets.bottom, 20) },
+                ]}
+              >
+                <View style={styles.addAddressTopRow}>
+                  <Text style={styles.addAddressSheetTitle}>
+                    Add A New Delivery Address
+                  </Text>
+                  <Pressable
+                    hitSlop={10}
+                    onPress={() => setAddAddressSheetOpen(false)}
+                    style={styles.modalRoundCloseBtn}
+                  >
+                    <Ionicons name="close" size={20} color="#111827" />
+                  </Pressable>
+                </View>
+
+                {/* Fieldset 1: Complete Address */}
+                <View style={styles.floatingFieldsetBox}>
+                  <Text style={styles.floatingFieldsetLabel}>Complete Address</Text>
+                  <TextInput
+                    value={completeAddressDraft}
+                    onChangeText={setCompleteAddressDraft}
+                    placeholder="Complete Address"
+                    placeholderTextColor="#9CA3AF"
+                    style={styles.floatingFieldsetInput}
+                    multiline
+                  />
+                </View>
+
+                {/* Fieldset 2: Locality */}
+                <View style={styles.floatingFieldsetBox}>
+                  <Text style={styles.floatingFieldsetLabel}>Locality</Text>
+                  <TextInput
+                    value={localityDraft}
+                    onChangeText={setLocalityDraft}
+                    placeholder="Locality"
+                    placeholderTextColor="#9CA3AF"
+                    style={styles.floatingFieldsetInput}
+                  />
+                </View>
+
+                {/* Category Tag Tabs: HOME | WORK | OTHERS */}
+                <View style={styles.addrCategoryTabsRow}>
+                  {['HOME', 'WORK', 'OTHERS'].map((cat) => {
+                    const active = addressCategoryTag === cat;
+                    return (
+                      <Pressable
+                        key={cat}
+                        onPress={() => setAddressCategoryTag(cat)}
+                        style={styles.addrCategoryTabItem}
+                      >
+                        <Text
+                          style={[
+                            styles.addrCategoryTabText,
+                            active && styles.addrCategoryTabTextActive,
+                          ]}
+                        >
+                          {cat}
+                        </Text>
+                        <View
+                          style={[
+                            styles.addrCategoryUnderline,
+                            active && styles.addrCategoryUnderlineActive,
+                          ]}
+                        />
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {/* Save Address Button */}
+                <Pressable
+                  onPress={() => {
+                    const finalAddr = completeAddressDraft.trim() || mapAddressDraft;
+                    if (editingAddressId) {
+                      setSavedAddresses((prev) =>
+                        prev.map((item) =>
+                          item.id === editingAddressId
+                            ? { ...item, address: finalAddr, tag: addressCategoryTag }
+                            : item
+                        )
+                      );
+                      setEditingAddressId(null);
+                    } else {
+                      setSavedAddresses((prev) => [
+                        { id: `addr-${Date.now()}`, tag: addressCategoryTag, address: finalAddr },
+                        ...prev,
+                      ]);
+                    }
+                    setAddAddressSheetOpen(false);
+                    setMapPickerOpen(false);
+                    applySelectedAddress(finalAddr);
+                  }}
+                  style={styles.saveAddressGreenBtn}
+                >
+                  <Text style={styles.saveAddressGreenBtnText}>Save Address</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
         </View>
-      </Modal>
+      ) : null}
 
       {/* Things to keep in mind Modal (Screenshot 1 / Video Frame 0) */}
       <Modal
@@ -3185,7 +3171,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   /* Location Pill, Guarantee Card & Flexi EV Delivery & Pickup Styles */
-  hubLocationPill: {
+  ZoneLocationPill: {
     marginTop: 16,
     height: 44,
     borderRadius: 12,
@@ -3197,7 +3183,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  hubLocationText: {
+  ZoneLocationText: {
     flex: 1,
     fontSize: 13,
     fontWeight: '700',
@@ -3944,15 +3930,20 @@ const styles = StyleSheet.create({
   },
   mapConfirmGreenBtn: {
     height: 50,
-    borderRadius: 12,
-    backgroundColor: '#12804A',
+    borderRadius: 14,
+    backgroundColor: FLEXI_PURPLE,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: FLEXI_PURPLE,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
   },
   mapConfirmGreenBtnText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   modalBackdropDark: {
     flex: 1,
@@ -4028,6 +4019,15 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
+  locationPinCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F3E8FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
   searchLocationItemTitle: {
     fontSize: 15,
     fontWeight: '700',
@@ -4102,7 +4102,7 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   addrCategoryTabTextActive: {
-    color: '#12804A',
+    color: FLEXI_PURPLE,
     fontWeight: '800',
   },
   addrCategoryUnderline: {
@@ -4112,19 +4112,24 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   addrCategoryUnderlineActive: {
-    backgroundColor: '#12804A',
+    backgroundColor: FLEXI_PURPLE,
   },
   saveAddressGreenBtn: {
-    height: 48,
-    borderRadius: 10,
-    backgroundColor: '#12804A',
+    height: 50,
+    borderRadius: 14,
+    backgroundColor: FLEXI_PURPLE,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: FLEXI_PURPLE,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
   },
   saveAddressGreenBtnText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   keepInMindSheet: {
     backgroundColor: '#FFFFFF',
@@ -4178,17 +4183,22 @@ const styles = StyleSheet.create({
     marginVertical: 14,
   },
   gotItGreenBtn: {
-    height: 48,
-    borderRadius: 10,
-    backgroundColor: '#12804A',
+    height: 50,
+    borderRadius: 14,
+    backgroundColor: FLEXI_PURPLE,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 20,
+    shadowColor: FLEXI_PURPLE,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
   },
   gotItGreenBtnText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   keepMindBullet: {
     flexDirection: 'row',

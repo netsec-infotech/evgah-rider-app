@@ -1,17 +1,37 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Dimensions, Image as RNImage, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  Dimensions,
+  Image as RNImage,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { Image } from 'expo-image';
 import { useEventListener } from 'expo';
 import { BlurTargetView, BlurView } from 'expo-blur';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   Easing,
+  Extrapolation,
   FadeIn,
+  FadeInDown,
   ReduceMotion,
-  ZoomIn,
   cancelAnimation,
+  interpolate,
   runOnJS,
+  useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -20,20 +40,29 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
-import { EVEGAH_ZONES } from './LocationScreen';
+import LocationScreen, { EVEGAH_ZONES } from './LocationScreen';
 
 const { width: SCREEN_W } = Dimensions.get('window');
-const PURPLE = '#4A168C';
+
+// 100% Light Theme Palette
+const PAGE_BG = '#F8F7FC';
+const CARD_BG = '#FFFFFF';
+const TEXT_INK = '#190D33';
+const TEXT_SLATE = '#524769';
+const TEXT_MUTED = '#84789C';
+const BRAND_PURPLE_ACCENT = '#5B21B6';
+const BRAND_VIOLET = '#7C3AED';
+const PURPLE_TINT = '#F3EEFF';
+const BORDER_LIGHT = '#EAE4F7';
+
 const EASE = Easing.bezier(0.22, 1, 0.36, 1);
 const TOAST_OFFSCREEN_Y = -120;
 const TOAST_ENTER_MS = 560;
 const TOAST_EXIT_MS = 480;
 const TOAST_VISIBLE_MS = 4000;
 const TOAST_EASE_IN = Easing.bezier(0.4, 0, 0.2, 1);
+
 const INTRO_VIDEO = require('../assets/intro-ride.mp4');
-const VIDEO_WIDTH = 1492;
-const VIDEO_HEIGHT = 1440;
-const BANNER_HEIGHT = Math.round(SCREEN_W * (VIDEO_HEIGHT / VIDEO_WIDTH));
 const GLIDE_RATE = 1.5;
 const SCOOTER_WIDTH = 60;
 const SCOOTER_HEIGHT = 32;
@@ -41,247 +70,893 @@ const TRAIL_WIDTH = 30;
 const RIDE_GROUP_WIDTH = SCOOTER_WIDTH + TRAIL_WIDTH;
 const ROAD_DASHES = Array.from({ length: 16 }, (_, index) => index);
 const VIDEO_MARKS = [0, 1.5, 3, 4.5, 6, 7.5, 9.2];
-const PIN_COL = 60;
-const LABEL_SLOT = 42;
+
+// ============================================================================
+// FULL SLIDER CONSTANTS & ALL 3 SLIDES (CARD-FRAMED LIGHT THEME PARALLAX)
+// ============================================================================
+const SLIDE_WIDTH = SCREEN_W;
+const SLIDE_HEIGHT = Math.round(SCREEN_W * (310 / 401));
+const SLIDER1_FRONT_W = Math.round(SCREEN_W * 0.54);
+const SLIDER1_FRONT_H = Math.round(SLIDER1_FRONT_W * (1024 / 1536));
+const SLIDER2_FRONT_W = Math.round(SCREEN_W * 0.54);
+const SLIDER2_FRONT_H = Math.round(SLIDER2_FRONT_W * (1142 / 1377));
+const SLIDER3_FRONT_W = Math.round(SCREEN_W * 0.46);
+const SLIDER3_FRONT_H = Math.round(SLIDER3_FRONT_W * (1568 / 1003));
+
+const RENT_SLIDES = [
+  {
+    id: 'slide-1',
+    tabTitle: 'Festive Pass',
+    kind: 'navratri',
+    bg: require('../assets/rent/slider-1.png'),
+    front: require('../assets/rent/slider1-bg.png'),
+    frontWidth: SLIDER1_FRONT_W,
+    frontHeight: SLIDER1_FRONT_H,
+    frontRight: -6,
+    frontBottom: 12,
+    cta: 'Rent EVs',
+  },
+  {
+    id: 'slide-2',
+    tabTitle: 'Smart Way',
+    kind: 'headline',
+    bg: require('../assets/rent/slider-2.png'),
+    front: require('../assets/rent/slider2-bg.png'),
+    frontWidth: SLIDER2_FRONT_W,
+    frontHeight: SLIDER2_FRONT_H,
+    frontRight: -2,
+    frontBottom: 10,
+    lines: ['Rent your EV', 'for the', 'Smart Way'],
+    cta: 'Rent EV',
+  },
+  {
+    id: 'slide-3',
+    tabTitle: 'Zero Deposit',
+    kind: 'smart',
+    bg: require('../assets/rent/slider-3.png'),
+    front: require('../assets/rent/slider3-front.png'),
+    frontWidth: SLIDER3_FRONT_W,
+    frontHeight: SLIDER3_FRONT_H,
+    frontRight: -4,
+    frontBottom: 6,
+    lines: ['Smart Way', 'to Ride'],
+    subLines: ['Zero deposit plan', 'options'],
+    cta: 'Go With EV',
+  },
+];
+const RENT_LOOP = [...RENT_SLIDES, RENT_SLIDES[0]];
 
 const ZONES = [
-  { id: 'gotri', name: 'Gotri', area: 'Gotri Main Road', distance: '1.2 km' },
-  { id: 'manjalpur', name: 'Manjalpur', area: 'Manjalpur Main Road', distance: '2.8 km' },
-  { id: 'aatapi', name: 'Aatapi', area: 'Ajwa Nimeta Road', distance: '4.5 km' },
-  { id: 'kpgu', name: 'KPGU', area: 'Babaria Institute Campus', distance: '5.1 km' },
+  { id: 'gotri', name: 'Gotri', shortName: 'Gotri', area: 'Gotri Main Road', distance: '1.2 km' },
+  { id: 'manjalpur', name: 'Manjalpur', shortName: 'Manjalpur', area: 'Manjalpur Main Road', distance: '2.8 km' },
+  { id: 'aatapi', name: 'Aatapi', shortName: 'Aatapi', area: 'Ajwa Nimeta Road', distance: '4.5 km' },
+  { id: 'kpgu', name: 'KPGU', shortName: 'KPGU', area: 'Babaria Institute Campus', distance: '5.1 km' },
 ];
 
-const TIMES = ['8:00 AM', '10:00 AM', '12:00 PM', '2:00 PM', '4:00 PM'];
-const CLOCK_SIZE = 248;
-const HOURS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-const MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
-const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-
 function startOfDay(offset) {
-  const date = new Date();
-  date.setHours(0, 0, 0, 0);
+  const date = new Date(2026, 9, 14);
   date.setDate(date.getDate() + offset);
+  date.setHours(0, 0, 0, 0);
   return date;
 }
 
-const DAYS = Array.from({ length: 2 }, (_, index) => startOfDay(index));
-const LATEST_DAY = (() => {
-  const date = startOfDay(0);
-  date.setMonth(date.getMonth() + 1);
-  return date;
-})();
+const DAYS = [
+  startOfDay(0),
+  startOfDay(1),
+  startOfDay(2),
+  startOfDay(3),
+  startOfDay(4),
+  startOfDay(5),
+  startOfDay(6),
+];
 
 function dayName(date, index) {
   if (index === 0) return 'Today';
   if (index === 1) return 'Tomorrow';
-  return date.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
+  return date.toLocaleDateString('en-IN', { weekday: 'short' });
 }
 
 function clockToDate(day, time) {
   if (!day || !time) return null;
-  const match = time.match(/(\d+):(\d+)\s*(AM|PM)/);
+  const match = time.match(/(\d+):(\d+)\s*(AM|PM)/i);
   if (!match) return null;
-  let hour = Number(match[1]) % 12;
-  if (match[3] === 'PM') hour += 12;
-  const date = new Date(day);
-  date.setHours(hour, Number(match[2]), 0, 0);
-  return date;
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const meridiem = match[3].toUpperCase();
+  if (meridiem === 'PM' && hours < 12) hours += 12;
+  if (meridiem === 'AM' && hours === 12) hours = 0;
+  const out = new Date(day.getTime());
+  out.setHours(hours, minutes, 0, 0);
+  return out;
 }
 
 function spanLabel(start, end) {
-  const hours = Math.round((end.getTime() - start.getTime()) / 36e5);
-  if (hours <= 0) return '';
-  if (hours < 24) return `${hours} hr`;
-  const days = Math.round(hours / 24);
-  return days === 1 ? '1 day' : `${days} days`;
+  if (!start || !end) return '';
+  const diffMins = Math.max(30, Math.round((end.getTime() - start.getTime()) / (1000 * 60)));
+  const totalHours = Math.floor(diffMins / 60);
+  const remMins = diffMins % 60;
+  const days = Math.floor(totalHours / 24);
+  const remHours = totalHours % 24;
+
+  if (days === 0) {
+    if (remMins === 0) return `${totalHours} ${totalHours === 1 ? 'hr' : 'hrs'}`;
+    return `${totalHours}h ${remMins}m`;
+  }
+  if (remHours === 0 && remMins === 0) {
+    return `${days} ${days === 1 ? 'day' : 'days'}`;
+  }
+  return `${days}d ${remHours}h${remMins > 0 ? ` ${remMins}m` : ''}`;
 }
 
-function whenLabel(day, time) {
-  if (!day || !time) return 'Add a time';
-  const index = DAYS.findIndex((item) => item.getTime() === day.getTime());
-  return `${dayName(day, index)} · ${time}`;
-}
-
-function shortDate(date) {
-  return date.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
-}
-
-function formatRentBoxDateTime(day, time) {
-  if (!day) return 'Select';
-  const monthShort = day.toLocaleDateString('en-US', { month: 'short' });
-  const dNum = day.getDate();
-  const timeStr = String(time || '8:00 AM').replace(/\s+/g, '');
-  return `${monthShort} ${dNum}, ${timeStr}`;
-}
-
-function presetIndex(day) {
-  if (!day) return -1;
-  return DAYS.findIndex((item) => item.getTime() === day.getTime());
-}
-
-function customDateLabel(day) {
-  const index = presetIndex(day);
-  if (!day || index >= 0) return 'Custom';
-  return shortDate(day);
-}
-
-function customTimeLabel(time) {
-  if (!time || TIMES.includes(time)) return 'Custom';
-  return time;
-}
+// ============================================================================
+// PRECISION CLOCK CONSTANTS (12 HOURS + ALL 60 MINUTES 00–59)
+// ============================================================================
+const CLOCK_SIZE = 264;
+const CLOCK_CENTER = CLOCK_SIZE / 2;
+const CLOCK_HOURS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+const CLOCK_MAJOR_MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+const ALL_60_MINUTES = Array.from({ length: 60 }, (_, i) => i);
 
 function parseClock(value) {
-  const match = String(value || '').match(/(\d+):(\d+)\s*(AM|PM)/);
-  if (!match) return { hour: 6, minute: 0, meridiem: 'PM' };
-  return { hour: Number(match[1]), minute: Number(match[2]), meridiem: match[3] };
+  if (!value) return { hour: 8, minute: 0, meridiem: 'AM' };
+  const match = value.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!match) return { hour: 8, minute: 0, meridiem: 'AM' };
+  const h = parseInt(match[1], 10) || 8;
+  const m = Math.max(0, Math.min(59, parseInt(match[2], 10) || 0));
+  return {
+    hour: h,
+    minute: m,
+    meridiem: match[3].toUpperCase() === 'PM' ? 'PM' : 'AM',
+  };
 }
 
 function formatClock(hour, minute, meridiem) {
-  return `${hour}:${String(minute).padStart(2, '0')} ${meridiem}`;
+  const h = parseInt(hour, 10) || 12;
+  const m = String(Math.max(0, Math.min(59, Number(minute) || 0))).padStart(2, '0');
+  return `${h}:${m} ${meridiem}`;
 }
 
-function ringSpot(index, count, radius) {
-  const angle = (index / count) * Math.PI * 2 - Math.PI / 2;
+// Fixed ringSpot: centers perfectly around CLOCK_CENTER
+function ringSpot(index, count, orbitRadius, itemSize = 36) {
+  const angle = (index / count) * 2 * Math.PI - Math.PI / 2;
+  const half = itemSize / 2;
   return {
-    left: CLOCK_SIZE / 2 + Math.cos(angle) * radius - 18,
-    top: CLOCK_SIZE / 2 + Math.sin(angle) * radius - 18,
+    left: CLOCK_CENTER + orbitRadius * Math.cos(angle) - half,
+    top: CLOCK_CENTER + orbitRadius * Math.sin(angle) - half,
   };
 }
+
+const CAL_ANCHOR = new Date(2026, 9, 14);
 
 function monthCells(cursor) {
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
   const first = new Date(year, month, 1);
-  const count = new Date(year, month + 1, 0).getDate();
-  const cells = Array.from({ length: first.getDay() }, () => null);
-  for (let day = 1; day <= count; day += 1) cells.push(new Date(year, month, day));
+  const total = new Date(year, month + 1, 0).getDate();
+  const lead = first.getDay();
+  const cells = [];
+  for (let i = 0; i < lead; i += 1) {
+    cells.push(null);
+  }
+  for (let day = 1; day <= total; day += 1) {
+    cells.push(new Date(year, month, day));
+  }
   return cells;
 }
 
 function dayInWindow(day) {
-  const time = day.getTime();
-  return time >= startOfDay(0).getTime() && time <= LATEST_DAY.getTime();
+  if (!day) return false;
+  const start = new Date(
+    CAL_ANCHOR.getFullYear(),
+    CAL_ANCHOR.getMonth(),
+    CAL_ANCHOR.getDate()
+  );
+  const end = new Date(start.getTime());
+  end.setDate(end.getDate() + 90);
+  return day.getTime() >= start.getTime() && day.getTime() <= end.getTime();
 }
 
 function rangeCaption(start, end) {
-  const fmt = (day) => day.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
-  if (!start) return 'Tap a start date, then an end date';
-  if (!end) return `${fmt(start)}  ·  tap the end date`;
-  if (end.getTime() === start.getTime()) return fmt(start);
-  return `${fmt(start)}  –  ${fmt(end)}`;
+  if (!start) return 'Select trip dates';
+  const sText = start.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+  });
+  if (!end) return `${sText} (Pick return date)`;
+  const eText = end.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+  });
+  return `${sText} → ${eText}`;
 }
 
+function missingStep({
+  pickupZone,
+  dropPlace,
+  pickupDay,
+  pickupTime,
+  dropDay,
+  dropTime,
+}) {
+  if (!pickupZone) return 'Choose pickup Zone';
+  if (!dropPlace) return 'Choose drop Zone';
+  if (!pickupDay) return 'Choose pickup date';
+  if (!pickupTime) return 'Choose pickup time';
+  if (!dropDay) return 'Choose drop date';
+  if (!dropTime) return 'Choose drop time';
+  return null;
+}
+
+// ============================================================================
+// MERGE SLIDE COMPONENT (MULTI-LAYER PARALLAX FOR ALL 3 SLIDES)
+// ============================================================================
+function MergeSlide({ index, slide, scrollX }) {
+  const bgStyle = useAnimatedStyle(() => {
+    const input = [
+      (index - 1) * SLIDE_WIDTH,
+      index * SLIDE_WIDTH,
+      (index + 1) * SLIDE_WIDTH,
+    ];
+    return {
+      opacity: interpolate(
+        scrollX.value,
+        input,
+        [0, 1, 0],
+        Extrapolation.CLAMP
+      ),
+      transform: [
+        {
+          translateX: interpolate(
+            scrollX.value,
+            input,
+            [SLIDE_WIDTH * 0.24, 0, -SLIDE_WIDTH * 0.24],
+            Extrapolation.CLAMP
+          ),
+        },
+        {
+          scale: interpolate(
+            scrollX.value,
+            input,
+            [1.04, 1, 1.04],
+            Extrapolation.CLAMP
+          ),
+        },
+      ],
+    };
+  });
+
+  const copyStyle = useAnimatedStyle(() => {
+    const input = [
+      (index - 1) * SLIDE_WIDTH,
+      index * SLIDE_WIDTH,
+      (index + 1) * SLIDE_WIDTH,
+    ];
+    return {
+      opacity: interpolate(
+        scrollX.value,
+        [
+          input[0] + SLIDE_WIDTH * 0.14,
+          input[1],
+          input[2] - SLIDE_WIDTH * 0.14,
+        ],
+        [0, 1, 0],
+        Extrapolation.CLAMP
+      ),
+      transform: [
+        {
+          translateX: interpolate(
+            scrollX.value,
+            input,
+            [SLIDE_WIDTH * 0.56, 0, -SLIDE_WIDTH * 0.56],
+            Extrapolation.CLAMP
+          ),
+        },
+      ],
+    };
+  });
+
+  const frontStyle = useAnimatedStyle(() => {
+    const input = [
+      (index - 1) * SLIDE_WIDTH,
+      index * SLIDE_WIDTH,
+      (index + 1) * SLIDE_WIDTH,
+    ];
+    return {
+      opacity: interpolate(
+        scrollX.value,
+        [
+          input[0] + SLIDE_WIDTH * 0.08,
+          input[1],
+          input[2] - SLIDE_WIDTH * 0.08,
+        ],
+        [0, 1, 0],
+        Extrapolation.CLAMP
+      ),
+      transform: [
+        {
+          translateX: interpolate(
+            scrollX.value,
+            input,
+            [SLIDE_WIDTH * 0.82, 0, -SLIDE_WIDTH * 0.82],
+            Extrapolation.CLAMP
+          ),
+        },
+        {
+          scale: interpolate(
+            scrollX.value,
+            input,
+            [0.93, 1, 0.93],
+            Extrapolation.CLAMP
+          ),
+        },
+      ],
+    };
+  });
+
+  return (
+    <View pointerEvents="none" style={styles.slide}>
+      <Animated.View style={[styles.slideBgWrap, bgStyle]}>
+        <Image source={slide.bg} style={styles.slideImage} contentFit="cover" />
+        {slide.kind !== 'navratri' ? (
+          <LinearGradient
+            colors={[
+              'rgba(10, 12, 18, 0.58)',
+              'rgba(10, 12, 18, 0.22)',
+              'transparent',
+            ]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 0.78, y: 0.5 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+        ) : null}
+      </Animated.View>
+
+      <Animated.View style={[styles.slideCopyWrap, copyStyle]}>
+        {slide.kind === 'navratri' ? (
+          <View style={styles.navratriEmblem}>
+            <View style={styles.navratriArchRow}>
+              <View style={styles.navratriArchWing} />
+              <View style={styles.navratriArchDome}>
+                <Ionicons name="sparkles" size={12} color="#B51F38" />
+              </View>
+              <View style={styles.navratriArchWing} />
+            </View>
+            <Text style={styles.navratriHelloText}>HELLO,</Text>
+            <Text style={styles.navratriMainText}>RIDERS</Text>
+            <View style={styles.navratriSwirlBar} />
+          </View>
+        ) : (
+          <View style={styles.slideHeadlineBlock}>
+            <View style={styles.slideAccentVector}>
+              <View style={styles.slideAccentDot} />
+              <View style={styles.slideAccentLine} />
+            </View>
+            {slide.lines?.map((line) => (
+              <Text key={line} style={styles.slideHeadlineText}>
+                {line}
+              </Text>
+            ))}
+            {slide.subLines ? (
+              <View style={styles.slideSubBlock}>
+                {slide.subLines.map((sub) => (
+                  <Text key={sub} style={styles.slideSubText}>
+                    {sub}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        )}
+
+        <View
+          style={[
+            styles.slideCtaBtn,
+            slide.kind === 'navratri' && styles.slideCtaBtnGold,
+          ]}
+        >
+          <Text style={styles.slideCtaText}>{slide.cta}</Text>
+        </View>
+      </Animated.View>
+
+      {slide.front ? (
+        <Animated.View
+          style={[
+            styles.slideFrontWrap,
+            {
+              width: slide.frontWidth,
+              height: slide.frontHeight,
+              right: slide.frontRight ?? 0,
+              bottom: slide.frontBottom,
+            },
+            frontStyle,
+          ]}
+        >
+          <Image
+            source={slide.front}
+            style={styles.slideFrontImage}
+            contentFit="contain"
+          />
+        </Animated.View>
+      ) : null}
+    </View>
+  );
+}
+
+// ============================================================================
+// POPUP SHELL (LIGHT THEME)
+// ============================================================================
 function PopupShell({ blurTarget, onClose, children }) {
-  const progress = useSharedValue(0);
-  const closing = useRef(false);
+  const opacity = useSharedValue(0);
+  const cardScale = useSharedValue(0.92);
+  const cardTranslateY = useSharedValue(24);
 
   useEffect(() => {
-    progress.value = withTiming(1, {
-      duration: 420,
-      easing: EASE,
-      reduceMotion: ReduceMotion.Never,
-    });
-  }, [progress]);
+    opacity.value = withTiming(1, { duration: 240, easing: EASE });
+    cardScale.value = withSpring(1, { damping: 20, stiffness: 260 });
+    cardTranslateY.value = withSpring(0, { damping: 20, stiffness: 260 });
+  }, [cardScale, cardTranslateY, opacity]);
 
-  const requestClose = () => {
-    if (closing.current) return;
-    closing.current = true;
-    progress.value = withTiming(0, {
-      duration: 220,
-      easing: TOAST_EASE_IN,
-      reduceMotion: ReduceMotion.Never,
-    }, (finished) => {
-      if (finished) runOnJS(onClose)();
-    });
-  };
+  const requestClose = useCallback(() => {
+    opacity.value = withTiming(0, { duration: 180, easing: EASE });
+    cardScale.value = withTiming(0.94, { duration: 180, easing: EASE });
+    cardTranslateY.value = withTiming(
+      18,
+      { duration: 180, easing: EASE },
+      (done) => {
+        if (done && onClose) runOnJS(onClose)();
+      }
+    );
+  }, [cardScale, cardTranslateY, onClose, opacity]);
 
+  const backdropStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
   const cardStyle = useAnimatedStyle(() => ({
-    opacity: progress.value,
     transform: [
-      { translateY: (1 - progress.value) * 32 },
-      { scale: 0.92 + progress.value * 0.08 },
+      { scale: cardScale.value },
+      { translateY: cardTranslateY.value },
     ],
   }));
 
   return (
     <View style={styles.popupRoot}>
-      <Pressable style={StyleSheet.absoluteFill} onPress={requestClose}>
+      <Animated.View
+        style={[
+          StyleSheet.absoluteFillObject,
+          styles.popupBackdrop,
+          backdropStyle,
+        ]}
+      >
         <BlurView
-          blurTarget={blurTarget}
-          intensity={48}
+          intensity={42}
           tint="light"
-          blurMethod="dimezisBlurView"
-          blurReductionFactor={2}
-          style={StyleSheet.absoluteFill}
+          blurTarget={blurTarget}
+          style={StyleSheet.absoluteFillObject}
         />
-      </Pressable>
+        <Pressable
+          style={StyleSheet.absoluteFillObject}
+          onPress={requestClose}
+        />
+      </Animated.View>
       <Animated.View style={[styles.popupCard, cardStyle]}>
-        {children(requestClose)}
+        {typeof children === 'function' ? children(requestClose) : children}
       </Animated.View>
     </View>
   );
 }
 
+// ============================================================================
+// PRECISION CLOCK POPUP (HOURS 1-12 + EXACT 60 MINUTES 00-59)
+// ============================================================================
 function ClockPopup({ blurTarget, time, title, onClose, onConfirm }) {
-  const parsed = parseClock(time);
-  const [hour, setHour] = useState(parsed.hour);
-  const [minute, setMinute] = useState(MINUTES.reduce((best, item) => (
-    Math.abs(item - parsed.minute) < Math.abs(best - parsed.minute) ? item : best
-  ), 0));
-  const [meridiem, setMeridiem] = useState(parsed.meridiem);
+  const initial = useMemo(() => parseClock(time), [time]);
+  const [clockMode, setClockMode] = useState('hour'); // 'hour' | 'minute'
+  const [hour, setHour] = useState(initial.hour);
+  const [minute, setMinute] = useState(Number(initial.minute) || 0);
+  const [meridiem, setMeridiem] = useState(initial.meridiem);
+  const minStripRef = useRef(null);
+
+  const hourOrbitRadius = CLOCK_CENTER - 32;
+  const minOrbitRadius = CLOCK_CENTER - 30;
+
+  // Scroll the 00-59 minute strip to keep the active minute centered
+  useEffect(() => {
+    if (clockMode === 'minute') {
+      const timer = setTimeout(() => {
+        minStripRef.current?.scrollTo({
+          x: Math.max(0, minute * 44 - 100),
+          animated: true,
+        });
+      }, 60);
+      return () => clearTimeout(timer);
+    }
+  }, [clockMode, minute]);
+
+  // Handle touch / drag anywhere on the circular clock face for exact 00-59 min or 1-12 hr
+  const handleDialTouch = (evt) => {
+    const { locationX, locationY } = evt.nativeEvent;
+    const dx = locationX - CLOCK_CENTER;
+    const dy = locationY - CLOCK_CENTER;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 18) return; // Ignore center pin taps
+
+    let deg = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+    if (deg < 0) deg += 360;
+
+    if (clockMode === 'hour') {
+      let pickedHour = Math.round(deg / 30) % 12;
+      if (pickedHour === 0) pickedHour = 12;
+      setHour(pickedHour);
+    } else {
+      const pickedMin = Math.round(deg / 6) % 60;
+      setMinute(pickedMin);
+    }
+  };
+
+  const handleDialTouchRelease = (evt) => {
+    handleDialTouch(evt);
+    if (clockMode === 'hour') {
+      setTimeout(() => setClockMode('minute'), 160);
+    }
+  };
+
+  const stepMinute = (delta) => {
+    setClockMode('minute');
+    setMinute((prev) => (prev + delta + 60) % 60);
+  };
+
+  // Compute clock hand angle & tip coordinates
+  const activeAngleDeg =
+    clockMode === 'hour' ? (hour % 12) * 30 : (minute % 60) * 6;
+  const activeAngleRad = ((activeAngleDeg - 90) * Math.PI) / 180;
+  const activeRadius = clockMode === 'hour' ? hourOrbitRadius : minOrbitRadius;
+  const handTipX = CLOCK_CENTER + activeRadius * Math.cos(activeAngleRad);
+  const handTipY = CLOCK_CENTER + activeRadius * Math.sin(activeAngleRad);
 
   return (
     <PopupShell blurTarget={blurTarget} onClose={onClose}>
       {(requestClose) => (
         <>
-          <Text style={styles.popupTitle}>{title}</Text>
-          <View style={styles.meridiemRow}>
-            {['AM', 'PM'].map((item) => {
-              const on = meridiem === item;
-              return (
-                <Pressable key={item} onPress={() => setMeridiem(item)} style={[styles.meridiem, on && styles.meridiemOn]}>
-                  <Text style={[styles.meridiemText, on && styles.meridiemTextOn]}>{item}</Text>
-                </Pressable>
-              );
-            })}
+          <View style={styles.clockPopupHeaderRow}>
+            <View>
+              <Text style={styles.popupTitle}>{title}</Text>
+              <Text style={styles.popupHint}>
+                {clockMode === 'hour'
+                  ? 'Tap or drag on dial to pick hour (1–12)'
+                  : 'Tap or drag on dial for exact minute (00–59)'}
+              </Text>
+            </View>
+            <Pressable
+              hitSlop={10}
+              onPress={requestClose}
+              style={styles.popupCloseCircle}
+            >
+              <Ionicons name="close" size={18} color={TEXT_SLATE} />
+            </Pressable>
           </View>
-          <View style={styles.clock}>
-            <Text style={styles.clockReadout}>{formatClock(hour, minute, meridiem)}</Text>
-            {HOURS.map((item, index) => {
-              const on = hour === item;
-              return (
-                <Pressable
-                  key={item}
-                  onPress={() => setHour(item)}
-                  style={[styles.clockNum, ringSpot(index, 12, 92), on && styles.clockNumOn]}
+
+          {/* Digital Time Readout Bar with HR / MIN Switcher, -1/+1m Stepper & AM/PM */}
+          <View style={styles.clockDigitalHeader}>
+            <View style={styles.clockDigitalBox}>
+              <Pressable
+                style={[
+                  styles.clockDigitalPart,
+                  clockMode === 'hour' && styles.clockDigitalPartActive,
+                ]}
+                onPress={() => setClockMode('hour')}
+              >
+                <Text
+                  style={[
+                    styles.clockDigitalNum,
+                    clockMode === 'hour' && styles.clockDigitalNumActive,
+                  ]}
                 >
-                  <Text style={[styles.clockNumText, on && styles.clockNumTextOn]}>{item}</Text>
-                </Pressable>
-              );
-            })}
+                  {String(hour).padStart(2, '0')}
+                </Text>
+                <Text
+                  style={[
+                    styles.clockDigitalLabel,
+                    clockMode === 'hour' && styles.clockDigitalLabelActive,
+                  ]}
+                >
+                  HR
+                </Text>
+              </Pressable>
+
+              <Text style={styles.clockDigitalColon}>:</Text>
+
+              <Pressable
+                style={[
+                  styles.clockDigitalPart,
+                  clockMode === 'minute' && styles.clockDigitalPartActive,
+                ]}
+                onPress={() => setClockMode('minute')}
+              >
+                <Text
+                  style={[
+                    styles.clockDigitalNum,
+                    clockMode === 'minute' && styles.clockDigitalNumActive,
+                  ]}
+                >
+                  {String(minute).padStart(2, '0')}
+                </Text>
+                <Text
+                  style={[
+                    styles.clockDigitalLabel,
+                    clockMode === 'minute' && styles.clockDigitalLabelActive,
+                  ]}
+                >
+                  MIN
+                </Text>
+              </Pressable>
+            </View>
+
+            {/* Exact 1-Minute Stepper Buttons (-1m / +1m) */}
+            <View style={styles.minuteStepperGroup}>
+              <Pressable
+                hitSlop={6}
+                onPress={() => stepMinute(-1)}
+                style={styles.minuteStepBtn}
+              >
+                <Text style={styles.minuteStepBtnText}>−1m</Text>
+              </Pressable>
+              <Pressable
+                hitSlop={6}
+                onPress={() => stepMinute(1)}
+                style={styles.minuteStepBtn}
+              >
+                <Text style={styles.minuteStepBtnText}>+1m</Text>
+              </Pressable>
+            </View>
+
+            {/* AM / PM Segmented Control */}
+            <View style={styles.clockMeridiemBox}>
+              {['AM', 'PM'].map((m) => {
+                const on = meridiem === m;
+                return (
+                  <Pressable
+                    key={m}
+                    style={[
+                      styles.clockMeridiemBtn,
+                      on && styles.clockMeridiemBtnOn,
+                    ]}
+                    onPress={() => setMeridiem(m)}
+                  >
+                    <Text
+                      style={[
+                        styles.clockMeridiemBtnText,
+                        on && styles.clockMeridiemBtnTextOn,
+                      ]}
+                    >
+                      {m}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
-          <View style={styles.minuteRow}>
-            {MINUTES.map((item) => {
-              const on = minute === item;
+
+          {/* Mode Toggle Tabs */}
+          <View style={styles.clockGuideRow}>
+            <Pressable
+              onPress={() => setClockMode('hour')}
+              style={[
+                styles.clockGuideBadge,
+                clockMode === 'hour' && styles.clockGuideBadgeActive,
+              ]}
+            >
+              <Ionicons
+                name="time-outline"
+                size={13}
+                color={clockMode === 'hour' ? '#FFFFFF' : BRAND_PURPLE_ACCENT}
+              />
+              <Text
+                style={[
+                  styles.clockGuideText,
+                  clockMode === 'hour' && { color: '#FFFFFF' },
+                ]}
+              >
+                1. Hour (1–12)
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => setClockMode('minute')}
+              style={[
+                styles.clockGuideBadge,
+                clockMode === 'minute' && styles.clockGuideBadgeActive,
+              ]}
+            >
+              <Ionicons
+                name="locate-outline"
+                size={13}
+                color={clockMode === 'minute' ? '#FFFFFF' : BRAND_PURPLE_ACCENT}
+              />
+              <Text
+                style={[
+                  styles.clockGuideText,
+                  clockMode === 'minute' && { color: '#FFFFFF' },
+                ]}
+              >
+                2. Exact Minute (00–59)
+              </Text>
+            </Pressable>
+          </View>
+
+          {/* ================================================================
+              CENTERED ANALOG CLOCK DIAL (12 HOURS + 60 MINUTE TICKS)
+          ================================================================ */}
+          <View
+            style={styles.clock}
+            onStartShouldSetResponder={() => true}
+            onMoveShouldSetResponder={() => true}
+            onResponderGrant={handleDialTouch}
+            onResponderMove={handleDialTouch}
+            onResponderRelease={handleDialTouchRelease}
+          >
+            {/* 60 Minute Tick Marks around the perimeter */}
+            {ALL_60_MINUTES.map((m) => {
+              const isMajor = m % 5 === 0;
+              const isSelectedMin = clockMode === 'minute' && minute === m;
+              const tickRadius = CLOCK_CENTER - 10;
+              const angle = (m / 60) * 2 * Math.PI - Math.PI / 2;
+              const x = CLOCK_CENTER + tickRadius * Math.cos(angle);
+              const y = CLOCK_CENTER + tickRadius * Math.sin(angle);
+
               return (
-                <Pressable key={item} onPress={() => setMinute(item)} style={[styles.minute, on && styles.minuteOn]}>
-                  <Text style={[styles.minuteText, on && styles.minuteTextOn]}>{String(item).padStart(2, '0')}</Text>
-                </Pressable>
+                <View
+                  key={`tick-${m}`}
+                  pointerEvents="none"
+                  style={[
+                    styles.clockMinuteTick,
+                    isMajor && styles.clockMinuteTickMajor,
+                    isSelectedMin && styles.clockMinuteTickSelected,
+                    {
+                      left: x - (isMajor ? 2 : 1.5),
+                      top: y - (isMajor ? 2 : 1.5),
+                    },
+                  ]}
+                />
               );
             })}
+
+            {/* Rotating Clock Hand Line from Center to Active Selection */}
+            <View
+              pointerEvents="none"
+              style={[
+                styles.clockHandContainer,
+                {
+                  transform: [{ rotate: `${activeAngleDeg}deg` }],
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.clockHandStem,
+                  { height: activeRadius - 14 },
+                ]}
+              />
+            </View>
+
+            {/* Active Selection Highlight Bubble at Hand Tip */}
+            <View
+              pointerEvents="none"
+              style={[
+                styles.clockHandTipBubble,
+                {
+                  left: handTipX - 19,
+                  top: handTipY - 19,
+                },
+              ]}
+            >
+              <Text style={styles.clockHandTipText}>
+                {clockMode === 'hour'
+                  ? hour
+                  : String(minute).padStart(2, '0')}
+              </Text>
+            </View>
+
+            {/* Center Pivot Hub */}
+            <View pointerEvents="none" style={styles.clockCenterHub}>
+              <View style={styles.clockCenterHubDot} />
+            </View>
+
+            {/* 12 Hour Labels OR 12 Major 5-Min Labels */}
+            {(clockMode === 'hour' ? CLOCK_HOURS : CLOCK_MAJOR_MINUTES).map(
+              (val, index) => {
+                const orbit =
+                  clockMode === 'hour' ? hourOrbitRadius : minOrbitRadius;
+                const spot = ringSpot(index, 12, orbit, 38);
+                const isSelected =
+                  clockMode === 'hour' ? hour === val : minute === val;
+
+                return (
+                  <Pressable
+                    key={`${clockMode}-${val}`}
+                    style={[styles.clockNum, spot]}
+                    onPress={() => {
+                      if (clockMode === 'hour') {
+                        setHour(val);
+                        setClockMode('minute');
+                      } else {
+                        setMinute(val);
+                      }
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.clockNumText,
+                        isSelected && styles.clockNumTextOn,
+                      ]}
+                    >
+                      {clockMode === 'hour'
+                        ? val
+                        : String(val).padStart(2, '0')}
+                    </Text>
+                  </Pressable>
+                );
+              }
+            )}
           </View>
+
+          {/* All 60 Individual Minutes (00–59) Scrubber Bar */}
+          <View style={styles.all60StripWrap}>
+            <Text style={styles.all60StripTitle}>
+              ALL 60 MINUTES (00–59) — TAP ANY EXACT MINUTE:
+            </Text>
+            <ScrollView
+              ref={minStripRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.all60ScrollContent}
+            >
+              {ALL_60_MINUTES.map((m) => {
+                const active = minute === m;
+                return (
+                  <Pressable
+                    key={`min-pill-${m}`}
+                    onPress={() => {
+                      setClockMode('minute');
+                      setMinute(m);
+                    }}
+                    style={[
+                      styles.exactMinPill,
+                      active && styles.exactMinPillActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.exactMinPillText,
+                        active && styles.exactMinPillTextActive,
+                      ]}
+                    >
+                      :{String(m).padStart(2, '0')}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {/* Action Buttons */}
           <View style={styles.popupActions}>
-            <Pressable onPress={requestClose} style={styles.popupCancel}>
+            <Pressable style={styles.popupCancel} onPress={requestClose}>
               <Text style={styles.popupCancelText}>Cancel</Text>
             </Pressable>
             <Pressable
+              style={styles.popupSet}
               onPress={() => {
                 onConfirm(formatClock(hour, minute, meridiem));
                 requestClose();
               }}
-              style={styles.popupSet}
             >
-              <Text style={styles.popupSetText}>Set time</Text>
+              <Ionicons
+                name="checkmark-circle"
+                size={16}
+                color="#FFFFFF"
+                style={{ marginRight: 6 }}
+              />
+              <Text style={styles.popupSetText}>
+                Set {formatClock(hour, minute, meridiem)}
+              </Text>
             </Pressable>
           </View>
         </>
@@ -290,121 +965,151 @@ function ClockPopup({ blurTarget, time, title, onClose, onConfirm }) {
   );
 }
 
+// ============================================================================
+// DATE POPUP (LIGHT THEME)
+// ============================================================================
 function DatePopup({ blurTarget, pickupDay, dropDay, onClose, onConfirm }) {
-  const seededStart = pickupDay && dayInWindow(pickupDay) ? pickupDay : null;
-  const seededEnd = dropDay && seededStart && dropDay.getTime() >= seededStart.getTime() && dayInWindow(dropDay)
-    ? dropDay
-    : null;
-  const focus = seededStart || startOfDay(0);
-  const [cursor, setCursor] = useState(new Date(focus.getFullYear(), focus.getMonth(), 1));
-  const [start, setStart] = useState(seededStart);
-  const [end, setEnd] = useState(seededEnd);
-  const monthLabel = cursor.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
-  const earliestMonth = startOfDay(0);
-  const canPrev = cursor.getFullYear() > earliestMonth.getFullYear()
-    || cursor.getMonth() > earliestMonth.getMonth();
-  const canNext = cursor.getFullYear() < LATEST_DAY.getFullYear()
-    || cursor.getMonth() < LATEST_DAY.getMonth();
+  const [cursor, setCursor] = useState(() =>
+    pickupDay ? new Date(pickupDay) : new Date(CAL_ANCHOR)
+  );
+  const [draftStart, setDraftStart] = useState(() =>
+    pickupDay ? new Date(pickupDay) : null
+  );
+  const [draftEnd, setDraftEnd] = useState(() =>
+    dropDay ? new Date(dropDay) : null
+  );
 
-  const pick = (day) => {
-    if (!start || end) {
-      setStart(day);
-      setEnd(null);
+  const cells = useMemo(() => monthCells(cursor), [cursor]);
+  const monthTitle = cursor.toLocaleDateString('en-IN', {
+    month: 'long',
+    year: 'numeric',
+  });
+
+  const prevAllowed =
+    cursor.getFullYear() > CAL_ANCHOR.getFullYear() ||
+    (cursor.getFullYear() === CAL_ANCHOR.getFullYear() &&
+      cursor.getMonth() > CAL_ANCHOR.getMonth());
+
+  const nextAllowed = (() => {
+    const maxDate = new Date(CAL_ANCHOR);
+    maxDate.setDate(maxDate.getDate() + 90);
+    return cursor.getTime() < maxDate.getTime();
+  })();
+
+  const handlePick = (day) => {
+    if (!draftStart || (draftStart && draftEnd)) {
+      setDraftStart(day);
+      setDraftEnd(null);
       return;
     }
-    if (day.getTime() < start.getTime()) {
-      setStart(day);
+    if (day.getTime() < draftStart.getTime()) {
+      setDraftStart(day);
+      setDraftEnd(null);
       return;
     }
-    setEnd(day);
+    setDraftEnd(day);
   };
 
   return (
     <PopupShell blurTarget={blurTarget} onClose={onClose}>
       {(requestClose) => (
         <>
-          <Text style={styles.popupTitle}>Select dates</Text>
-          <Text style={styles.popupHint}>{rangeCaption(start, end)}</Text>
+          <Text style={styles.popupTitle}>Select Trip Dates</Text>
+          <Text style={styles.popupHint}>
+            {rangeCaption(draftStart, draftEnd)}
+          </Text>
+
           <View style={styles.monthRow}>
             <Pressable
-              disabled={!canPrev}
-              onPress={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
-              style={[styles.monthBtn, !canPrev && styles.monthBtnOff]}
+              disabled={!prevAllowed}
+              style={[styles.monthBtn, !prevAllowed && styles.monthBtnOff]}
+              onPress={() =>
+                setCursor(
+                  new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1)
+                )
+              }
             >
-              <Ionicons name="chevron-back" size={18} color={canPrev ? '#1C1C1C' : '#C8C0D4'} />
+              <Ionicons name="chevron-back" size={18} color={TEXT_INK} />
             </Pressable>
-            <Text style={styles.monthLabel}>{monthLabel}</Text>
+            <Text style={styles.monthLabel}>{monthTitle}</Text>
             <Pressable
-              disabled={!canNext}
-              onPress={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
-              style={[styles.monthBtn, !canNext && styles.monthBtnOff]}
+              disabled={!nextAllowed}
+              style={[styles.monthBtn, !nextAllowed && styles.monthBtnOff]}
+              onPress={() =>
+                setCursor(
+                  new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)
+                )
+              }
             >
-              <Ionicons name="chevron-forward" size={18} color={canNext ? '#1C1C1C' : '#C8C0D4'} />
+              <Ionicons name="chevron-forward" size={18} color={TEXT_INK} />
             </Pressable>
           </View>
+
           <View style={styles.weekRow}>
-            {WEEKDAYS.map((item, index) => (
-              <Text key={`${item}-${index}`} style={styles.weekText}>{item}</Text>
+            {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((w, index) => (
+              <Text key={index} style={styles.weekText}>
+                {w}
+              </Text>
             ))}
           </View>
+
           <View style={styles.calGrid}>
-            {monthCells(cursor).map((item, index) => {
-              if (!item) return <View key={`e-${index}`} style={styles.calCell} />;
-              const allowed = dayInWindow(item);
-              const time = item.getTime();
-              const startTime = start?.getTime();
-              const endTime = end?.getTime();
-              const isStart = startTime === time;
-              const isEnd = endTime === time && endTime !== startTime;
-              const inSpan = startTime != null && endTime != null && endTime > startTime && time > startTime && time < endTime;
-              const showBand = (isStart && endTime > startTime) || isEnd || inSpan;
+            {cells.map((day, index) => {
+              if (!day) return <View key={index} style={styles.calCell} />;
+              const allowed = dayInWindow(day);
+              const isStart =
+                draftStart && day.getTime() === draftStart.getTime();
+              const isEnd = draftEnd && day.getTime() === draftEnd.getTime();
+              const isMid =
+                draftStart &&
+                draftEnd &&
+                day.getTime() > draftStart.getTime() &&
+                day.getTime() < draftEnd.getTime();
+
               return (
-                <Pressable
-                  key={item.toISOString()}
-                  disabled={!allowed}
-                  onPress={() => pick(item)}
-                  android_ripple={{ color: 'transparent', borderless: true, radius: 18 }}
-                  style={styles.calCell}
-                >
-                  {showBand ? (
-                    <View
-                      style={[
-                        styles.calBand,
-                        inSpan && styles.calBandMid,
-                        isStart && styles.calBandStart,
-                        isEnd && styles.calBandEnd,
-                      ]}
-                    />
-                  ) : null}
-                  <View style={[styles.calDay, (isStart || isEnd || (endTime === time)) && styles.calDayOn]}>
+                <View key={index} style={styles.calCell}>
+                  {isMid && <View style={[styles.calBand, styles.calBandMid]} />}
+                  {isStart && draftEnd && (
+                    <View style={[styles.calBand, styles.calBandStart]} />
+                  )}
+                  {isEnd && <View style={[styles.calBand, styles.calBandEnd]} />}
+                  <Pressable
+                    disabled={!allowed}
+                    style={[
+                      styles.calDay,
+                      (isStart || isEnd) && styles.calDayOn,
+                    ]}
+                    onPress={() => handlePick(day)}
+                  >
                     <Text
                       style={[
                         styles.calDayText,
                         !allowed && styles.calDayOff,
-                        inSpan && styles.calDayBetween,
-                        (isStart || isEnd || endTime === time) && styles.calDayTextOn,
+                        isMid && styles.calDayBetween,
+                        (isStart || isEnd) && styles.calDayTextOn,
                       ]}
                     >
-                      {item.getDate()}
+                      {day.getDate()}
                     </Text>
-                  </View>
-                </Pressable>
+                  </Pressable>
+                </View>
               );
             })}
           </View>
+
           <View style={styles.popupActions}>
-            <Pressable onPress={requestClose} style={styles.popupCancel}>
+            <Pressable style={styles.popupCancel} onPress={requestClose}>
               <Text style={styles.popupCancelText}>Cancel</Text>
             </Pressable>
             <Pressable
-              disabled={!start}
+              disabled={!draftStart}
+              style={[styles.popupSet, !draftStart && styles.popupSetOff]}
               onPress={() => {
-                onConfirm(start, end || start);
+                onConfirm(draftStart, draftEnd || draftStart);
                 requestClose();
               }}
-              style={[styles.popupSet, !start && styles.popupSetOff]}
             >
-              <Text style={styles.popupSetText}>Set dates</Text>
+              <Text style={styles.popupSetText}>Confirm Dates</Text>
             </Pressable>
           </View>
         </>
@@ -413,65 +1118,20 @@ function DatePopup({ blurTarget, pickupDay, dropDay, onClose, onConfirm }) {
   );
 }
 
-function missingStep({ pickupZone, dropPlace, pickupDay, pickupTime, dropDay, dropTime }) {
-  if (!pickupZone) return 'Select place';
-  if (!dropPlace) return 'Select drop place';
-  if (!pickupDay) return 'Select date';
-  if (!pickupTime) return 'Select time';
-  if (!dropDay) return 'Select drop date';
-  if (!dropTime) return 'Select drop time';
-  return '';
-}
-
-function RideMarker({ title, name, spot }) {
-  const width = useSharedValue(0);
-
-  const onMeasure = (event) => {
-    const next = Math.ceil(event.nativeEvent.layout.width);
-    if (next < 8) return;
-    if (width.value < 1) {
-      width.value = next;
-      return;
-    }
-    if (Math.abs(next - width.value) < 1) return;
-    width.value = withTiming(next, { duration: 320, easing: EASE, reduceMotion: ReduceMotion.Never });
-  };
-
-  const labelStyle = useAnimatedStyle(() => {
-    const box = width.value;
-    return {
-      width: box,
-      opacity: box > 0 ? 1 : 0,
-      transform: [{ translateX: -box / 2 }],
-    };
-  });
-
-  return (
-    <Animated.View entering={ZoomIn.duration(420).springify()} pointerEvents="none" style={[styles.ridePin, spot]}>
-      <View pointerEvents="none" style={styles.pinMeasureHost}>
-        <View collapsable={false} style={styles.pinMeasure} onLayout={onMeasure}>
-          <Text style={styles.pinLabelText}>{title}</Text>
-          <Text style={styles.pinPlace}>{name}</Text>
-        </View>
-      </View>
-      <Animated.View style={[styles.pinLabel, labelStyle]}>
-        <Text style={styles.pinLabelText} numberOfLines={1}>
-          {title}
-        </Text>
-        <Text style={styles.pinPlace} numberOfLines={1}>
-          {name}
-        </Text>
-      </Animated.View>
-      <View style={styles.pinHead}>
-        <View style={styles.pinHole} />
-      </View>
-      <View style={styles.pinTip} />
-    </Animated.View>
-  );
-}
-
-export default function RentScreen({ vehicle, onBack, onContinue }) {
+// ============================================================================
+// MAIN RENT SCREEN (100% LIGHT THEME + ALL 3 SLIDES VISIBLE + 60-MIN CLOCK)
+// ============================================================================
+export default function RentScreen({
+  vehicle,
+  selectedZone,
+  onBack,
+  onContinue,
+}) {
   const insets = useSafeAreaInsets();
+  const blurTargetRef = useRef(null);
+  const listRef = useRef(null);
+
+  // Hidden video player for animation marker tracking
   const player = useVideoPlayer(INTRO_VIDEO, (video) => {
     video.loop = false;
     video.muted = true;
@@ -480,43 +1140,119 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
     video.currentTime = 0;
     video.pause();
   });
-  const listRef = useRef(null);
-  const blurTargetRef = useRef(null);
   const targetRef = useRef(0);
   const movingRef = useRef(false);
   const stepRef = useRef(0);
   const settledStepRef = useRef(-1);
-  const tabX = useSharedValue(0);
-  const [tabWidth, setTabWidth] = useState(0);
-  const [mode, setMode] = useState('pickup');
+
+  // Booking Parameters
+  const availableZones = EVEGAH_ZONES?.length ? EVEGAH_ZONES : ZONES;
   const [sameDrop, setSameDrop] = useState(true);
-  const [pickupZone, setPickupZone] = useState(() => EVEGAH_ZONES[0] || ZONES[0]);
-  const [dropZone, setDropZone] = useState(() => EVEGAH_ZONES[0] || ZONES[0]);
+  const [pickupZone, setPickupZone] = useState(
+    () => selectedZone || EVEGAH_ZONES?.[0] || ZONES[0]
+  );
+  const [dropZone, setDropZone] = useState(
+    () => selectedZone || EVEGAH_ZONES?.[0] || ZONES[0]
+  );
   const [pickupDay, setPickupDay] = useState(() => startOfDay(0));
   const [dropDay, setDropDay] = useState(() => startOfDay(1));
   const [pickupTime, setPickupTime] = useState('8:00 AM');
   const [dropTime, setDropTime] = useState('8:00 AM');
   const [deliveryAnywhere, setDeliveryAnywhere] = useState(false);
-  const [zoneModalOpen, setZoneModalOpen] = useState(false);
+
+  // Location selection modal
+  const [locationModalOpen, setLocationModalOpen] = useState(false);
+  const [locationFor, setLocationFor] = useState('pickup');
+
+  // Clock & Date popups
   const [clockFor, setClockFor] = useState(null);
   const [dateFor, setDateFor] = useState(null);
-  const [rideSettled, setRideSettled] = useState(false);
-  const [pickupPinned, setPickupPinned] = useState(false);
-  const [datePinned, setDatePinned] = useState(false);
-  const [dropPinned, setDropPinned] = useState(false);
-  const [placePinned, setPlacePinned] = useState(false);
+
+  // CTA Scooter Animation
   const [riding, setRiding] = useState(false);
-  const [toastMessage, setToastMessage] = useState(null);
-  const [toastTick, setToastTick] = useState(0);
-  const toastTimerRef = useRef(null);
-  const toastHidingRef = useRef(false);
+  const buttonWidthRef = useRef(SCREEN_W - 32);
   const btnScale = useSharedValue(1);
   const textShift = useSharedValue(0);
   const textFade = useSharedValue(1);
   const arrowShift = useSharedValue(0);
   const lineShift = useSharedValue(40);
   const scooterX = useSharedValue(-RIDE_GROUP_WIDTH);
-  const buttonWidthRef = useRef(280);
+
+  // Full 3-Slide Hero Slider (Auto-loop + Manual Switcher Pills)
+  const slideScrollRef = useRef(null);
+  const slidePageRef = useRef(0);
+  const slideTimerRef = useRef(null);
+  const slideScrollX = useSharedValue(0);
+  const [activeSlideIndex, setActiveSlideIndex] = useState(0);
+
+  const onSlideScroll = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      slideScrollX.value = event.contentOffset.x;
+    },
+  });
+
+  const syncNativeSlideScroll = (targetPage) => {
+    if (targetPage >= RENT_SLIDES.length) {
+      slidePageRef.current = 0;
+      slideScrollX.value = 0;
+      slideScrollRef.current?.scrollTo({ x: 0, animated: false });
+      setActiveSlideIndex(0);
+    } else {
+      slidePageRef.current = targetPage;
+      slideScrollRef.current?.scrollTo({
+        x: targetPage * SLIDE_WIDTH,
+        animated: false,
+      });
+      setActiveSlideIndex(targetPage);
+    }
+  };
+
+  const stopAutoSlide = () => {
+    if (slideTimerRef.current) clearInterval(slideTimerRef.current);
+    slideTimerRef.current = null;
+  };
+
+  const startAutoSlide = () => {
+    stopAutoSlide();
+    slideTimerRef.current = setInterval(() => {
+      const next = slidePageRef.current + 1;
+      slideScrollX.value = withTiming(
+        next * SLIDE_WIDTH,
+        {
+          duration: 1400,
+          easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+        },
+        (finished) => {
+          if (finished) {
+            runOnJS(syncNativeSlideScroll)(next);
+          }
+        }
+      );
+    }, 4000);
+  };
+
+  const jumpToSlide = (idx) => {
+    stopAutoSlide();
+    slidePageRef.current = idx;
+    setActiveSlideIndex(idx);
+    slideScrollX.value = withTiming(idx * SLIDE_WIDTH, { duration: 420 });
+    slideScrollRef.current?.scrollTo({
+      x: idx * SLIDE_WIDTH,
+      animated: true,
+    });
+    startAutoSlide();
+  };
+
+  useEffect(() => {
+    startAutoSlide();
+    return stopAutoSlide;
+  }, []);
+
+  // Toast System
+  const [toastMessage, setToastMessage] = useState(null);
+  const [toastTick, setToastTick] = useState(0);
+  const toastTimerRef = useRef(null);
+  const toastHidingRef = useRef(false);
   const toastOpacity = useSharedValue(0);
   const toastTranslateY = useSharedValue(TOAST_OFFSCREEN_Y);
   const toastScale = useSharedValue(0.96);
@@ -525,24 +1261,38 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
   const pickupAt = clockToDate(pickupDay, pickupTime);
   const dropAt = clockToDate(dropDay, dropTime);
   const duration = pickupAt && dropAt ? spanLabel(pickupAt, dropAt) : '';
-  const showDuration = Boolean(pickupZone && dropPlace && pickupDay && pickupTime && dropDay && dropTime && duration);
+  const showDuration = Boolean(
+    pickupZone &&
+      dropPlace &&
+      pickupDay &&
+      pickupTime &&
+      dropDay &&
+      dropTime &&
+      duration
+  );
   const ready = showDuration;
-  const step = [pickupZone, dropPlace, pickupDay, pickupTime, dropDay, dropTime].filter(Boolean).length;
+
+  const step = [
+    pickupZone,
+    dropPlace,
+    pickupDay,
+    pickupTime,
+    dropDay,
+    dropTime,
+  ].filter(Boolean).length;
   stepRef.current = step;
-  const pickupDayIndex = pickupDay ? DAYS.findIndex((item) => item.getTime() === pickupDay.getTime()) : -1;
-  const pickupDayLabel = pickupDay
-    ? (pickupDayIndex >= 0 ? dayName(pickupDay, pickupDayIndex) : shortDate(pickupDay))
-    : '';
-  const dropDayIndex = dropDay ? DAYS.findIndex((item) => item.getTime() === dropDay.getTime()) : -1;
-  const dropDayLabel = dropDay
-    ? (dropDayIndex >= 0 ? dayName(dropDay, dropDayIndex) : shortDate(dropDay))
-    : '';
+
+  const pickupDayIndex = pickupDay
+    ? DAYS.findIndex((item) => item.getTime() === pickupDay.getTime())
+    : -1;
+  const dropDayIndex = dropDay
+    ? DAYS.findIndex((item) => item.getTime() === dropDay.getTime())
+    : -1;
 
   const markSettled = () => {
     settledStepRef.current = stepRef.current;
     movingRef.current = false;
     player.pause();
-    setRideSettled(true);
   };
 
   useEffect(() => {
@@ -555,7 +1305,6 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
     }
     if (movingRef.current && player.playing) return;
     movingRef.current = true;
-    setRideSettled(false);
     player.playbackRate = GLIDE_RATE;
     player.play();
   }, [player, step]);
@@ -565,28 +1314,6 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
     if (currentTime + 0.05 < targetRef.current) return;
     markSettled();
   });
-
-  useEffect(() => {
-    if (!rideSettled || settledStepRef.current !== step) return;
-    if (pickupZone && step >= 2) setPickupPinned(true);
-    if (pickupDay && step >= 3) setDatePinned(true);
-    if (dropDay && step >= 4) setDropPinned(true);
-    if (dropTime && dropPlace && step >= 6) setPlacePinned(true);
-  }, [rideSettled, pickupZone, pickupDay, dropDay, dropTime, dropPlace, step]);
-
-  useEffect(() => {
-    const travel = Math.max((tabWidth - 8) / 2, 0);
-    tabX.value = withTiming(mode === 'time' ? travel : 0, { duration: 320, easing: EASE });
-  }, [mode, tabWidth, tabX]);
-
-  useEffect(() => {
-    if (mode !== 'drop') return;
-    listRef.current?.scrollTo({ y: 0, animated: true });
-  }, [mode]);
-
-  const tabStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: tabX.value }],
-  }));
 
   const finishHideToast = useCallback(() => {
     toastHidingRef.current = false;
@@ -604,50 +1331,58 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
     cancelAnimation(toastTranslateY);
     cancelAnimation(toastScale);
     toastOpacity.value = withTiming(0, { duration: 360, easing: TOAST_EASE_IN });
-    toastScale.value = withTiming(0.97, { duration: TOAST_EXIT_MS, easing: TOAST_EASE_IN });
+    toastScale.value = withTiming(0.97, {
+      duration: TOAST_EXIT_MS,
+      easing: TOAST_EASE_IN,
+    });
     toastTranslateY.value = withTiming(
       TOAST_OFFSCREEN_Y,
       { duration: TOAST_EXIT_MS, easing: TOAST_EASE_IN },
       (finished) => {
         if (finished) runOnJS(finishHideToast)();
-      },
+      }
     );
   }, [finishHideToast, toastOpacity, toastScale, toastTranslateY]);
 
-  const showToast = useCallback((message) => {
-    if (!message) return;
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastHidingRef.current = false;
-    setToastMessage(message);
-    setToastTick((tick) => tick + 1);
-    toastTimerRef.current = setTimeout(hideToast, TOAST_VISIBLE_MS);
-  }, [hideToast]);
+  const showToast = useCallback(
+    (message) => {
+      if (!message) return;
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      toastHidingRef.current = false;
+      setToastMessage(message);
+      setToastTick((tick) => tick + 1);
+      toastTimerRef.current = setTimeout(hideToast, TOAST_VISIBLE_MS);
+    },
+    [hideToast]
+  );
 
-  useLayoutEffect(() => {
-    if (!toastMessage) {
-      toastOpacity.value = 0;
-      toastTranslateY.value = TOAST_OFFSCREEN_Y;
-      toastScale.value = 0.96;
-      return;
-    }
+  useEffect(() => {
+    if (!toastMessage) return;
     cancelAnimation(toastOpacity);
     cancelAnimation(toastTranslateY);
     cancelAnimation(toastScale);
-    toastTranslateY.value = TOAST_OFFSCREEN_Y;
-    toastScale.value = 0.96;
     toastOpacity.value = 0;
-    toastOpacity.value = withTiming(1, { duration: 420, easing: EASE });
-    toastTranslateY.value = withTiming(0, { duration: TOAST_ENTER_MS, easing: EASE });
-    toastScale.value = withTiming(1, { duration: TOAST_ENTER_MS, easing: EASE });
-  }, [toastMessage, toastTick, toastOpacity, toastScale, toastTranslateY]);
-
-  useEffect(() => () => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-  }, []);
+    toastTranslateY.value = TOAST_OFFSCREEN_Y;
+    toastScale.value = 0.94;
+    toastOpacity.value = withTiming(1, { duration: TOAST_ENTER_MS, easing: EASE });
+    toastScale.value = withSpring(1, {
+      damping: 18,
+      stiffness: 240,
+      reduceMotion: ReduceMotion.Never,
+    });
+    toastTranslateY.value = withSpring(0, {
+      damping: 18,
+      stiffness: 220,
+      reduceMotion: ReduceMotion.Never,
+    });
+  }, [toastMessage, toastOpacity, toastScale, toastTick, toastTranslateY]);
 
   const toastAnimStyle = useAnimatedStyle(() => ({
     opacity: toastOpacity.value,
-    transform: [{ translateY: toastTranslateY.value }, { scale: toastScale.value }],
+    transform: [
+      { translateY: toastTranslateY.value },
+      { scale: toastScale.value },
+    ],
   }));
   const btnAnimStyle = useAnimatedStyle(() => ({
     transform: [{ scale: btnScale.value }],
@@ -655,9 +1390,6 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
   const continueTextStyle = useAnimatedStyle(() => ({
     opacity: textFade.value,
     transform: [{ translateY: textShift.value }],
-  }));
-  const arrowSlideStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: arrowShift.value }],
   }));
   const rideLineStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: lineShift.value }],
@@ -669,10 +1401,17 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
   const finishRide = () => {
     setRiding(false);
     onContinue?.({
-      pickupName: pickupZone?.name,
-      dropName: dropPlace?.name,
+      pickupName: pickupZone?.shortName || pickupZone?.name || 'Gotri',
+      pickupZone,
+      dropName: dropPlace?.shortName || dropPlace?.name || 'Gotri',
+      dropZone: dropPlace,
       pickupAt: pickupAt?.getTime() || null,
       dropAt: dropAt?.getTime() || null,
+      pickupDate: pickupDay,
+      dropDate: dropDay,
+      pickupTime,
+      dropTime,
+      durationText: duration,
       deliveryAnywhere: Boolean(deliveryAnywhere),
     });
   };
@@ -684,10 +1423,19 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
     textFade.value = 1;
     arrowShift.value = 0;
     lineShift.value = 40;
-    textShift.value = withTiming(-46, { duration: 420, easing: Easing.out(Easing.cubic) });
+    textShift.value = withTiming(-46, {
+      duration: 420,
+      easing: Easing.out(Easing.cubic),
+    });
     textFade.value = withTiming(0, { duration: 360 });
-    arrowShift.value = withTiming(72, { duration: 480, easing: Easing.out(Easing.cubic) });
-    lineShift.value = withDelay(500, withTiming(0, { duration: 420, easing: Easing.out(Easing.cubic) }));
+    arrowShift.value = withTiming(72, {
+      duration: 480,
+      easing: Easing.out(Easing.cubic),
+    });
+    lineShift.value = withDelay(
+      500,
+      withTiming(0, { duration: 420, easing: Easing.out(Easing.cubic) })
+    );
     scooterX.value = -RIDE_GROUP_WIDTH;
     scooterX.value = withDelay(
       920,
@@ -696,75 +1444,37 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
         { duration: 2200, easing: Easing.inOut(Easing.cubic) },
         (finished) => {
           if (!finished) return;
-          lineShift.value = withTiming(40, { duration: 420, easing: Easing.in(Easing.cubic) }, (roadDone) => {
-            if (!roadDone) return;
-            textShift.value = withTiming(0, { duration: 420, easing: Easing.out(Easing.cubic) });
-            textFade.value = withTiming(1, { duration: 360 });
-            arrowShift.value = withTiming(0, { duration: 480, easing: Easing.out(Easing.cubic) }, (backDone) => {
-              if (backDone) runOnJS(finishRide)();
-            });
-          });
-        },
-      ),
+          lineShift.value = withTiming(
+            40,
+            { duration: 420, easing: Easing.in(Easing.cubic) },
+            (roadDone) => {
+              if (!roadDone) return;
+              textShift.value = withTiming(0, {
+                duration: 420,
+                easing: Easing.out(Easing.cubic),
+              });
+              textFade.value = withTiming(1, { duration: 360 });
+              arrowShift.value = withTiming(
+                0,
+                { duration: 480, easing: Easing.out(Easing.cubic) },
+                (backDone) => {
+                  if (backDone) runOnJS(finishRide)();
+                }
+              );
+            }
+          );
+        }
+      )
     );
-  };
-
-  const choosePickup = (zone) => {
-    setPickupZone(zone);
-    if (sameDrop) setDropZone(zone);
-    if (!pickupDay) setMode('time');
-  };
-
-  const chooseDrop = (zone) => {
-    if (!pickupZone) {
-      showToast('Select place');
-      return;
-    }
-    setDropZone(zone);
-    setMode('time');
-  };
-
-  const choosePickupDay = (day) => {
-    if (!pickupZone) {
-      showToast('Select place');
-      return;
-    }
-    if (!dropPlace) {
-      showToast('Select drop place');
-      return;
-    }
-    const nextDropDay = dropDay && dropDay.getTime() < day.getTime() ? day : dropDay;
-    setPickupDay(day);
-    if (nextDropDay !== dropDay) setDropDay(nextDropDay);
-  };
-
-  const chooseDropDay = (day) => {
-    if (!pickupZone) {
-      showToast('Select place');
-      return;
-    }
-    if (!dropPlace) {
-      showToast('Select drop place');
-      return;
-    }
-    if (!pickupDay) {
-      showToast('Select date');
-      return;
-    }
-    if (!pickupTime) {
-      showToast('Select time');
-      return;
-    }
-    setDropDay(day);
   };
 
   const choosePickupTime = (time) => {
     if (!pickupZone) {
-      showToast('Select place');
+      showToast('Select pickup station');
       return;
     }
     if (!dropPlace) {
-      showToast('Select drop place');
+      showToast('Select drop station');
       return;
     }
     if (!pickupDay) {
@@ -776,11 +1486,11 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
 
   const chooseDropTime = (time) => {
     if (!pickupZone) {
-      showToast('Select place');
+      showToast('Select pickup station');
       return;
     }
     if (!dropPlace) {
-      showToast('Select drop place');
+      showToast('Select drop station');
       return;
     }
     if (!pickupDay) {
@@ -800,11 +1510,11 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
 
   const openClock = (which) => {
     if (!pickupZone) {
-      showToast('Select place');
+      showToast('Select pickup station');
       return;
     }
     if (!dropPlace) {
-      showToast('Select drop place');
+      showToast('Select drop station');
       return;
     }
     if (!pickupDay) {
@@ -826,11 +1536,11 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
 
   const openDate = () => {
     if (!pickupZone) {
-      showToast('Select place');
+      showToast('Select pickup station');
       return;
     }
     if (!dropPlace) {
-      showToast('Select drop place');
+      showToast('Select drop station');
       return;
     }
     setDateFor('range');
@@ -838,101 +1548,562 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
 
   return (
     <View style={styles.root}>
-      <BlurTargetView ref={blurTargetRef} collapsable={false} style={styles.blurTarget}>
-      <StatusBar style="dark" />
-      <View style={styles.bannerWrap}>
-        <VideoView
-          player={player}
-          style={styles.bannerVideo}
-          contentFit="contain"
-          nativeControls={false}
-          allowsPictureInPicture={false}
-          surfaceType="textureView"
-        />
-        <Pressable hitSlop={8} style={[styles.back, { top: insets.top + 8 }]} onPress={onBack}>
-          <Ionicons name="chevron-back" size={20} color="#1C1C1C" />
-        </Pressable>
-        {pickupPinned && pickupZone ? (
-          <RideMarker title="Pickup" name={pickupZone.name} spot={styles.pickupSpot} />
-        ) : null}
-        {datePinned && pickupDayLabel ? (
-          <RideMarker title="Date" name={pickupDayLabel} spot={styles.dateSpot} />
-        ) : null}
-        {dropPinned && dropDayLabel ? (
-          <RideMarker title="Drop" name={dropDayLabel} spot={styles.dropSpot} />
-        ) : null}
-        {placePinned && dropPlace ? (
-          <RideMarker title="Drop" name={dropPlace.name} spot={styles.placeSpot} />
-        ) : null}
-      </View>
+      <BlurTargetView
+        ref={blurTargetRef}
+        collapsable={false}
+        style={styles.blurTarget}
+      >
+        <StatusBar style="dark" />
 
-      <View style={styles.cardContainer}>
-        <Animated.View entering={cardEnter(0)} style={styles.rentSearchCard}>
-          {/* Zone Search Pill */}
+        {/* ====================================================================
+            CLEAN LIGHT TOP NAVIGATION HEADER
+        ==================================================================== */}
+        <View style={[styles.lightTopHeader, { paddingTop: insets.top + 8 }]}>
           <Pressable
-            onPress={() => setZoneModalOpen(true)}
+            hitSlop={10}
             style={({ pressed }) => [
-              styles.zonePill,
-              pressed && { opacity: 0.88 },
+              styles.lightBackBtn,
+              pressed && { opacity: 0.7 },
             ]}
+            onPress={onBack}
           >
-            <Ionicons name="search" size={18} color="#24083C" style={styles.zoneSearchIcon} />
-            <Text style={styles.zonePillText} numberOfLines={1}>
-              {pickupZone?.name || 'Bill, Vadodara-391410'}
-            </Text>
-            <Pressable
-              hitSlop={8}
-              onPress={() => setZoneModalOpen(true)}
-              style={styles.zoneLocateBtn}
-            >
-              <Ionicons name="locate-outline" size={20} color={PURPLE} />
-            </Pressable>
+            <Ionicons name="arrow-back" size={20} color={TEXT_INK} />
           </Pressable>
 
-          {/* Trip Start / Trip End 2 Column Boxes */}
-          <View style={styles.tripBoxesRow}>
-            <Pressable
-              onPress={() => setDateFor('range')}
-              style={styles.tripDateBox}
-            >
-              <Text style={styles.tripBoxLabel}>Trip Start</Text>
-              <Text style={styles.tripBoxValue} numberOfLines={1}>
-                {formatRentBoxDateTime(pickupDay, pickupTime)}
-              </Text>
-            </Pressable>
-
-            <Pressable
-              onPress={() => setDateFor('range')}
-              style={styles.tripDateBox}
-            >
-              <Text style={styles.tripBoxLabel}>Trip End</Text>
-              <Text style={styles.tripBoxValue} numberOfLines={1}>
-                {formatRentBoxDateTime(dropDay, dropTime)}
-              </Text>
-            </Pressable>
+          <View style={styles.lightHeaderTitleCol}>
+            <Text style={styles.lightHeaderTitle}>Rent Your EV</Text>
+            <Text style={styles.lightHeaderSubtitle}>
+              CONFIGURE &amp; RESERVE RIDE
+            </Text>
           </View>
 
-          {/* Delivery & Pick-up, from anywhere Checkbox */}
           <Pressable
-            onPress={() => setDeliveryAnywhere((v) => !v)}
-            style={styles.deliveryCheckRow}
+            hitSlop={8}
+            style={styles.lightZonePill}
+            onPress={() => {
+              setLocationFor('pickup');
+              setLocationModalOpen(true);
+            }}
           >
-            <View
-              style={[
-                styles.deliveryCheckbox,
-                deliveryAnywhere && styles.deliveryCheckboxChecked,
-              ]}
-            >
-              {deliveryAnywhere ? (
-                <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-              ) : null}
-            </View>
-            <Text style={styles.deliveryCheckLabel}>
-              Delivery &amp; Pick-up, from anywhere
+            <View style={styles.liveGreenDot} />
+            <Text style={styles.lightZonePillText}>
+              {pickupZone?.shortName || 'Vadodara'}
             </Text>
+            <Ionicons name="chevron-down" size={13} color={BRAND_PURPLE_ACCENT} />
           </Pressable>
+        </View>
 
-          {/* Search EV Full-Width Purple Button with Animation */}
+        {/* ====================================================================
+            MAIN SCROLLVIEW (HERO 3-SLIDE BANNER + BOOKING FORM)
+        ==================================================================== */}
+        <ScrollView
+          ref={listRef}
+          style={styles.formScroll}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.formScrollContent,
+            { paddingBottom: insets.bottom + 125 },
+          ]}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* ==================================================================
+              ALL 3 SLIDES VISIBLE PARALLAX SHOWCASE + INTERACTIVE SLIDE TABS
+          ================================================================== */}
+          <View style={styles.heroBannerSection}>
+            <View style={styles.sliderContainer}>
+              {RENT_LOOP.map((slide, index) => (
+                <MergeSlide
+                  key={index}
+                  index={index}
+                  slide={slide}
+                  scrollX={slideScrollX}
+                />
+              ))}
+
+              {/* Swipe Touch Overlay */}
+              <Animated.ScrollView
+                ref={slideScrollRef}
+                horizontal
+                pagingEnabled
+                nestedScrollEnabled
+                showsHorizontalScrollIndicator={false}
+                scrollEventThrottle={16}
+                onScroll={onSlideScroll}
+                onScrollBeginDrag={stopAutoSlide}
+                onMomentumScrollEnd={(event) => {
+                  const page = Math.round(
+                    event.nativeEvent.contentOffset.x / SLIDE_WIDTH
+                  );
+                  if (page >= RENT_SLIDES.length) {
+                    slidePageRef.current = 0;
+                    slideScrollX.value = 0;
+                    slideScrollRef.current?.scrollTo({ x: 0, animated: false });
+                    setActiveSlideIndex(0);
+                  } else {
+                    slidePageRef.current = page;
+                    slideScrollX.value = page * SLIDE_WIDTH;
+                    setActiveSlideIndex(page);
+                  }
+                  startAutoSlide();
+                }}
+                style={styles.sliderTouch}
+              >
+                {RENT_LOOP.map((_, index) => (
+                  <View key={index} style={styles.slideSpacer} />
+                ))}
+              </Animated.ScrollView>
+
+              {/* Hidden 0x0 VideoView for animation state tracking */}
+              <View style={{ width: 0, height: 0, overflow: 'hidden' }}>
+                <VideoView
+                  player={player}
+                  style={{ width: 1, height: 1 }}
+                  nativeControls={false}
+                  allowsPictureInPicture={false}
+                  surfaceType="textureView"
+                />
+              </View>
+            </View>
+
+            {/* 3-Slide Interactive Switcher Bar (Shows all 3 slides clearly) */}
+            <View style={styles.slideSwitcherBar}>
+              {RENT_SLIDES.map((s, idx) => {
+                const isAct = activeSlideIndex === idx;
+                return (
+                  <Pressable
+                    key={s.id}
+                    onPress={() => jumpToSlide(idx)}
+                    style={[
+                      styles.slideSwitcherPill,
+                      isAct && styles.slideSwitcherPillActive,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.slideSwitcherNumBadge,
+                        isAct && styles.slideSwitcherNumBadgeActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.slideSwitcherNumText,
+                          isAct && styles.slideSwitcherNumTextActive,
+                        ]}
+                      >
+                        0{idx + 1}
+                      </Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.slideSwitcherLabel,
+                        isAct && styles.slideSwitcherLabelActive,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {s.tabTitle}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
+          <View style={styles.cardsPaddingWrap}>
+            {/* 1. PICKUP & RETURN STATION CARD */}
+            <Animated.View entering={cardEnter(0)} style={styles.sectionCard}>
+              <View style={styles.sectionHeadRow}>
+                <View
+                  style={[
+                    styles.sectionIconCircle,
+                    { backgroundColor: PURPLE_TINT },
+                  ]}
+                >
+                  <Ionicons name="location" size={17} color={BRAND_VIOLET} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sectionHeadText}>Station &amp; Zone</Text>
+                  <Text style={styles.sectionSubText}>
+                    Choose your Vadodara EV pickup &amp; return point
+                  </Text>
+                </View>
+              </View>
+
+              {/* Connected Pickup / Drop Station Selector Box */}
+              <View style={styles.routeBox}>
+                <Pressable
+                  onPress={() => {
+                    setLocationFor('pickup');
+                    setLocationModalOpen(true);
+                  }}
+                  style={({ pressed }) => [
+                    styles.stationSelectRow,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <View style={styles.stationNodeCol}>
+                    <View style={styles.pickupDotOuter}>
+                      <View style={styles.pickupDotInner} />
+                    </View>
+                    {!sameDrop && <View style={styles.stationConnectorLine} />}
+                  </View>
+
+                  <View style={styles.stationCopyCol}>
+                    <Text style={styles.stationTagLabel}>PICKUP ZONE</Text>
+                    <Text style={styles.stationNameText} numberOfLines={1}>
+                      {pickupZone?.name || 'Select a pickup zone'}
+                    </Text>
+                    <Text style={styles.stationAreaSub} numberOfLines={1}>
+                      {pickupZone?.address ||
+                        pickupZone?.area ||
+                        'Evegah Verified Charging Station'}
+                    </Text>
+                  </View>
+
+                  <View style={styles.changeStationPill}>
+                    <Text style={styles.changeStationPillText}>Select</Text>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={13}
+                      color={BRAND_PURPLE_ACCENT}
+                    />
+                  </View>
+                </Pressable>
+
+                {!sameDrop ? (
+                  <Animated.View entering={FadeIn.duration(240)}>
+                    <View style={styles.stationDivider} />
+                    <Pressable
+                      onPress={() => {
+                        setLocationFor('drop');
+                        setLocationModalOpen(true);
+                      }}
+                      style={({ pressed }) => [
+                        styles.stationSelectRow,
+                        pressed && { opacity: 0.85 },
+                      ]}
+                    >
+                      <View style={styles.stationNodeCol}>
+                        <View style={styles.dropSquareNode} />
+                      </View>
+
+                      <View style={styles.stationCopyCol}>
+                        <Text
+                          style={[
+                            styles.stationTagLabel,
+                            { color: '#DB2777' },
+                          ]}
+                        >
+                          RETURN ZONE
+                        </Text>
+                        <Text style={styles.stationNameText} numberOfLines={1}>
+                          {dropZone?.name || 'Select drop station'}
+                        </Text>
+                        <Text style={styles.stationAreaSub} numberOfLines={1}>
+                          {dropZone?.address ||
+                            dropZone?.area ||
+                            'Different return Zone'}
+                        </Text>
+                      </View>
+
+                      <View
+                        style={[
+                          styles.changeStationPill,
+                          { backgroundColor: '#FDF2F8' },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.changeStationPillText,
+                            { color: '#DB2777' },
+                          ]}
+                        >
+                          Select
+                        </Text>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={13}
+                          color="#DB2777"
+                        />
+                      </View>
+                    </Pressable>
+                  </Animated.View>
+                ) : null}
+              </View>
+
+              {/* Same Return Station Checkbox Row */}
+              <Pressable
+                onPress={() => {
+                  const next = !sameDrop;
+                  setSameDrop(next);
+                  if (next) setDropZone(pickupZone);
+                }}
+                style={styles.sameDropRow}
+              >
+                <View
+                  style={[
+                    styles.toggleCheckbox,
+                    sameDrop && styles.toggleCheckboxOn,
+                  ]}
+                >
+                  {sameDrop ? (
+                    <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                  ) : null}
+                </View>
+                <Text style={styles.sameDropLabel}>
+                  Return scooter to same pickup station
+                </Text>
+              </Pressable>
+            </Animated.View>
+
+            {/* 2. RIDE SCHEDULE (PICKUP & DROP TIMELINE) CARD */}
+            <Animated.View entering={cardEnter(1)} style={styles.sectionCard}>
+              <View style={styles.sectionHeadRow}>
+                <View
+                  style={[
+                    styles.sectionIconCircle,
+                    { backgroundColor: '#ECFDF5' },
+                  ]}
+                >
+                  <Ionicons name="calendar" size={17} color="#059669" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sectionHeadText}>Trip Schedule</Text>
+                  <Text style={styles.sectionSubText}>
+                    Choose exact pickup &amp; return date and minute
+                  </Text>
+                </View>
+              </View>
+
+              {/* Pickup Schedule Row */}
+              <Text style={styles.dtSubHeading}>START RIDE</Text>
+              <View style={styles.dtRow}>
+                <Pressable style={styles.dtBox} onPress={openDate}>
+                  <View style={styles.dtBoxInner}>
+                    <Ionicons
+                      name="calendar-outline"
+                      size={17}
+                      color={BRAND_VIOLET}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.dtBoxLabel}>PICKUP DATE</Text>
+                      <Text style={styles.dtBoxValue} numberOfLines={1}>
+                        {pickupDay
+                          ? pickupDayIndex >= 0
+                            ? dayName(pickupDay, pickupDayIndex)
+                            : pickupDay.toLocaleDateString('en-IN', {
+                                day: 'numeric',
+                                month: 'short',
+                              })
+                          : 'Select Date'}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-down" size={14} color={TEXT_MUTED} />
+                  </View>
+                </Pressable>
+
+                <Pressable
+                  style={styles.dtBox}
+                  onPress={() => openClock('pickup')}
+                >
+                  <View style={styles.dtBoxInner}>
+                    <Ionicons
+                      name="time-outline"
+                      size={17}
+                      color={BRAND_VIOLET}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.dtBoxLabel}>EXACT TIME</Text>
+                      <Text style={styles.dtBoxValue} numberOfLines={1}>
+                        {pickupTime || 'Select Time'}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-down" size={14} color={TEXT_MUTED} />
+                  </View>
+                </Pressable>
+              </View>
+
+              {/* Center Duration Bridge Indicator */}
+              <View style={styles.dtDividerRow}>
+                <View style={styles.dtDividerLine} />
+                <View style={styles.dtSpanPill}>
+                  <Ionicons name="timer-outline" size={13} color="#059669" />
+                  <Text style={styles.dtSpanText}>
+                    {duration ? duration : 'Select Duration'}
+                  </Text>
+                </View>
+                <View style={styles.dtDividerLine} />
+              </View>
+
+              {/* Drop / Return Schedule Row */}
+              <Text style={[styles.dtSubHeading, { color: '#059669' }]}>
+                END RIDE
+              </Text>
+              <View style={styles.dtRow}>
+                <Pressable style={styles.dtBox} onPress={openDate}>
+                  <View style={styles.dtBoxInner}>
+                    <Ionicons
+                      name="calendar-outline"
+                      size={17}
+                      color="#059669"
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.dtBoxLabel}>RETURN DATE</Text>
+                      <Text style={styles.dtBoxValue} numberOfLines={1}>
+                        {dropDay
+                          ? dropDayIndex >= 0
+                            ? dayName(dropDay, dropDayIndex)
+                            : dropDay.toLocaleDateString('en-IN', {
+                                day: 'numeric',
+                                month: 'short',
+                              })
+                          : 'Select Date'}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-down" size={14} color={TEXT_MUTED} />
+                  </View>
+                </Pressable>
+
+                <Pressable
+                  style={styles.dtBox}
+                  onPress={() => openClock('drop')}
+                >
+                  <View style={styles.dtBoxInner}>
+                    <Ionicons name="time-outline" size={17} color="#059669" />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.dtBoxLabel}>EXACT TIME</Text>
+                      <Text style={styles.dtBoxValue} numberOfLines={1}>
+                        {dropTime || 'Select Time'}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-down" size={14} color={TEXT_MUTED} />
+                  </View>
+                </Pressable>
+              </View>
+            </Animated.View>
+
+            {/* 3. DOORSTEP FLEXI DELIVERY & PICKUP CARD */}
+            <Animated.View entering={cardEnter(2)} style={styles.sectionCard}>
+              <View style={styles.sectionHeadRow}>
+                <View
+                  style={[
+                    styles.sectionIconCircle,
+                    { backgroundColor: '#FFFBEB' },
+                  ]}
+                >
+                  <Ionicons name="bicycle" size={17} color="#D97706" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sectionHeadText}>Delivery Anywhere</Text>
+                  <Text style={styles.sectionSubText}>
+                    Doorstep scooter handover &amp; return collection
+                  </Text>
+                </View>
+              </View>
+
+              <Pressable
+                onPress={() => setDeliveryAnywhere((v) => !v)}
+                style={styles.deliveryOptionRow}
+              >
+                <View style={styles.deliveryOptionInfo}>
+                  <View style={styles.deliveryTitleRow}>
+                    <Text style={styles.deliveryOptionTitle}>
+                      Doorstep Flexi Delivery &amp; Pickup
+                    </Text>
+                    <View style={styles.flexiTagPill}>
+                      <Text style={styles.flexiTagText}>Optional</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.deliveryOptionSub}>
+                    We deliver the sanitized EV to your doorstep &amp; collect
+                    it when your trip ends
+                  </Text>
+                </View>
+
+                <View
+                  style={[
+                    styles.toggleCheckbox,
+                    deliveryAnywhere && styles.toggleCheckboxOn,
+                  ]}
+                >
+                  {deliveryAnywhere ? (
+                    <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                  ) : null}
+                </View>
+              </Pressable>
+            </Animated.View>
+
+            {/* 4. LIVE BOOKING OVERVIEW TICKET (Visible when ready - NO PRICES) */}
+            {showDuration ? (
+              <Animated.View
+                entering={FadeInDown.duration(320)}
+                style={styles.summaryTicketCard}
+              >
+                <View style={styles.summaryLeftRow}>
+                  <View style={styles.summaryThumbBox}>
+                    <Ionicons
+                      name="shield-checkmark"
+                      size={20}
+                      color="#059669"
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.summaryVerifiedRow}>
+                      <Text style={styles.summaryModelName}>
+                        {pickupZone?.shortName || pickupZone?.name} →{' '}
+                        {dropPlace?.shortName || dropPlace?.name}
+                      </Text>
+                      <View style={styles.summaryReadyBadge}>
+                        <View style={styles.summaryReadyDot} />
+                        <Text style={styles.summaryReadyBadgeText}>
+                          READY ({duration})
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.summaryRouteText} numberOfLines={1}>
+                      {pickupTime} ({dayName(pickupDay, pickupDayIndex)}) →{' '}
+                      {dropTime} ({dayName(dropDay, dropDayIndex)})
+                    </Text>
+                    {deliveryAnywhere ? (
+                      <Text style={styles.summaryFlexiSubText}>
+                        ✓ Doorstep Flexi Delivery &amp; Pickup included
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              </Animated.View>
+            ) : null}
+          </View>
+        </ScrollView>
+
+        {/* ====================================================================
+            STICKY BOTTOM DOCK WITH ANIMATED SCOOTER CTA BUTTON
+        ==================================================================== */}
+        <View
+          style={[
+            styles.bottomBar,
+            { paddingBottom: Math.max(insets.bottom, 14) },
+          ]}
+        >
+          {!ready ? (
+            <View style={styles.bottomHintRow}>
+              <Ionicons
+                name="information-circle-outline"
+                size={15}
+                color={TEXT_SLATE}
+              />
+              <Text style={styles.bottomHintText}>
+                {missingStep({
+                  pickupZone,
+                  dropPlace,
+                  pickupDay,
+                  pickupTime,
+                  dropDay,
+                  dropTime,
+                }) || 'Complete your station & schedule details above'}
+              </Text>
+            </View>
+          ) : null}
+
           <Pressable
             disabled={riding}
             onPress={() => {
@@ -952,7 +2123,10 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
             }}
             onPressIn={() => {
               if (riding) return;
-              btnScale.value = withSpring(0.97, { damping: 18, stiffness: 280 });
+              btnScale.value = withSpring(0.97, {
+                damping: 18,
+                stiffness: 280,
+              });
             }}
             onPressOut={() => {
               btnScale.value = withSpring(1, { damping: 14, stiffness: 220 });
@@ -964,17 +2138,36 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
               }}
               style={[styles.searchEvBtn, btnAnimStyle]}
             >
-              <Animated.Text style={[styles.searchEvBtnText, continueTextStyle]}>
-                Search EV
-              </Animated.Text>
+              <LinearGradient
+                colors={['#6D28D9', '#4C1D95']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+
+              <Animated.View style={[styles.ctaLabelRow, continueTextStyle]}>
+                <Ionicons name="flash" size={17} color="#FDE047" />
+                <Text style={styles.searchEvBtnText}>
+                  Search Available EVs
+                </Text>
+                <Ionicons name="arrow-forward" size={17} color="#FFFFFF" />
+              </Animated.View>
+
               {riding ? (
                 <>
-                  <Animated.View style={[styles.rideLine, rideLineStyle]} pointerEvents="none">
+                  <Animated.View
+                    style={[styles.rideLine, rideLineStyle]}
+                    pointerEvents="none"
+                  >
                     {ROAD_DASHES.map((dash) => (
                       <View key={dash} style={styles.roadDash} />
                     ))}
                   </Animated.View>
-                  <Animated.View style={[styles.scooterWrap, scooterSlideStyle]} pointerEvents="none">
+
+                  <Animated.View
+                    style={[styles.scooterWrap, scooterSlideStyle]}
+                    pointerEvents="none"
+                  >
                     <View style={styles.speedLines}>
                       <View style={[styles.speedDash, styles.speedDashLong]} />
                       <View style={[styles.speedDash, styles.speedDashMid]} />
@@ -990,53 +2183,45 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
               ) : null}
             </Animated.View>
           </Pressable>
-        </Animated.View>
-      </View>
+        </View>
       </BlurTargetView>
 
-      {/* Zone Selection Modal */}
-      {zoneModalOpen ? (
-        <PopupShell blurTarget={blurTargetRef} onClose={() => setZoneModalOpen(false)}>
-          {(requestClose) => (
-            <>
-              <Text style={styles.popupTitle}>Select EV Zone</Text>
-              <Text style={styles.popupHint}>Pick where you would like to start your ride</Text>
-              <ScrollView style={{ maxHeight: 280, marginTop: 12 }}>
-                {EVEGAH_ZONES.map((zone) => {
-                  const isSelected = pickupZone?.id === zone.id;
-                  return (
-                    <Pressable
-                      key={zone.id}
-                      onPress={() => {
-                        setPickupZone(zone);
-                        if (sameDrop) setDropZone(zone);
-                        requestClose();
-                      }}
-                      style={[styles.zoneItem, isSelected && styles.zoneItemActive]}
-                    >
-                      <View style={[styles.zoneRadioDot, isSelected && styles.zoneRadioDotActive]}>
-                        {isSelected ? <Ionicons name="checkmark" size={13} color="#FFFFFF" /> : null}
-                      </View>
-                      <View style={{ flex: 1, marginLeft: 10 }}>
-                        <Text style={styles.zoneItemTitle}>{zone.name}</Text>
-                        <Text style={styles.zoneItemSub}>{zone.address || zone.shortName}</Text>
-                      </View>
-                      <Text style={styles.zoneItemDistance}>{zone.distance}</Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-              <Pressable onPress={requestClose} style={[styles.popupCancel, { marginTop: 14 }]}>
-                <Text style={styles.popupCancelText}>Close</Text>
-              </Pressable>
-            </>
-          )}
-        </PopupShell>
-      ) : null}
+      {/* ====================================================================
+          FULL SCREEN LOCATION SELECTION MODAL
+      ==================================================================== */}
+      <Modal
+        visible={locationModalOpen}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        statusBarTranslucent
+        onRequestClose={() => setLocationModalOpen(false)}
+      >
+        <LocationScreen
+          onBack={() => setLocationModalOpen(false)}
+          onSelectZone={(selectedZoneObj) => {
+            const matched =
+              availableZones.find((z) => z.id === selectedZoneObj.id) ||
+              selectedZoneObj;
+            if (locationFor === 'drop') {
+              setDropZone(matched);
+            } else {
+              setPickupZone(matched);
+              if (sameDrop) setDropZone(matched);
+            }
+            setLocationModalOpen(false);
+          }}
+        />
+      </Modal>
+
+      {/* ====================================================================
+          CLOCK POPUP MODAL (EXACT 00–59 MINUTE & HOUR PICKER)
+      ==================================================================== */}
       {clockFor ? (
         <ClockPopup
           blurTarget={blurTargetRef}
-          title={clockFor === 'drop' ? 'Drop time' : 'Pickup time'}
+          title={
+            clockFor === 'drop' ? 'Select Return Time' : 'Select Pickup Time'
+          }
           time={clockFor === 'drop' ? dropTime : pickupTime}
           onClose={() => setClockFor(null)}
           onConfirm={(time) => {
@@ -1045,6 +2230,10 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
           }}
         />
       ) : null}
+
+      {/* ====================================================================
+          CALENDAR DATE PICKUP & DROP POPUP MODAL
+      ==================================================================== */}
       {dateFor ? (
         <DatePopup
           blurTarget={blurTargetRef}
@@ -1057,12 +2246,22 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
           }}
         />
       ) : null}
+
+      {/* ====================================================================
+          FLOATING ERROR / VALIDATION TOAST BANNER
+      ==================================================================== */}
       {toastMessage ? (
         <Animated.View
           pointerEvents="none"
-          style={[styles.toast, { top: Math.max(insets.top, 12) + 8 }, toastAnimStyle]}
+          style={[
+            styles.toast,
+            { top: Math.max(insets.top, 12) + 12 },
+            toastAnimStyle,
+          ]}
         >
-          <Ionicons name="close-circle" size={18} color="#FFFFFF" />
+          <View style={styles.toastIconBox}>
+            <Ionicons name="alert-circle" size={18} color="#FFFFFF" />
+          </View>
           <Text style={styles.toastText}>{toastMessage}</Text>
         </Animated.View>
       ) : null}
@@ -1070,305 +2269,675 @@ export default function RentScreen({ vehicle, onBack, onContinue }) {
   );
 }
 
+// ============================================================================
+// STYLESHEET (100% LIGHT THEME + CENTERED 60-MIN CLOCK)
+// ============================================================================
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#F7F7F8',
+    backgroundColor: PAGE_BG,
   },
   blurTarget: {
     flex: 1,
   },
-  sheetClip: {
-    flex: 1,
+
+  /* Light Top Header */
+  lightTopHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    overflow: 'hidden',
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER_LIGHT,
+    zIndex: 20,
   },
-  scroll: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  kicker: {
-    color: PURPLE,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  bannerWrap: {
-    width: '100%',
-    height: BANNER_HEIGHT,
-    backgroundColor: '#F4F5F7',
-  },
-  bannerVideo: {
-    width: '100%',
-    height: BANNER_HEIGHT,
-  },
-  back: {
-    position: 'absolute',
-    left: 16,
+  lightBackBtn: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    backgroundColor: PURPLE_TINT,
+    borderWidth: 1,
+    borderColor: '#E2D6FA',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  lightHeaderTitleCol: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  lightHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: TEXT_INK,
+    letterSpacing: -0.3,
+  },
+  lightHeaderSubtitle: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: TEXT_MUTED,
+    letterSpacing: 0.9,
+    marginTop: 1,
+  },
+  lightZonePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: PURPLE_TINT,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  lightZonePillText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: BRAND_PURPLE_ACCENT,
+  },
+  liveGreenDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#10B981',
+  },
+
+  /* Hero 3-Slide Banner + Switcher Bar */
+  heroBannerSection: {
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER_LIGHT,
+    paddingBottom: 12,
+  },
+  sliderContainer: {
+    width: SCREEN_W,
+    height: SLIDE_HEIGHT,
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor: '#EDE9FE',
+  },
+  sliderTouch: {
+    ...StyleSheet.absoluteFillObject,
     zIndex: 6,
   },
-  ridePin: {
-    position: 'absolute',
-    width: PIN_COL,
-    paddingTop: LABEL_SLOT,
-    alignItems: 'center',
-    zIndex: 3,
+  slideSpacer: {
+    width: SLIDE_WIDTH,
+    height: SLIDE_HEIGHT,
   },
-  pickupSpot: {
-    left: '12%',
-    top: '22%',
-  },
-  dateSpot: {
-    left: '26%',
-    top: '31%',
-  },
-  dropSpot: {
-    left: '57%',
-    top: '28%',
-  },
-  placeSpot: {
-    left: '81%',
-    top: '22%',
-  },
-  pinMeasureHost: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: SCREEN_W,
-    opacity: 0,
-    alignItems: 'flex-start',
-  },
-  pinMeasure: {
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  pinLabel: {
-    position: 'absolute',
-    top: 0,
-    left: PIN_COL / 2,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    alignItems: 'center',
+  slide: {
+    ...StyleSheet.absoluteFillObject,
     overflow: 'hidden',
   },
-  pinLabelText: {
-    color: PURPLE,
-    fontSize: 11,
-    fontWeight: '700',
+  slideBgWrap: {
+    ...StyleSheet.absoluteFillObject,
   },
-  pinPlace: {
-    color: PURPLE,
-    fontSize: 13,
-    fontWeight: '800',
+  slideImage: {
+    width: '100%',
+    height: '100%',
   },
-  pinHead: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: PURPLE,
-    alignItems: 'center',
-    justifyContent: 'center',
+  slideCopyWrap: {
+    position: 'absolute',
+    left: 18,
+    top: 44,
+    zIndex: 3,
+    maxWidth: SCREEN_W * 0.52,
   },
-  pinHole: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#FFFFFF',
+  slideHeadlineBlock: {
+    gap: 2,
   },
-  pinTip: {
-    width: 0,
-    height: 0,
-    marginTop: -6,
-    borderLeftWidth: 9,
-    borderRightWidth: 9,
-    borderTopWidth: 16,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderTopColor: PURPLE,
-  },
-  cardContainer: {
-    marginTop: -28,
-    marginHorizontal: 16,
-    zIndex: 4,
-  },
-  rentSearchCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 16,
-    borderWidth: 1.2,
-    borderColor: '#E5DFEF',
-    shadowColor: '#1A0F30',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 4,
-  },
-  zonePill: {
-    minHeight: 52,
-    borderRadius: 14,
-    borderWidth: 1.3,
-    borderColor: '#DFD9EA',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+  slideAccentVector: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 6,
+    marginBottom: 6,
   },
-  zoneSearchIcon: {
-    marginRight: 2,
+  slideAccentDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#34D399',
   },
-  zonePillText: {
-    flex: 1,
-    fontSize: 14.5,
-    fontWeight: '700',
-    color: '#24083C',
-    letterSpacing: -0.2,
+  slideAccentLine: {
+    width: 28,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: '#34D399',
   },
-  zoneLocateBtn: {
-    padding: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
+  slideHeadlineText: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    lineHeight: 27,
+    fontWeight: '900',
+    letterSpacing: -0.3,
   },
-  tripBoxesRow: {
-    marginTop: 12,
-    flexDirection: 'row',
-    gap: 12,
+  slideSubBlock: {
+    marginTop: 6,
+    gap: 1,
   },
-  tripDateBox: {
-    flex: 1,
-    borderRadius: 14,
-    borderWidth: 1.3,
-    borderColor: '#DFD9EA',
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    justifyContent: 'center',
-  },
-  tripBoxLabel: {
+  slideSubText: {
+    color: 'rgba(255, 255, 255, 0.88)',
     fontSize: 12,
     fontWeight: '600',
-    color: '#736D80',
+    lineHeight: 16,
   },
-  tripBoxValue: {
-    marginTop: 4,
-    fontSize: 14.5,
+  slideCtaBtn: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 16,
+    backgroundColor: BRAND_PURPLE_ACCENT,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+  },
+  slideCtaBtnGold: {
+    backgroundColor: '#B51F38',
+  },
+  slideCtaText: {
+    color: '#FFFFFF',
+    fontSize: 12,
     fontWeight: '800',
-    color: '#24083C',
-    letterSpacing: -0.2,
+    letterSpacing: 0.2,
   },
-  deliveryCheckRow: {
-    marginTop: 14,
+  slideFrontWrap: {
+    position: 'absolute',
+    zIndex: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  slideFrontImage: {
+    width: '100%',
+    height: '100%',
+  },
+  navratriEmblem: {
+    alignItems: 'flex-start',
+  },
+  navratriArchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 2,
+  },
+  navratriArchWing: {
+    width: 14,
+    height: 1.5,
+    backgroundColor: '#FFD24C',
+  },
+  navratriArchDome: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FFD24C',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navratriHelloText: {
+    color: '#FFD24C',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 2.2,
+  },
+  navratriMainText: {
+    color: '#FFFFFF',
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: 1.5,
+    marginTop: -2,
+  },
+  navratriSwirlBar: {
+    width: 48,
+    height: 2.5,
+    borderRadius: 1.25,
+    backgroundColor: '#FFD24C',
+    marginTop: 4,
+  },
+
+  /* 3-Slide Switcher Bar (All 3 slides clearly selectable) */
+  slideSwitcherBar: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    gap: 8,
+  },
+  slideSwitcherPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    backgroundColor: '#F8F7FC',
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+  },
+  slideSwitcherPillActive: {
+    backgroundColor: PURPLE_TINT,
+    borderColor: BRAND_VIOLET,
+  },
+  slideSwitcherNumBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+    backgroundColor: '#EAE4F7',
+  },
+  slideSwitcherNumBadgeActive: {
+    backgroundColor: BRAND_PURPLE_ACCENT,
+  },
+  slideSwitcherNumText: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    color: TEXT_SLATE,
+  },
+  slideSwitcherNumTextActive: {
+    color: '#FFFFFF',
+  },
+  slideSwitcherLabel: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: TEXT_SLATE,
+  },
+  slideSwitcherLabelActive: {
+    color: BRAND_PURPLE_ACCENT,
+    fontWeight: '900',
+  },
+
+  /* Form ScrollView */
+  formScroll: {
+    flex: 1,
+    backgroundColor: PAGE_BG,
+  },
+  formScrollContent: {
+    paddingBottom: 30,
+  },
+  cardsPaddingWrap: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    gap: 14,
+  },
+
+  /* Section Card Tokens */
+  sectionCard: {
+    backgroundColor: CARD_BG,
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    shadowColor: '#240646',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  sectionHeadRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    marginBottom: 14,
   },
-  deliveryCheckbox: {
+  sectionIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionHeadText: {
+    fontSize: 15.5,
+    fontWeight: '900',
+    color: TEXT_INK,
+    letterSpacing: -0.2,
+  },
+  sectionSubText: {
+    fontSize: 11.5,
+    color: TEXT_SLATE,
+    marginTop: 1,
+    fontWeight: '500',
+  },
+
+  /* Zone Route Box */
+  routeBox: {
+    backgroundColor: '#F8F7FC',
+    borderRadius: 16,
+    borderWidth: 1.2,
+    borderColor: BORDER_LIGHT,
+    padding: 12,
+  },
+  stationSelectRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 4,
+  },
+  stationNodeCol: {
+    width: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickupDotOuter: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#EDE9FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickupDotInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: BRAND_VIOLET,
+  },
+  stationConnectorLine: {
+    width: 2,
+    height: 28,
+    backgroundColor: '#DDD6FE',
+    marginVertical: 3,
+  },
+  dropSquareNode: {
+    width: 12,
+    height: 12,
+    borderRadius: 3,
+    backgroundColor: '#DB2777',
+  },
+  stationCopyCol: {
+    flex: 1,
+  },
+  stationTagLabel: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: BRAND_VIOLET,
+    letterSpacing: 0.6,
+  },
+  stationNameText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: TEXT_INK,
+    marginTop: 1,
+    letterSpacing: -0.2,
+  },
+  stationAreaSub: {
+    fontSize: 11,
+    color: TEXT_SLATE,
+    marginTop: 2,
+  },
+  changeStationPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: PURPLE_TINT,
+  },
+  changeStationPillText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: BRAND_PURPLE_ACCENT,
+  },
+  stationDivider: {
+    height: 1,
+    backgroundColor: BORDER_LIGHT,
+    marginVertical: 8,
+    marginLeft: 30,
+  },
+  sameDropRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F3EFFA',
+  },
+  toggleCheckbox: {
     width: 20,
     height: 20,
-    borderRadius: 5,
-    borderWidth: 1.6,
-    borderColor: '#363042',
+    borderRadius: 6,
+    borderWidth: 1.8,
+    borderColor: '#B8ADD1',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#FFFFFF',
   },
-  deliveryCheckboxChecked: {
-    backgroundColor: PURPLE,
-    borderColor: PURPLE,
+  toggleCheckboxOn: {
+    backgroundColor: BRAND_PURPLE_ACCENT,
+    borderColor: BRAND_PURPLE_ACCENT,
   },
-  deliveryCheckLabel: {
-    fontSize: 13,
+  sameDropLabel: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: TEXT_SLATE,
+  },
+
+  /* Date/Time Section */
+  dtSubHeading: {
+    fontSize: 10.5,
+    fontWeight: '900',
+    color: BRAND_VIOLET,
+    letterSpacing: 0.6,
+    marginBottom: 8,
+  },
+  dtRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  dtBox: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1.2,
+    borderColor: BORDER_LIGHT,
+    backgroundColor: '#F8F7FC',
+  },
+  dtBoxInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    gap: 8,
+  },
+  dtBoxLabel: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: TEXT_MUTED,
+    letterSpacing: 0.4,
+  },
+  dtBoxValue: {
+    fontSize: 13.5,
+    fontWeight: '900',
+    color: TEXT_INK,
+    marginTop: 2,
+    letterSpacing: -0.2,
+  },
+  dtDividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 14,
+    gap: 8,
+  },
+  dtDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: BORDER_LIGHT,
+  },
+  dtSpanPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  dtSpanText: {
+    fontSize: 11.5,
+    fontWeight: '900',
+    color: '#059669',
+  },
+
+  /* Delivery Option Row */
+  deliveryOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#F8F7FC',
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+  },
+  deliveryOptionInfo: {
+    flex: 1,
+  },
+  deliveryTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  deliveryOptionTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: TEXT_INK,
+  },
+  flexiTagPill: {
+    backgroundColor: PURPLE_TINT,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  flexiTagText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: BRAND_VIOLET,
+  },
+  deliveryOptionSub: {
+    fontSize: 11,
+    color: TEXT_SLATE,
+    marginTop: 4,
+    lineHeight: 15,
+  },
+
+  /* Live Booking Overview Ticket */
+  summaryTicketCard: {
+    backgroundColor: '#F0FDF4',
+    borderRadius: 20,
+    padding: 14,
+    borderWidth: 1.2,
+    borderColor: '#BBF7D0',
+  },
+  summaryLeftRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  summaryThumbBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  summaryVerifiedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  summaryModelName: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#14532D',
+    flex: 1,
+  },
+  summaryReadyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  summaryReadyDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#16A34A',
+  },
+  summaryReadyBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    color: '#16A34A',
+    letterSpacing: 0.4,
+  },
+  summaryRouteText: {
+    fontSize: 12,
+    color: '#15803D',
+    fontWeight: '700',
+    marginTop: 3,
+  },
+  summaryFlexiSubText: {
+    fontSize: 11,
+    color: '#166534',
+    fontWeight: '700',
+    marginTop: 3,
+  },
+
+  /* Bottom Dock Bar & Animated CTA */
+  bottomBar: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: BORDER_LIGHT,
+    shadowColor: '#240646',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  bottomHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  bottomHintText: {
+    fontSize: 11.5,
+    color: TEXT_SLATE,
     fontWeight: '600',
-    color: '#280D42',
+    flex: 1,
   },
   searchEvBtn: {
-    marginTop: 16,
     height: 52,
-    borderRadius: 14,
-    backgroundColor: PURPLE,
+    borderRadius: 16,
+    backgroundColor: BRAND_PURPLE_ACCENT,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
     position: 'relative',
-    shadowColor: PURPLE,
+    shadowColor: BRAND_PURPLE_ACCENT,
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.28,
-    shadowRadius: 12,
-    elevation: 4,
+    shadowOpacity: 0.25,
+    shadowRadius: 14,
+    elevation: 6,
+  },
+  ctaLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   searchEvBtnText: {
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '900',
     color: '#FFFFFF',
     letterSpacing: 0.2,
-  },
-  zoneItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ECE7F4',
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 8,
-    backgroundColor: '#FAF8FD',
-  },
-  zoneItemActive: {
-    borderColor: PURPLE,
-    backgroundColor: '#F3EAFB',
-  },
-  zoneRadioDot: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: '#B9AFC8',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  zoneRadioDotActive: {
-    borderColor: PURPLE,
-    backgroundColor: PURPLE,
-  },
-  zoneItemTitle: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: '#24083C',
-  },
-  zoneItemSub: {
-    fontSize: 11.5,
-    color: '#766F85',
-    marginTop: 1,
-  },
-  zoneItemDistance: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: PURPLE,
-  },
-  arrowCircle: {
-    position: 'absolute',
-    right: 8,
-    top: 10,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#111111',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  arrowCircleOff: {
-    backgroundColor: '#C8C0D4',
   },
   rideLine: {
     position: 'absolute',
@@ -1384,7 +2953,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 2,
     borderRadius: 1,
-    backgroundColor: '#111111',
+    backgroundColor: '#FFFFFF',
   },
   scooterWrap: {
     position: 'absolute',
@@ -1404,56 +2973,65 @@ const styles = StyleSheet.create({
   speedDash: {
     height: 2,
     borderRadius: 1,
-    backgroundColor: '#111111',
+    backgroundColor: '#FFFFFF',
   },
-  speedDashLong: {
-    width: 22,
-  },
-  speedDashMid: {
-    width: 14,
-  },
-  speedDashShort: {
-    width: 8,
-  },
+  speedDashLong: { width: 22 },
+  speedDashMid: { width: 14 },
+  speedDashShort: { width: 8 },
   scooter: {
     width: SCOOTER_WIDTH,
     height: SCOOTER_HEIGHT,
   },
+
+  /* Toast System */
   toast: {
     position: 'absolute',
-    left: 12,
-    right: 12,
+    left: 14,
+    right: 14,
     zIndex: 100,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     backgroundColor: '#DC2626',
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 13,
     borderRadius: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.22,
+    shadowOpacity: 0.2,
     shadowRadius: 14,
-    elevation: 12,
+    elevation: 14,
+  },
+  toastIconBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   toastText: {
     flex: 1,
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 13.5,
+    fontWeight: '700',
   },
+
+  /* Popups (Clock & Date - Light Theme) */
   popupRoot: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    zIndex: 80,
-    elevation: 24,
+    zIndex: 90,
+    elevation: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
+  },
+  popupBackdrop: {
+    backgroundColor: 'rgba(25, 13, 51, 0.35)',
   },
   popupCard: {
     width: '100%',
@@ -1463,114 +3041,347 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 18,
     paddingBottom: 16,
-    shadowColor: '#2A085C',
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.16,
-    shadowRadius: 28,
-    elevation: 16,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+    shadowColor: '#240646',
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.14,
+    shadowRadius: 26,
+    elevation: 18,
   },
-  popupTitle: {
-    color: '#1C1C1C',
-    fontSize: 18,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  popupHint: {
-    marginTop: 4,
-    color: '#8A8496',
-    fontSize: 12,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  meridiemRow: {
-    marginTop: 14,
-    alignSelf: 'center',
+  clockPopupHeaderRow: {
     flexDirection: 'row',
-    backgroundColor: '#F4F4F6',
-    borderRadius: 12,
-    padding: 4,
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  meridiem: {
-    width: 64,
+  popupCloseCircle: {
+    width: 32,
     height: 32,
-    borderRadius: 9,
+    borderRadius: 16,
+    backgroundColor: '#F3EFFA',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  meridiemOn: {
-    backgroundColor: PURPLE,
+  popupTitle: {
+    color: TEXT_INK,
+    fontSize: 18,
+    fontWeight: '900',
   },
-  meridiemText: {
-    color: '#8A8496',
-    fontSize: 13,
-    fontWeight: '700',
+  popupHint: {
+    marginTop: 2,
+    color: TEXT_SLATE,
+    fontSize: 11.5,
+    fontWeight: '600',
   },
-  meridiemTextOn: {
+  popupActions: {
+    marginTop: 14,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  popupCancel: {
+    flex: 0.42,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: '#F3EFFA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  popupCancelText: {
+    color: TEXT_SLATE,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  popupSet: {
+    flex: 0.58,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: BRAND_PURPLE_ACCENT,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  popupSetText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  popupSetOff: { opacity: 0.4 },
+
+  /* ==========================================================================
+     PRECISION CLOCK DIAL STYLES (CENTERED + HAND + ALL 60 MINUTES)
+  ========================================================================== */
+  clockDigitalHeader: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    backgroundColor: '#F8F7FC',
+    borderRadius: 16,
+    borderWidth: 1.2,
+    borderColor: BORDER_LIGHT,
+  },
+  clockDigitalBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  clockDigitalPart: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.2,
+    borderColor: BORDER_LIGHT,
+  },
+  clockDigitalPartActive: {
+    backgroundColor: PURPLE_TINT,
+    borderColor: BRAND_PURPLE_ACCENT,
+  },
+  clockDigitalNum: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: TEXT_SLATE,
+  },
+  clockDigitalNumActive: {
+    color: BRAND_PURPLE_ACCENT,
+  },
+  clockDigitalLabel: {
+    marginLeft: 3,
+    fontSize: 9,
+    fontWeight: '800',
+    color: TEXT_MUTED,
+  },
+  clockDigitalLabelActive: {
+    color: BRAND_PURPLE_ACCENT,
+  },
+  clockDigitalColon: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: TEXT_MUTED,
+  },
+  minuteStepperGroup: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  minuteStepBtn: {
+    paddingHorizontal: 7,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+  },
+  minuteStepBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: BRAND_PURPLE_ACCENT,
+  },
+  clockMeridiemBox: {
+    flexDirection: 'row',
+    backgroundColor: '#EAE4F7',
+    borderRadius: 10,
+    padding: 2.5,
+    gap: 2,
+  },
+  clockMeridiemBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  clockMeridiemBtnOn: {
+    backgroundColor: BRAND_PURPLE_ACCENT,
+  },
+  clockMeridiemBtnText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: TEXT_SLATE,
+  },
+  clockMeridiemBtnTextOn: {
     color: '#FFFFFF',
   },
+  clockGuideRow: {
+    marginTop: 10,
+    marginBottom: 6,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  clockGuideBadge: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: PURPLE_TINT,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  clockGuideBadgeActive: {
+    backgroundColor: BRAND_PURPLE_ACCENT,
+    borderColor: BRAND_PURPLE_ACCENT,
+  },
+  clockGuideText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: BRAND_PURPLE_ACCENT,
+  },
+
+  /* Centered Circular Clock Face */
   clock: {
-    marginTop: 16,
+    marginTop: 6,
     alignSelf: 'center',
     width: CLOCK_SIZE,
     height: CLOCK_SIZE,
     borderRadius: CLOCK_SIZE / 2,
-    backgroundColor: '#F6F1FC',
+    backgroundColor: '#F8F7FC',
+    borderWidth: 2,
+    borderColor: '#E2D6FA',
+    position: 'relative',
   },
-  clockReadout: {
+  clockMinuteTick: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    top: CLOCK_SIZE / 2 - 12,
-    textAlign: 'center',
-    color: PURPLE,
-    fontSize: 18,
-    fontWeight: '800',
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: '#CBD5E1',
+  },
+  clockMinuteTickMajor: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#94A3B8',
+  },
+  clockMinuteTickSelected: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: BRAND_VIOLET,
+  },
+  clockHandContainer: {
+    position: 'absolute',
+    left: CLOCK_CENTER - 1.5,
+    top: 0,
+    width: 3,
+    height: CLOCK_SIZE,
+    alignItems: 'center',
+  },
+  clockHandStem: {
+    position: 'absolute',
+    bottom: CLOCK_CENTER,
+    width: 2.5,
+    backgroundColor: BRAND_VIOLET,
+    borderRadius: 2,
+  },
+  clockHandTipBubble: {
+    position: 'absolute',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: BRAND_PURPLE_ACCENT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: BRAND_PURPLE_ACCENT,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+    zIndex: 3,
+  },
+  clockHandTipText: {
+    color: '#FFFFFF',
+    fontSize: 13.5,
+    fontWeight: '900',
+  },
+  clockCenterHub: {
+    position: 'absolute',
+    left: CLOCK_CENTER - 10,
+    top: CLOCK_CENTER - 10,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#EDE9FE',
+    borderWidth: 2,
+    borderColor: BRAND_VIOLET,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 4,
+  },
+  clockCenterHubDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: BRAND_PURPLE_ACCENT,
   },
   clockNum: {
     position: 'absolute',
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  clockNumOn: {
-    backgroundColor: PURPLE,
+    zIndex: 5,
   },
   clockNumText: {
-    color: '#1C1C1C',
-    fontSize: 14,
-    fontWeight: '700',
+    color: TEXT_INK,
+    fontSize: 13,
+    fontWeight: '800',
   },
   clockNumTextOn: {
     color: '#FFFFFF',
+    fontWeight: '900',
   },
-  minuteRow: {
-    marginTop: 14,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
+
+  /* All 60 Minutes (00–59) Scrubber Strip */
+  all60StripWrap: {
+    marginTop: 12,
+    backgroundColor: '#F8F7FC',
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
+  },
+  all60StripTitle: {
+    fontSize: 9.5,
+    fontWeight: '900',
+    color: TEXT_MUTED,
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  all60ScrollContent: {
     gap: 6,
+    paddingRight: 8,
   },
-  minute: {
-    width: 42,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: '#F4F4F6',
+  exactMinPill: {
+    width: 38,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: BORDER_LIGHT,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  minuteOn: {
-    backgroundColor: PURPLE,
+  exactMinPillActive: {
+    backgroundColor: BRAND_PURPLE_ACCENT,
+    borderColor: BRAND_PURPLE_ACCENT,
   },
-  minuteText: {
-    color: '#3C3846',
-    fontSize: 12,
-    fontWeight: '700',
+  exactMinPillText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: TEXT_SLATE,
   },
-  minuteTextOn: {
+  exactMinPillTextActive: {
     color: '#FFFFFF',
+    fontWeight: '900',
   },
+
+  /* Calendar Popup Styles */
   monthRow: {
     marginTop: 14,
     flexDirection: 'row',
@@ -1583,15 +3394,13 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F4F4F6',
+    backgroundColor: '#F3EFFA',
   },
-  monthBtnOff: {
-    opacity: 0.45,
-  },
+  monthBtnOff: { opacity: 0.4 },
   monthLabel: {
-    color: '#1C1C1C',
+    color: TEXT_INK,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   weekRow: {
     marginTop: 12,
@@ -1600,9 +3409,9 @@ const styles = StyleSheet.create({
   weekText: {
     width: '14.28%',
     textAlign: 'center',
-    color: '#8A8496',
+    color: TEXT_MUTED,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   calGrid: {
     marginTop: 6,
@@ -1619,20 +3428,11 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 4,
     height: 36,
-    backgroundColor: '#E7D6F6',
+    backgroundColor: '#EDE9FE',
   },
-  calBandMid: {
-    left: 0,
-    right: 0,
-  },
-  calBandStart: {
-    left: '50%',
-    right: 0,
-  },
-  calBandEnd: {
-    left: 0,
-    right: '50%',
-  },
+  calBandMid: { left: 0, right: 0 },
+  calBandStart: { left: '50%', right: 0 },
+  calBandEnd: { left: 0, right: '50%' },
   calDay: {
     width: 36,
     height: 36,
@@ -1641,61 +3441,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    flexGrow: 0,
-    flexShrink: 0,
     zIndex: 1,
   },
-  calDayOn: {
-    backgroundColor: PURPLE,
-  },
+  calDayOn: { backgroundColor: BRAND_PURPLE_ACCENT },
   calDayText: {
-    color: '#1C1C1C',
+    color: TEXT_INK,
     fontSize: 13,
-    fontWeight: '600',
-  },
-  calDayOff: {
-    color: '#C8C0D4',
-  },
-  calDayBetween: {
-    color: PURPLE,
     fontWeight: '700',
+  },
+  calDayOff: { color: '#CBD5E1' },
+  calDayBetween: {
+    color: BRAND_PURPLE_ACCENT,
+    fontWeight: '800',
   },
   calDayTextOn: {
     color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  popupActions: {
-    marginTop: 16,
-    flexDirection: 'row',
-    gap: 8,
-  },
-  popupCancel: {
-    flex: 1,
-    height: 46,
-    borderRadius: 12,
-    backgroundColor: '#F4F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  popupCancelText: {
-    color: '#3C3846',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  popupSet: {
-    flex: 1,
-    height: 46,
-    borderRadius: 12,
-    backgroundColor: PURPLE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  popupSetText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  popupSetOff: {
-    opacity: 0.4,
+    fontWeight: '900',
   },
 });

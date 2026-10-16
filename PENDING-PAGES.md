@@ -18,7 +18,7 @@ The next one in the current flow is **End ride**.
 | 5   | My Rides          | `screens/MyRidesScreen.js` (empty state only)           |
 | 6   | Scan              | `screens/ScanScreen.js`                                 |
 | 7   | Wallet            | `screens/WalletScreen.js`                               |
-| 8   | Profile           | `screens/ProfileScreen.js` (hub only, rows do not open) |
+| 8   | Profile           | `screens/ProfileScreen.js` (Zone only, rows do not open) |
 | 9   | Vehicle details   | `screens/VehicleDetailsScreen.js`                       |
 | 10  | Rent your EV      | `screens/RentScreen.js`                                 |
 | 11  | Checkout          | `screens/PayScreen.js`                                  |

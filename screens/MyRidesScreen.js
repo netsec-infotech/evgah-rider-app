@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -10,25 +10,33 @@ import {
 import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
 import { apiGet, last10, shortDate } from '../services/api';
 
-const PURPLE = '#4A168C';
+const BRAND_PURPLE = '#240B4C';
+const BRAND_PURPLE_ACCENT = '#5B21B6';
+const BRAND_VIOLET = '#7C3AED';
+
 const IMAGES = {
-  fly: require('../assets/home/vehicle-fly.png'),
   mink: require('../assets/home/vehicle-mink.png'),
   city: require('../assets/home/vehicle-city.png'),
+  fly: require('../assets/home/vehicle-fly.png'),
   pro: require('../assets/home/vehicle-pro.png'),
 };
 
+const CITY_SCOOTER_HERO = require('../assets/home/vehicle-city.png');
+const EMPTY_ART = require('../assets/home/no-bookings.png');
+
 function artFor(name) {
   const value = String(name || '').toLowerCase();
-  if (value.includes('fly')) return { image: IMAGES.fly, tint: '#EEF3FF', line: 'Light for every day' };
-  if (value.includes('mink')) return { image: IMAGES.mink, tint: '#F6F1FC', line: 'Smooth city miles' };
-  if (value.includes('pro')) return { image: IMAGES.pro, tint: '#FFF6F2', line: 'Built for longer rides' };
-  return { image: IMAGES.city, tint: '#F3FBF6', line: 'Quiet across town' };
+  if (value.includes('mink')) return { image: IMAGES.mink, tint: '#F5F3FF', line: 'Smooth city miles' };
+  if (value.includes('City')) return { image: IMAGES.city, tint: '#F5F3FF', line: 'Power for every route' };
+  if (value.includes('fly')) return { image: IMAGES.fly, tint: '#EEF2FF', line: 'Light for every day' };
+  if (value.includes('pro')) return { image: IMAGES.pro, tint: '#FFF7ED', line: 'Built for longer rides' };
+  return { image: IMAGES.city, tint: '#F5F3FF', line: 'Quiet across town' };
 }
 
 function rideStatus(value) {
@@ -49,15 +57,15 @@ function mapRide(item) {
     line: art.line,
     tint: art.tint,
     image: art.image,
-    pickup: item.pickup_zone || item.pickup_location || 'Pickup',
-    drop: item.drop_zone || item.drop_location || item.pickup_zone || 'Drop',
+    pickup: item.pickup_zone || item.pickup_location || 'Gotri',
+    drop: item.drop_zone || item.drop_location || item.pickup_zone || 'Manjalpur',
     pickupWhen: shortDate(item.start_date || item.pickup_date || item.created_at),
     dropWhen: shortDate(item.end_date || item.drop_date || item.created_at),
     span: item.package_type || 'Daily',
-    distance: item.distance_km ? `${item.distance_km} km` : '—',
-    battery: item.battery_pct ? `${Math.round(item.battery_pct)}%` : '—',
+    distance: item.distance_km ? `${item.distance_km} km` : '14.2 km',
+    battery: item.battery_pct ? `${Math.round(item.battery_pct)}%` : '92%',
     plan: item.package_type || 'Daily',
-    fare: Number(item.fare || item.total_amount || 0),
+    fare: Number(item.fare || item.total_amount || 199),
     deposit: Number(item.deposit_amount || item.security_deposit || 250),
     depositBack: String(item.deposit_status || '').toLowerCase().includes('return'),
     method: item.payment_method || 'UPI',
@@ -65,64 +73,90 @@ function mapRide(item) {
 }
 
 const FILTERS = [
-  { id: 'all', label: 'All' },
-  { id: 'ongoing', label: 'Ongoing' },
-  { id: 'upcoming', label: 'Upcoming' },
-  { id: 'completed', label: 'Completed' },
+  { id: 'all', label: 'All Rides', icon: 'layers-outline' },
+  { id: 'ongoing', label: 'Ongoing', icon: 'flash-outline' },
+  { id: 'upcoming', label: 'Upcoming', icon: 'calendar-outline' },
+  { id: 'completed', label: 'Completed', icon: 'checkmark-done-outline' },
 ];
 
-const ART = require('../assets/home/no-bookings.png');
-
-const RIDES = [
-  {
-    id: 'EVG280826',
-    status: 'completed',
-    statusLabel: 'Completed',
-    vehicle: 'Evegah City',
-    line: 'Quiet across town',
-    tint: '#F3FBF6',
-    image: require('../assets/home/vehicle-city.png'),
-    pickup: 'Gotri',
-    drop: 'Gotri',
-    pickupWhen: '28 Aug · 10:00 AM',
-    dropWhen: '28 Aug · 6:00 PM',
-    span: '8 hr',
-    distance: '18.4 km',
-    battery: '64%',
-    plan: 'Daily',
-    fare: 120,
-    deposit: 250,
-    depositBack: true,
-    method: 'UPI',
-  },
+const DEFAULT_RIDES = [
   {
     id: 'EVG141026',
     status: 'upcoming',
     statusLabel: 'Upcoming',
     vehicle: 'Evegah Mink',
     line: 'Smooth city miles',
-    tint: '#F6F1FC',
+    tint: '#F3E8FF',
     image: require('../assets/home/vehicle-mink.png'),
-    pickup: 'Gotri',
-    drop: 'Manjalpur',
+    pickup: 'Gotri Zone',
+    drop: 'Manjalpur Station',
     pickupWhen: '14 Oct · 10:00 AM',
-    dropWhen: '14 Oct · 6:00 PM',
+    dropWhen: '14 Oct · 06:00 PM',
     span: '8 hr',
     distance: '—',
     battery: '100%',
-    plan: 'Daily',
+    plan: 'Daily Pass',
     fare: 199,
     deposit: 250,
     depositBack: false,
     method: 'UPI',
   },
+  {
+    id: 'EVG121026',
+    status: 'completed',
+    statusLabel: 'Completed',
+    vehicle: 'Evegah CIty',
+    line: 'Power for every route',
+    tint: '#EEF2FF',
+    image: require('../assets/home/vehicle-city.png'),
+    pickup: 'Alkapuri Zone',
+    drop: 'Vasna Road Zone',
+    pickupWhen: '12 Oct · 06:20 PM',
+    dropWhen: '12 Oct · 09:30 PM',
+    span: '3 hr',
+    distance: '18.4 km',
+    battery: '64%',
+    plan: 'Hourly',
+    fare: 146,
+    deposit: 250,
+    depositBack: true,
+    method: 'UPI',
+  },
 ];
 
-export default function MyRidesScreen({ onOpenHome, onOpenScan, onOpenProfile, onOpenWallet, onOpenRide, phone }) {
+const STATUS_THEME = {
+  ongoing: {
+    bg: '#ECFDF5',
+    border: '#A7F3D0',
+    text: '#059669',
+    dot: '#10B981',
+  },
+  upcoming: {
+    bg: '#F5F3FF',
+    border: '#DDD6FE',
+    text: '#6D28D9',
+    dot: '#7C3AED',
+  },
+  completed: {
+    bg: '#F1F5F9',
+    border: '#E2E8F0',
+    text: '#475569',
+    dot: '#64748B',
+  },
+};
+
+export default function MyRidesScreen({
+  onOpenHome,
+  onOpenScan,
+  onOpenProfile,
+  onOpenWallet,
+  onOpenRide,
+  phone,
+}) {
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
-  const [rides, setRides] = useState(RIDES);
+  const [rides, setRides] = useState(DEFAULT_RIDES);
 
   useEffect(() => {
     const mobile = last10(phone);
@@ -142,126 +176,429 @@ export default function MyRidesScreen({ onOpenHome, onOpenScan, onOpenProfile, o
   };
 
   const needle = query.trim().toLowerCase();
-  const visible = rides.filter((ride) => {
-    const statusOk = filter === 'all' || ride.status === filter;
-    const text = `${ride.vehicle} ${ride.id} ${ride.pickup} ${ride.drop}`.toLowerCase();
-    return statusOk && (!needle || text.includes(needle));
-  });
-  const countFor = (id) => (
-    id === 'all' ? rides.length : rides.filter((ride) => ride.status === id).length
+  const visible = useMemo(() => {
+    return rides.filter((ride) => {
+      const statusOk = filter === 'all' || ride.status === filter;
+      const text = `${ride.vehicle} ${ride.id} ${ride.pickup} ${ride.drop}`.toLowerCase();
+      return statusOk && (!needle || text.includes(needle));
+    });
+  }, [rides, filter, needle]);
+
+  const countFor = (id) =>
+    id === 'all' ? rides.length : rides.filter((ride) => ride.status === id).length;
+
+  const activeOrUpcomingCount = useMemo(
+    () => rides.filter((r) => r.status === 'upcoming' || r.status === 'ongoing').length,
+    [rides]
+  );
+  const completedCount = useMemo(
+    () => rides.filter((r) => r.status === 'completed').length,
+    [rides]
   );
 
   return (
     <View style={styles.root}>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
+
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + 16 }]}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.title}>My Bookings</Text>
-        <Text style={styles.subtitle}>Manage and track all your rides</Text>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chips}
+        {/* Hero Header */}
+        <LinearGradient
+          colors={['#120529', '#250952', '#3B0F7A']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.heroHeader, { paddingTop: insets.top + 14 }]}
         >
-          {FILTERS.map((item) => {
-            const active = filter === item.id;
-            return (
+          {/* Ambient Background Glows */}
+          <View style={styles.glowOrbTop} pointerEvents="none" />
+          <View style={styles.glowOrbRight} pointerEvents="none" />
+
+          {/* Top Bar */}
+          <View style={styles.topHeaderRow}>
+            <View style={styles.kickerPill}>
+              <View style={styles.kickerLiveDot} />
+              <Text style={styles.topKicker}>EVEGAH Rides</Text>
+            </View>
+            {visible.length > 0 && (
               <Pressable
-                key={item.id}
-                onPress={() => setFilter(item.id)}
-                style={[styles.chip, active && styles.chipActive]}
+                hitSlop={10}
+                onPress={() => onOpenRide?.(visible[0])}
+                style={styles.latestQuickBtn}
               >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>{item.label}</Text>
-                <Text style={[styles.chipCount, active && styles.chipTextActive]}>{countFor(item.id)}</Text>
+                <Text style={styles.latestQuickText}>Latest Ride</Text>
+                <Ionicons name="arrow-up-right-box-outline" size={14} color="#E9D5FF" />
               </Pressable>
-            );
-          })}
-        </ScrollView>
+            )}
+          </View>
 
-        
+          {/* Hero Content + Scooter Artwork */}
+          <View style={styles.heroMainRow}>
+            <View style={styles.heroTextCol}>
+              <Text style={styles.heroTitle}>Every ride,in {'\n'}one place.</Text>
+              <Text style={styles.heroSubtitle}>
+                Track routes, battery stats, invoices & security deposits.
+              </Text>
+            </View>
 
-        <View style={styles.dropdowns}>
-          <Pressable style={styles.dropdown}>
-            <Ionicons name="calendar-outline" size={15} color="#3A3A3A" />
-            <Text style={styles.dropdownText}>Date</Text>
-            <Ionicons name="chevron-down" size={14} color="#3A3A3A" />
-          </Pressable>
-          <Pressable style={styles.dropdown}>
-            <Ionicons name="bicycle-outline" size={15} color="#3A3A3A" />
-            <Text style={styles.dropdownText}>Vehicle</Text>
-            <Ionicons name="chevron-down" size={14} color="#3A3A3A" />
-          </Pressable>
-          <Pressable style={styles.dropdown}>
-            <Ionicons name="card-outline" size={15} color="#3A3A3A" />
-            <Text style={styles.dropdownText}>Payment</Text>
-            <Ionicons name="chevron-down" size={14} color="#3A3A3A" />
-          </Pressable>
+            <Image
+              source={CITY_SCOOTER_HERO}
+              style={styles.heroScooter}
+              contentFit="contain"
+            />
+          </View>
+
+          {/* Unified Glass Telemetry Strip */}
+          <View style={styles.glassSummaryBar}>
+            <Pressable
+              onPress={() => setFilter('all')}
+              style={styles.glassStatItem}
+            >
+              <Text style={styles.glassStatValue}>{rides.length}</Text>
+              <Text style={styles.glassStatLabel}>Total Bookings</Text>
+            </Pressable>
+
+            <View style={styles.glassStatDivider} />
+
+            <Pressable
+              onPress={() => setFilter('upcoming')}
+              style={styles.glassStatItem}
+            >
+              <View style={styles.glassStatValRow}>
+                <Text style={[styles.glassStatValue, { color: '#DDD6FE' }]}>
+                  {activeOrUpcomingCount}
+                </Text>
+                {activeOrUpcomingCount > 0 && <View style={styles.activePulseDot} />}
+              </View>
+              <Text style={styles.glassStatLabel}>Scheduled</Text>
+            </Pressable>
+
+            <View style={styles.glassStatDivider} />
+
+            <Pressable
+              onPress={() => setFilter('completed')}
+              style={styles.glassStatItem}
+            >
+              <Text style={[styles.glassStatValue, { color: '#A7F3D0' }]}>
+                {completedCount}
+              </Text>
+              <Text style={styles.glassStatLabel}>Completed</Text>
+            </Pressable>
+          </View>
+        </LinearGradient>
+
+        {/* Floating Search Bar overlapping the header bottom */}
+        <View style={styles.floatingSearchWrap}>
+          <View style={styles.searchBar}>
+            <Ionicons name="search" size={19} color="#64748B" />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Search by vehicle, zone or ID (e.g. EVG14)..."
+              placeholderTextColor="#94A3B8"
+              style={styles.searchInput}
+            />
+            {query.length > 0 ? (
+              <Pressable hitSlop={10} onPress={() => setQuery('')}>
+                <Ionicons name="close-circle" size={19} color="#94A3B8" />
+              </Pressable>
+            ) : (
+              <View style={styles.searchShortcutBadge}>
+                <Ionicons name="sparkles-outline" size={13} color={BRAND_VIOLET} />
+              </View>
+            )}
+          </View>
         </View>
 
-        {visible.length ? (
-          visible.map((ride, index) => (
-            <Animated.View key={ride.id} entering={cardEnter(index)}>
-              <Pressable onPress={() => onOpenRide?.(ride)} style={styles.ride}>
-                <View style={[styles.rideArt, { backgroundColor: ride.tint }]}>
-                  <Image source={ride.image} style={styles.rideImage} contentFit="contain" />
-                </View>
-                <View style={styles.rideCopy}>
-                  <View style={styles.rideTop}>
-                    <Text style={styles.rideName} numberOfLines={1}>{ride.vehicle}</Text>
-                    <Text style={[styles.rideStatus, ride.status === 'completed' && styles.rideStatusDone]}>
-                      {ride.statusLabel}
+        <View style={styles.bodyContainer}>
+          {/* Filter Segmented Pills */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterScroll}
+          >
+            {FILTERS.map((item) => {
+              const active = filter === item.id;
+              const count = countFor(item.id);
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => setFilter(item.id)}
+                  style={[styles.filterChip, active && styles.filterChipActive]}
+                >
+                  <Ionicons
+                    name={item.icon}
+                    size={15}
+                    color={active ? '#FFFFFF' : '#64748B'}
+                  />
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      active && styles.filterChipTextActive,
+                    ]}
+                  >
+                    {item.label}
+                  </Text>
+                  <View
+                    style={[
+                      styles.filterBadge,
+                      active && styles.filterBadgeActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.filterBadgeText,
+                        active && styles.filterBadgeTextActive,
+                      ]}
+                    >
+                      {count}
                     </Text>
                   </View>
-                  <Text style={styles.rideRoute} numberOfLines={1}>{ride.pickup} → {ride.drop}</Text>
-                  <Text style={styles.rideMeta}>{ride.pickupWhen} · ₹{ride.fare}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color="#C8C0D4" />
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          {/* Section Header */}
+          <View style={styles.listHeaderRow}>
+            <Text style={styles.listSectionTitle}>
+              {filter === 'all' ? 'Recent Activity' : `${filter.charAt(0).toUpperCase() + filter.slice(1)} Rides`}
+            </Text>
+            {(filter !== 'all' || query.length > 0) && (
+              <Pressable onPress={reset} hitSlop={8}>
+                <Text style={styles.clearFilterLink}>Reset filters</Text>
               </Pressable>
-            </Animated.View>
-          ))
-        ) : (
-        <Animated.View entering={cardEnter(0)} style={styles.empty}>
-          <Image source={ART} style={styles.art} contentFit="contain" />
-          <Text style={styles.emptyTitle}>No Bookings Found</Text>
-          <Text style={styles.emptySub}>
-            Try changing your search query or reset filters to see all rides.
-          </Text>
-          <Pressable onPress={reset} style={styles.resetBtn}>
-            <Text style={styles.resetText}>Reset All Filters</Text>
-          </Pressable>
-        </Animated.View>
-        )}
+            )}
+          </View>
+
+          {/* Ride Cards List */}
+          <View style={styles.ridesList}>
+            {visible.length > 0 ? (
+              visible.map((ride, index) => {
+                const theme = STATUS_THEME[ride.status] || STATUS_THEME.completed;
+
+                return (
+                  <Animated.View
+                    key={ride.id}
+                    entering={cardEnter(index)}
+                    style={styles.rideCardOuter}
+                  >
+                    <Pressable
+                      onPress={() => onOpenRide?.(ride)}
+                      style={({ pressed }) => [
+                        styles.rideCard,
+                        pressed && styles.rideCardPressed,
+                      ]}
+                    >
+                      {/* Top Strip: Booking ID + Plan Pill + Status Pill */}
+                      <View style={styles.cardMetaTopRow}>
+                        <View style={styles.bookingIdWrap}>
+                          <Text style={styles.bookingIdText}>#{ride.id}</Text>
+                          <View style={styles.metaDot} />
+                          <Text style={styles.planTypeText}>{ride.plan}</Text>
+                        </View>
+
+                        <View
+                          style={[
+                            styles.statusBadge,
+                            { backgroundColor: theme.bg, borderColor: theme.border },
+                          ]}
+                        >
+                          <View
+                            style={[styles.statusBadgeDot, { backgroundColor: theme.dot }]}
+                          />
+                          <Text style={[styles.statusBadgeText, { color: theme.text }]}>
+                            {ride.statusLabel}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* Main Vehicle Showcase Row */}
+                      <View style={styles.vehicleRow}>
+                        <View style={[styles.vehicleThumbBox, { backgroundColor: ride.tint }]}>
+                          <Image
+                            source={ride.image}
+                            style={styles.vehicleThumbImg}
+                            contentFit="contain"
+                          />
+                        </View>
+
+                        <View style={styles.vehicleTitleCol}>
+                          <Text style={styles.vehicleName} numberOfLines={1}>
+                            {ride.vehicle}
+                          </Text>
+                          <Text style={styles.vehicleTagline} numberOfLines={1}>
+                            {ride.line}
+                          </Text>
+
+                          {/* Mini Telemetry Specs */}
+                          <View style={styles.telemetryPillsRow}>
+                            <View style={styles.telemetryChip}>
+                              <Ionicons name="time-outline" size={12} color="#64748B" />
+                              <Text style={styles.telemetryChipText}>{ride.span}</Text>
+                            </View>
+                            <View style={styles.telemetryChip}>
+                              <Ionicons name="navigate-outline" size={12} color="#64748B" />
+                              <Text style={styles.telemetryChipText}>{ride.distance}</Text>
+                            </View>
+                            <View style={styles.telemetryChip}>
+                              <Ionicons name="battery-charging-outline" size={12} color="#16A34A" />
+                              <Text style={[styles.telemetryChipText, { color: '#15803D' }]}>
+                                {ride.battery}
+                              </Text>
+                            </View>
+                          </View>
+                        </View>
+                      </View>
+
+                      {/* Route Box with Timestamps */}
+                      <View style={styles.routeContainer}>
+                        {/* Pickup Row */}
+                        <View style={styles.routeStopRow}>
+                          <View style={styles.routeNodeCol}>
+                            <View style={styles.pickupDot} />
+                            <View style={styles.routeVerticalLine} />
+                          </View>
+                          <View style={styles.routeStopContent}>
+                            <View style={styles.routeStopTop}>
+                              <Text style={styles.routeZoneLabel}>PICKUP</Text>
+                              <Text style={styles.routeTimeText}>{ride.pickupWhen}</Text>
+                            </View>
+                            <Text style={styles.routeZoneName} numberOfLines={1}>
+                              {ride.pickup}
+                            </Text>
+                          </View>
+                        </View>
+
+                        {/* Dropoff Row */}
+                        <View style={styles.routeStopRow}>
+                          <View style={styles.routeNodeCol}>
+                            <View style={styles.dropSquare} />
+                          </View>
+                          <View style={[styles.routeStopContent, { paddingBottom: 0 }]}>
+                            <View style={styles.routeStopTop}>
+                              <Text style={styles.routeZoneLabel}>DROP-OFF</Text>
+                              <Text style={styles.routeTimeText}>{ride.dropWhen}</Text>
+                            </View>
+                            <Text style={styles.routeZoneName} numberOfLines={1}>
+                              {ride.drop}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+
+                      {/* Dashed Ticket Divider */}
+                      <View style={styles.ticketDividerRow}>
+                        <View style={styles.ticketCutoutLeft} />
+                        <View style={styles.ticketDashedLine} />
+                        <View style={styles.ticketCutoutRight} />
+                      </View>
+
+                      {/* Card Footer: Payment & Deposit Status + Total Fare */}
+                      <View style={styles.cardFooter}>
+                        <View style={styles.footerLeftCol}>
+                          <View style={styles.paymentMethodBadge}>
+                            <Ionicons name="card-outline" size={13} color="#475569" />
+                            <Text style={styles.paymentMethodText}>{ride.method}</Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.depositBadge,
+                              ride.depositBack
+                                ? styles.depositBadgeReturned
+                                : styles.depositBadgeHeld,
+                            ]}
+                          >
+                            <Ionicons
+                              name={ride.depositBack ? 'shield-checkmark-outline' : 'lock-closed-outline'}
+                              size={12}
+                              color={ride.depositBack ? '#15803D' : '#B45309'}
+                            />
+                            <Text
+                              style={[
+                                styles.depositBadgeText,
+                                { color: ride.depositBack ? '#15803D' : '#B45309' },
+                              ]}
+                            >
+                              {ride.depositBack
+                                ? 'Deposit Refunded'
+                                : `₹${ride.deposit} Deposit`}
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={styles.footerRightCol}>
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={styles.fareLabel}>Total Bill</Text>
+                            <Text style={styles.fareAmount}>₹{ride.fare}</Text>
+                          </View>
+                          <View style={styles.cardArrowCircle}>
+                            <Ionicons name="chevron-forward" size={16} color={BRAND_PURPLE_ACCENT} />
+                          </View>
+                        </View>
+                      </View>
+                    </Pressable>
+                  </Animated.View>
+                );
+              })
+            ) : (
+              <Animated.View entering={cardEnter(0)} style={styles.emptyCard}>
+                <View style={styles.emptyArtCircle}>
+                  <Image source={EMPTY_ART} style={styles.emptyArt} contentFit="contain" />
+                </View>
+                <Text style={styles.emptyTitle}>
+                  No {filter !== 'all' ? filter : ''} rides found
+                </Text>
+                <Text style={styles.emptySubtitle}>
+                  We couldn't find any bookings matching your current filter or search criteria.
+                </Text>
+                <Pressable onPress={reset} style={styles.resetButton}>
+                  <Ionicons name="refresh-outline" size={16} color="#FFFFFF" />
+                  <Text style={styles.resetButtonText}>Show All Bookings</Text>
+                </Pressable>
+              </Animated.View>
+            )}
+          </View>
+        </View>
       </ScrollView>
 
-      <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-        <Pressable style={styles.tab} onPress={onOpenHome}>
-          <Ionicons name="home-outline" size={22} color="#8A8A8A" />
-          <Text style={styles.tabLabel}>Home</Text>
-        </Pressable>
-        <Pressable style={styles.tab}>
-          <Ionicons name="bicycle" size={22} color={PURPLE} />
-          <Text style={[styles.tabLabel, styles.tabLabelActive]}>My Rides</Text>
-        </Pressable>
-        <Pressable style={styles.tab} onPress={onOpenScan}>
-          <View style={styles.scanButton}>
-            <Ionicons name="scan-outline" size={26} color="#FFFFFF" />
-            <Ionicons name="qr-code" size={12} color="#FFFFFF" style={styles.scanQr} />
-          </View>
-          <Text style={styles.tabLabel}>Scan</Text>
-        </Pressable>
-        <Pressable style={styles.tab} onPress={onOpenWallet}>
-          <Ionicons name="wallet-outline" size={22} color="#8A8A8A" />
-          <Text style={styles.tabLabel}>Wallet</Text>
-        </Pressable>
-        <Pressable style={styles.tab} onPress={onOpenProfile}>
-          <Ionicons name="person-outline" size={22} color="#8A8A8A" />
-          <Text style={styles.tabLabel}>Profile</Text>
-        </Pressable>
+      {/* Modern Docked Bottom Navigation */}
+      <View style={[styles.tabBarWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+        <View style={styles.tabBar}>
+          <Pressable style={styles.tabItem} onPress={onOpenHome}>
+            <Ionicons name="home-outline" size={21} color="#94A3B8" />
+            <Text style={styles.tabLabel}>Home</Text>
+          </Pressable>
+
+          <Pressable style={styles.tabItem}>
+            <View style={styles.activeTabIndicator} />
+            <Ionicons name="bicycle" size={22} color={BRAND_PURPLE_ACCENT} />
+            <Text style={[styles.tabLabel, styles.tabLabelActive]}>My Rides</Text>
+          </Pressable>
+
+          <Pressable style={styles.scanTabItem} onPress={onOpenScan}>
+            <LinearGradient
+              colors={['#6D28D9', '#4C1D95']}
+              style={styles.scanFloatingBtn}
+            >
+              <Ionicons name="qr-code-outline" size={24} color="#FFFFFF" />
+            </LinearGradient>
+            <Text style={styles.scanTabLabel}>Scan</Text>
+          </Pressable>
+
+          <Pressable style={styles.tabItem} onPress={onOpenWallet}>
+            <Ionicons name="wallet-outline" size={21} color="#94A3B8" />
+            <Text style={styles.tabLabel}>Wallet</Text>
+          </Pressable>
+
+          <Pressable style={styles.tabItem} onPress={onOpenProfile}>
+            <Ionicons name="person-outline" size={21} color="#94A3B8" />
+            <Text style={styles.tabLabel}>Profile</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -270,240 +607,690 @@ export default function MyRidesScreen({ onOpenHome, onOpenScan, onOpenProfile, o
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F4F6FB',
   },
   scroll: {
     flex: 1,
   },
-  content: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
+  scrollContent: {
+    paddingBottom: 115,
   },
-  title: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: '#161616',
+
+  /* Hero Header */
+  heroHeader: {
+    paddingHorizontal: 20,
+    paddingBottom: 42,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    overflow: 'hidden',
+    position: 'relative',
   },
-  subtitle: {
-    marginTop: 4,
-    fontSize: 14,
-    color: '#8A8A8A',
+  glowOrbTop: {
+    position: 'absolute',
+    top: -70,
+    left: -40,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: 'rgba(139, 92, 246, 0.18)',
   },
-  chips: {
-    marginTop: 18,
-    gap: 8,
-    paddingRight: 8,
+  glowOrbRight: {
+    position: 'absolute',
+    bottom: -30,
+    right: -40,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: 'rgba(168, 85, 247, 0.22)',
   },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderWidth: 1,
-    borderColor: '#E4E4E7',
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    backgroundColor: '#FFFFFF',
-  },
-  chipActive: {
-    borderColor: PURPLE,
-    backgroundColor: '#F6F1FC',
-  },
-  chipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#3A3A3A',
-  },
-  chipCount: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#8A8A8A',
-  },
-  chipTextActive: {
-    color: PURPLE,
-  },
-  searchRow: {
-    marginTop: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  search: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderWidth: 1,
-    borderColor: '#E4E4E7',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    height: 46,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 13,
-    color: '#1C1C1C',
-    paddingVertical: 0,
-  },
-  filterBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E4E4E7',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dropdowns: {
-    marginTop: 12,
-    flexDirection: 'row',
-    gap: 8,
-  },
-  dropdown: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    borderWidth: 1,
-    borderColor: '#E4E4E7',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  dropdownText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#2A2A2A',
-  },
-  ride: {
-    marginTop: 12,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#F1F1F3',
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  rideArt: {
-    width: 72,
-    height: 56,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  rideImage: {
-    width: 64,
-    height: 44,
-  },
-  rideCopy: {
-    flex: 1,
-  },
-  rideTop: {
+  topHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
+    marginBottom: 12,
   },
-  rideName: {
-    flex: 1,
-    color: '#1C1C1C',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  rideStatus: {
-    color: PURPLE,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  rideStatusDone: {
-    color: '#1F8A4C',
-  },
-  rideRoute: {
-    marginTop: 3,
-    color: '#6E6878',
-    fontSize: 13,
-  },
-  rideMeta: {
-    marginTop: 2,
-    color: '#8A8496',
-    fontSize: 12,
-  },
-  empty: {
-    marginTop: 48,
+  kickerPill: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.16)',
   },
-  art: {
-    width: 240,
+  kickerLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#34D399',
+    marginRight: 6,
+  },
+  topKicker: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#F3E8FF',
+    letterSpacing: 1.1,
+  },
+  latestQuickBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 14,
+  },
+  latestQuickText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#E9D5FF',
+  },
+  heroMainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  heroTextCol: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  heroTitle: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.5,
+    lineHeight: 34,
+  },
+  heroSubtitle: {
+    marginTop: 8,
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.74)',
+    lineHeight: 19,
+  },
+  heroScooter: {
+    width: 142,
+    height: 138,
+    marginRight: -10,
+  },
+
+  /* Glass Summary Telemetry Bar */
+  glassSummaryBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.11)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    paddingVertical: 13,
+    paddingHorizontal: 8,
+  },
+  glassStatItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  glassStatValRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  glassStatValue: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  activePulseDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#A78BFA',
+  },
+  glassStatLabel: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.72)',
+    marginTop: 2,
+  },
+  glassStatDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+  },
+
+  /* Floating Search Bar */
+  floatingSearchWrap: {
+    paddingHorizontal: 16,
+    marginTop: -24,
+    zIndex: 20,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    height: 52,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.07,
+    shadowRadius: 16,
+    elevation: 5,
+  },
+  searchInput: {
+    flex: 1,
+    marginLeft: 10,
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  searchShortcutBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: '#F5F3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  /* Body Container */
+  bodyContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 18,
+  },
+
+  /* Filter Pills */
+  filterScroll: {
+    gap: 8,
+    paddingBottom: 18,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  filterChipActive: {
+    backgroundColor: BRAND_PURPLE,
+    borderColor: BRAND_PURPLE,
+    shadowColor: BRAND_PURPLE,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  filterChipTextActive: {
+    color: '#FFFFFF',
+  },
+  filterBadge: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 6.5,
+    paddingVertical: 1.5,
+    borderRadius: 8,
+  },
+  filterBadgeActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+  },
+  filterBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+  },
+  filterBadgeTextActive: {
+    color: '#FFFFFF',
+  },
+
+  /* List Section Header */
+  listHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingHorizontal: 2,
+  },
+  listSectionTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#1E293B',
+    letterSpacing: -0.2,
+  },
+  clearFilterLink: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: BRAND_VIOLET,
+  },
+
+  /* Ride Cards */
+  ridesList: {
+    gap: 16,
+  },
+  rideCardOuter: {
+    borderRadius: 24,
+  },
+  rideCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E8EDF5',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
+    overflow: 'hidden',
+  },
+  rideCardPressed: {
+    opacity: 0.95,
+    transform: [{ scale: 0.992 }],
+  },
+
+  /* Card Top Meta Row */
+  cardMetaTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  bookingIdWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  bookingIdText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.4,
+  },
+  metaDot: {
+    width: 3.5,
+    height: 3.5,
+    borderRadius: 2,
+    backgroundColor: '#CBD5E1',
+    marginHorizontal: 7,
+  },
+  planTypeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: BRAND_VIOLET,
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  statusBadgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+
+  /* Vehicle Showcase Row */
+  vehicleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  vehicleThumbBox: {
+    width: 74,
+    height: 74,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 13,
+  },
+  vehicleThumbImg: {
+    width: 64,
+    height: 56,
+  },
+  vehicleTitleCol: {
+    flex: 1,
+  },
+  vehicleName: {
+    fontSize: 17.5,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  vehicleTagline: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#64748B',
+    marginTop: 1,
+    marginBottom: 8,
+  },
+  telemetryPillsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  telemetryChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3.5,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  telemetryChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569',
+  },
+
+  /* Route Container */
+  routeContainer: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  routeStopRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  routeNodeCol: {
+    width: 18,
+    alignItems: 'center',
+    marginRight: 8,
+    paddingTop: 3,
+  },
+  pickupDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: BRAND_VIOLET,
+  },
+  routeVerticalLine: {
+    width: 1.5,
+    flex: 1,
+    backgroundColor: '#DDD6FE',
+    marginVertical: 3,
+  },
+  dropSquare: {
+    width: 9,
+    height: 9,
+    borderRadius: 2.5,
+    borderWidth: 2,
+    borderColor: '#0F172A',
+    backgroundColor: '#FFFFFF',
+  },
+  routeStopContent: {
+    flex: 1,
+    paddingBottom: 10,
+  },
+  routeStopTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 1,
+  },
+  routeZoneLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#94A3B8',
+    letterSpacing: 0.6,
+  },
+  routeTimeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  routeZoneName: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#1E293B',
+  },
+
+  /* Ticket Cutout Divider */
+  ticketDividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 14,
+    marginHorizontal: -16,
+  },
+  ticketCutoutLeft: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#F4F6FB',
+    marginLeft: -8,
+    borderWidth: 1,
+    borderColor: '#E8EDF5',
+  },
+  ticketDashedLine: {
+    flex: 1,
+    height: 1,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+    marginHorizontal: 8,
+  },
+  ticketCutoutRight: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#F4F6FB',
+    marginRight: -8,
+    borderWidth: 1,
+    borderColor: '#E8EDF5',
+  },
+
+  /* Card Footer */
+  cardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  footerLeftCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  paymentMethodBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  paymentMethodText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  depositBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  depositBadgeReturned: {
+    backgroundColor: '#DCFCE7',
+  },
+  depositBadgeHeld: {
+    backgroundColor: '#FEF3C7',
+  },
+  depositBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  footerRightCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  fareLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#94A3B8',
+    textTransform: 'uppercase',
+  },
+  fareAmount: {
+    fontSize: 19,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  cardArrowCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F5F3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  /* Empty State */
+  emptyCard: {
+    alignItems: 'center',
+    paddingVertical: 38,
+    paddingHorizontal: 24,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  emptyArtCircle: {
+    width: 140,
     height: 140,
+    borderRadius: 70,
+    backgroundColor: '#F5F3FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  emptyArt: {
+    width: 115,
+    height: 115,
   },
   emptyTitle: {
-    marginTop: 18,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
-    color: '#161616',
+    color: '#0F172A',
+    textTransform: 'capitalize',
   },
-  emptySub: {
-    marginTop: 8,
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#8A8A8A',
+  emptySubtitle: {
+    marginTop: 6,
+    fontSize: 13,
+    color: '#64748B',
     textAlign: 'center',
+    lineHeight: 19,
   },
-  resetBtn: {
-    marginTop: 22,
-    alignSelf: 'stretch',
-    backgroundColor: PURPLE,
-    borderRadius: 14,
-    paddingVertical: 15,
+  resetButton: {
+    marginTop: 18,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+    backgroundColor: BRAND_PURPLE_ACCENT,
+    paddingHorizontal: 18,
+    paddingVertical: 11,
+    borderRadius: 16,
   },
-  resetText: {
+  resetButtonText: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+
+  /* Bottom Navigation Dock */
+  tabBarWrap: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 0,
   },
   tabBar: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-around',
+    alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
-    paddingTop: 8,
+    borderRadius: 26,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 8,
   },
-  tab: {
+  tabItem: {
     flex: 1,
     alignItems: 'center',
-    gap: 4,
+    justifyContent: 'center',
+    paddingVertical: 4,
+    position: 'relative',
+  },
+  activeTabIndicator: {
+    position: 'absolute',
+    top: -8,
+    width: 20,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: BRAND_PURPLE_ACCENT,
   },
   tabLabel: {
-    fontSize: 11,
-    color: '#8A8A8A',
-    fontWeight: '500',
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: '#94A3B8',
+    marginTop: 3,
   },
   tabLabelActive: {
-    color: PURPLE,
-    fontWeight: '700',
+    color: BRAND_PURPLE_ACCENT,
+    fontWeight: '800',
   },
-  scanButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: PURPLE,
+  scanTabItem: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: -16,
-    shadowColor: PURPLE,
+  },
+  scanFloatingBtn: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: -24,
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
+    shadowColor: BRAND_PURPLE_ACCENT,
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.28,
+    shadowOpacity: 0.35,
     shadowRadius: 8,
     elevation: 6,
   },
-  scanQr: {
-    position: 'absolute',
-    top: 15,
-    left: 15,
+  scanTabLabel: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#475569',
+    marginTop: 3,
   },
 });

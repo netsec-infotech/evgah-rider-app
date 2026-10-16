@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Linking,
   Modal,
@@ -11,6 +11,7 @@ import {
 import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import MapView, { Circle, Marker, Polyline, UrlTile } from 'react-native-maps';
 import Animated, {
   Easing,
@@ -18,16 +19,15 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
-  withSequence,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiGet } from '../services/api';
 
-const PURPLE = '#4A168C';
-const DARK_TEXT = '#24083C';
-const SUB_TEXT = '#280D42';
+const BRAND_PURPLE = '#4A168C';
+const BRAND_PURPLE_LIGHT = '#7C3AED';
+const DARK_NAVY = '#0F172A';
 
 const PLACES = {
   Bill: { latitude: 22.2587, longitude: 73.1496 },
@@ -39,9 +39,9 @@ const PLACES = {
 };
 
 const RIDE_MODES = [
-  { id: 'eco', label: 'Eco Mode', baseSpeed: 19, rangeKm: 72 },
-  { id: 'city', label: 'City Mode', baseSpeed: 27, rangeKm: 58 },
-  { id: 'sport', label: 'Sport Mode', baseSpeed: 36, rangeKm: 46 },
+  { id: 'eco', label: 'Eco', fullLabel: 'Eco Mode', baseSpeed: 19, rangeKm: 72, icon: 'leaf' },
+  { id: 'city', label: 'City', fullLabel: 'City Mode', baseSpeed: 27, rangeKm: 58, icon: 'flash' },
+  { id: 'sport', label: 'Sport', fullLabel: 'Sport Mode', baseSpeed: 36, rangeKm: 46, icon: 'rocket' },
 ];
 
 const EXTEND_OPTIONS = [
@@ -83,11 +83,13 @@ function clock(total) {
 function formatDropTimeOnly(ms) {
   if (!ms) return '8:00 AM';
   const d = new Date(ms);
-  return d.toLocaleTimeString('en-IN', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  }).toUpperCase();
+  return d
+    .toLocaleTimeString('en-IN', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    })
+    .toUpperCase();
 }
 
 function formatDropDate(ms) {
@@ -129,7 +131,7 @@ export default function RideScreen({
   const [extendBanner, setExtendBanner] = useState(null);
 
   // BMS Live Telemetry & Auto Scan State
-  const [bmsStatus, setBmsStatus] = useState('connected'); // 'connected' | 'scanning' | 'connecting' | 'disconnected'
+  const [bmsStatus, setBmsStatus] = useState('connected');
   const [bmsSoc, setBmsSoc] = useState(86);
   const [bmsBatteryId, setBmsBatteryId] = useState('EVG-B42');
   const [bmsTemp, setBmsTemp] = useState(32);
@@ -148,6 +150,13 @@ export default function RideScreen({
     transform: [{ rotate: `${scanSpin.value}deg` }],
   }));
 
+  const triggerQuickAction = (msg) => {
+    setQuickToast(msg);
+    setTimeout(() => {
+      setQuickToast((prev) => (prev === msg ? null : prev));
+    }, 2300);
+  };
+
   // Auto scan BMS logic on mount or user tap
   const runAutoScanBms = () => {
     setBmsStatus('scanning');
@@ -156,7 +165,7 @@ export default function RideScreen({
       -1,
       false
     );
-    triggerQuickAction('Scanning Bluetooth & CanBus for EV BMS...');
+    triggerQuickAction('Scanning Bluetooth BLE & CAN bus for BMS...');
 
     setTimeout(() => {
       setBmsStatus('connecting');
@@ -182,12 +191,11 @@ export default function RideScreen({
       setTimeout(() => {
         setBmsStatus('connected');
         scanSpin.value = 0;
-        triggerQuickAction(`BMS Connected! Live SOC: ${bmsSoc}% (${bmsBatteryId})`);
+        triggerQuickAction(`BMS Synced · Live SOC: ${bmsSoc}% (${bmsBatteryId})`);
       }, 900);
     }, 1200);
   };
 
-  // Initial Auto-Scan on mount to fetch real live BMS SOC
   useEffect(() => {
     runAutoScanBms();
   }, []);
@@ -229,18 +237,9 @@ export default function RideScreen({
     EXTEND_OPTIONS[2];
   const previewNewDropAt = effectiveDropAt + chosenOption.hours * 3600 * 1000;
 
-  const cycleMode = () => {
-    const idx = RIDE_MODES.findIndex((m) => m.id === rideMode);
-    const next = RIDE_MODES[(idx + 1) % RIDE_MODES.length];
-    setRideMode(next.id);
-    triggerQuickAction(`Switched to ${next.label}`);
-  };
-
-  const triggerQuickAction = (msg) => {
-    setQuickToast(msg);
-    setTimeout(() => {
-      setQuickToast((prev) => (prev === msg ? null : prev));
-    }, 2200);
+  const selectRideMode = (modeObj) => {
+    setRideMode(modeObj.id);
+    triggerQuickAction(`Switched to ${modeObj.fullLabel} (${modeObj.rangeKm} km est.)`);
   };
 
   const handleConfirmExtend = () => {
@@ -274,11 +273,14 @@ export default function RideScreen({
     );
   };
 
+  const socColor =
+    bmsSoc < 20 ? '#EF4444' : bmsSoc < 40 ? '#F59E0B' : '#10B981';
+
   return (
     <View style={styles.root}>
       <StatusBar style="dark" />
 
-      {/* Leaflet / OpenStreetMap Map Area */}
+      {/* Full-Bleed Map Viewport */}
       <View style={styles.mapContainer}>
         <MapView
           ref={mapRef}
@@ -294,63 +296,65 @@ export default function RideScreen({
           rotateEnabled={false}
           pitchEnabled={false}
           showsCompass={false}
-          loadingBackgroundColor="#ECEFF4"
+          loadingBackgroundColor="#E2E8F0"
         >
-          {/* OpenStreetMap / Carto Voyager Leaflet Tile Layer */}
           <UrlTile
             urlTemplate="https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
             maximumZ={19}
             flipY={false}
           />
 
-          {/* Origin Soft Green Halo */}
+          {/* Origin Zone Zone Halo */}
           <Circle
             center={startCoord}
-            radius={85}
-            fillColor="rgba(34, 197, 94, 0.18)"
-            strokeColor="rgba(34, 197, 94, 0.35)"
+            radius={90}
+            fillColor="rgba(16, 185, 129, 0.16)"
+            strokeColor="rgba(16, 185, 129, 0.4)"
             strokeWidth={1.5}
           />
 
-          {/* Route Polyline in Evegah Purple */}
+          {/* Active Route Polyline */}
           <Polyline
             coordinates={waypoints}
-            strokeColor={PURPLE}
+            strokeColor={BRAND_PURPLE}
             strokeWidth={5}
             lineCap="round"
             lineJoin="round"
           />
 
-          {/* Green Origin Dot Marker */}
+          {/* Origin Zone Pin */}
           <Marker coordinate={startCoord} anchor={{ x: 0.5, y: 0.5 }}>
             <View style={styles.originMarkerOuter}>
               <View style={styles.originMarkerInner} />
             </View>
           </Marker>
 
-          {/* Mid-Route Turn Callout Bubble (2.3 km / 8 min) */}
-          <Marker coordinate={midCalloutCoord} anchor={{ x: 0.5, y: 1.1 }}>
+          {/* Mid-Route Turn Navigation Pill */}
+          <Marker coordinate={midCalloutCoord} anchor={{ x: 0.5, y: 1.15 }}>
             <View style={styles.routeCalloutBubble}>
-              <View style={styles.routeCalloutIconWrap}>
-                <Ionicons name="return-up-forward" size={14} color={PURPLE} />
-              </View>
+              <LinearGradient
+                colors={[BRAND_PURPLE, BRAND_PURPLE_LIGHT]}
+                style={styles.routeCalloutIconWrap}
+              >
+                <Ionicons name="navigate" size={12} color="#FFFFFF" />
+              </LinearGradient>
               <View>
-                <Text style={styles.routeCalloutDist}>2.3 km</Text>
-                <Text style={styles.routeCalloutTime}>8 min</Text>
+                <Text style={styles.routeCalloutDist}>2.3 km to Drop</Text>
+                <Text style={styles.routeCalloutTime}>~8 mins via Gotri Rd</Text>
               </View>
             </View>
           </Marker>
 
-          {/* Rider Current Position Soft Purple Halo */}
+          {/* Rider Live Pulse Halo */}
           <Circle
             center={position}
             radius={75}
-            fillColor="rgba(109, 40, 217, 0.15)"
-            strokeColor="rgba(109, 40, 217, 0.32)"
+            fillColor="rgba(124, 58, 237, 0.14)"
+            strokeColor="rgba(124, 58, 237, 0.32)"
             strokeWidth={1.5}
           />
 
-          {/* Top-Down 3D Evegah Scooter Marker (Rapido Style) */}
+          {/* Top-Down 3D Scooter Marker */}
           <Marker coordinate={position} anchor={{ x: 0.5, y: 0.5 }}>
             <View style={styles.scooterMarkerWrap}>
               <View style={styles.scooterMarkerHalo} />
@@ -363,217 +367,255 @@ export default function RideScreen({
           </Marker>
         </MapView>
 
-        {/* Leaflet / OpenStreetMap Attribution Badge */}
+        {/* Subtle Map Attribution */}
         <View style={styles.osmBadge}>
           <Text style={styles.osmBadgeText}>Leaflet · © OpenStreetMap</Text>
         </View>
 
-        {/* Top Floating Rapido-Style Bar: Back | [● EVG39745433 ⌄] | Menu */}
-        <View style={[styles.topBar, { top: insets.top + 10 }]}>
-          <Pressable hitSlop={8} style={styles.topCircleBtn} onPress={onBack}>
-            <Ionicons name="chevron-back" size={20} color="#1E162B" />
+        {/* Top Floating Cockpit HUD Bar */}
+        <View style={[styles.topHudBar, { top: insets.top + 8 }]}>
+          <Pressable hitSlop={10} style={styles.hudCircleBtn} onPress={onBack}>
+            <Ionicons name="chevron-back" size={21} color={DARK_NAVY} />
           </Pressable>
 
           <Pressable
-            style={styles.topCenterPill}
+            style={styles.hudCenterPill}
             onPress={() =>
               triggerQuickAction(
-                `Hub: ${trip?.pickupName || 'Bill'} · Helpline 1800 889 8791`
+                `Active Zone: ${trip?.pickupName || 'Bill Zone'} · Support 1800 889 8791`
               )
             }
           >
             <View
               style={[
-                styles.topPillDot,
-                pausedLock && { backgroundColor: '#F59E0B' },
+                styles.hudLiveBadge,
+                pausedLock && { backgroundColor: '#FEF3C7' },
               ]}
-            />
-            <Text style={styles.topPillIdText}>{bookingIdText}</Text>
-            <Ionicons name="chevron-down" size={15} color="#6E657F" />
+            >
+              <View
+                style={[
+                  styles.hudPulseDot,
+                  pausedLock && { backgroundColor: '#D97706' },
+                ]}
+              />
+              <Text
+                style={[
+                  styles.hudLiveBadgeText,
+                  pausedLock && { color: '#B45309' },
+                ]}
+              >
+                {pausedLock ? 'PAUSED' : 'LIVE'}
+              </Text>
+            </View>
+            <Text style={styles.hudBookingId}>{bookingIdText}</Text>
+            <Ionicons name="chevron-down" size={14} color="#64748B" />
           </Pressable>
 
           <Pressable
-            hitSlop={8}
-            style={styles.topCircleBtn}
+            hitSlop={10}
+            style={styles.hudSosBtn}
             onPress={() => Linking.openURL('tel:18008898791')}
           >
-            <Ionicons name="ellipsis-vertical" size={18} color="#1E162B" />
+            <Ionicons name="call" size={15} color="#E11D48" />
+            <Text style={styles.hudSosText}>SOS</Text>
           </Pressable>
         </View>
 
-        {/* Right Floating Map Controls (Recenter + Navigate) */}
-        <View style={styles.mapRightControls}>
-          <Pressable style={styles.mapFloatBtn} onPress={recenterMap}>
-            <Ionicons name="locate" size={20} color={PURPLE} />
+        {/* Floating Map Action Stack (Right Side) */}
+        <View style={styles.mapRightStack}>
+          <Pressable style={styles.mapToolBtn} onPress={recenterMap}>
+            <Ionicons name="locate" size={20} color={BRAND_PURPLE} />
           </Pressable>
           <Pressable
-            style={styles.mapFloatBtn}
+            style={styles.mapToolBtn}
             onPress={() =>
               triggerQuickAction(
-                `Navigating to ${trip?.dropName || 'Bill Hub, Vadodara'}`
+                `Routing to ${trip?.dropName || 'Bill Zone, Vadodara'}`
               )
             }
           >
-            <Ionicons name="navigate" size={19} color={PURPLE} />
+            <Ionicons name="compass-outline" size={21} color={BRAND_PURPLE} />
           </Pressable>
         </View>
 
-        {/* Extended Ride Confirmation Toast */}
+        {/* Extended Ride Banner */}
         {extendBanner ? (
           <Animated.View
             entering={FadeInDown.duration(260)}
-            style={[styles.extendToast, { top: insets.top + 64 }]}
+            style={[styles.extendBannerCard, { top: insets.top + 62 }]}
           >
-            <Ionicons name="checkmark-circle" size={18} color="#15803D" />
+            <View style={styles.extendBannerIcon}>
+              <Ionicons name="checkmark-sharp" size={15} color="#FFFFFF" />
+            </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.extendToastTitle}>
-                Ride Extended ({extendBanner.label})
+              <Text style={styles.extendBannerTitle}>
+                Extended by {extendBanner.label} (+₹{extendBanner.price})
               </Text>
-              <Text style={styles.extendToastSub}>
+              <Text style={styles.extendBannerSub}>
                 New drop: {extendBanner.newDropText}
               </Text>
             </View>
             <Pressable hitSlop={8} onPress={() => setExtendBanner(null)}>
-              <Ionicons name="close" size={16} color="#15803D" />
+              <Ionicons name="close" size={17} color="#065F46" />
             </Pressable>
           </Animated.View>
         ) : null}
 
-        {/* Quick EV Action Toast */}
+        {/* Floating Telemetry Toast Pill */}
         {quickToast ? (
           <Animated.View
             entering={FadeInDown.duration(220)}
-            style={[styles.quickToastPill, { top: insets.top + 64 }]}
+            style={[styles.toastPill, { top: insets.top + 62 }]}
           >
-            <Ionicons name="radio-outline" size={15} color="#FFFFFF" />
-            <Text style={styles.quickToastText}>{quickToast}</Text>
+            <View style={styles.toastIconPulse}>
+              <Ionicons name="radio" size={13} color="#A7F3D0" />
+            </View>
+            <Text style={styles.toastText} numberOfLines={1}>
+              {quickToast}
+            </Text>
           </Animated.View>
         ) : null}
       </View>
 
-      {/* Rapido-Style Bottom Sheet in Evegah Purple Theme */}
+      {/* Bottom Ride Control Deck Sheet */}
       <View
         style={[
-          styles.bottomSheet,
-          { paddingBottom: Math.max(insets.bottom, 16) },
+          styles.deckSheet,
+          { paddingBottom: Math.max(insets.bottom, 14) },
         ]}
       >
-        <View style={styles.sheetHandle} />
+        <View style={styles.sheetGrabber} />
 
-        {/* Row 1: Vehicle Identity + Riding Live Badge + City Mode Pill */}
-        <View style={styles.vehicleHeaderRow}>
-          <View style={styles.vehicleThumbBox}>
+        {/* 1. Vehicle Identity & Mode Switcher Header */}
+        <View style={styles.vehicleRow}>
+          <View style={styles.vehicleAvatarBox}>
             <Image
               source={
                 vehicle?.image || require('../assets/vehicles/mink-left.png')
               }
-              style={styles.vehicleThumbImg}
+              style={styles.vehicleAvatarImg}
               contentFit="contain"
             />
           </View>
 
-          <View style={styles.vehicleHeaderInfo}>
-            <Text style={styles.vehicleTitle} numberOfLines={1}>
-              {vehicle?.name || 'Evegah Mink'}
-            </Text>
-            <View style={styles.vehicleSubRow}>
-              <Text style={styles.vehicleCodeText}>{bookingIdText}</Text>
-              <View
-                style={[
-                  styles.ridingLiveBadge,
-                  pausedLock && styles.ridingPausedBadge,
-                ]}
-              >
-                <View
-                  style={[
-                    styles.ridingLiveDot,
-                    pausedLock && { backgroundColor: '#D97706' },
-                  ]}
-                />
-                <Text
-                  style={[
-                    styles.ridingLiveText,
-                    pausedLock && { color: '#B45309' },
-                  ]}
-                >
-                  {pausedLock ? 'Paused' : 'Riding Live'}
-                </Text>
+          <View style={styles.vehicleTitleCol}>
+            <View style={styles.vehicleNameLine}>
+              <Text style={styles.vehicleName} numberOfLines={1}>
+                {vehicle?.name || 'Evegah Mink'}
+              </Text>
+              <View style={styles.iotVerifiedChip}>
+                <Ionicons name="Hardware-chip-outline" size={11} color={BRAND_PURPLE} />
+                <Text style={styles.iotVerifiedText}>IoT Connected</Text>
               </View>
             </View>
+            <Text style={styles.vehicleRouteSub} numberOfLines={1}>
+              {trip?.pickupName || 'Gotri Zone'} → {trip?.dropName || 'Bill Zone'}
+            </Text>
           </View>
 
-          <Pressable onPress={cycleMode} style={styles.cityModePill}>
-            <Ionicons name="leaf" size={13} color={PURPLE} />
-            <Text style={styles.cityModeText}>{activeModeObj.label}</Text>
-          </Pressable>
+          {/* Compact 3-Mode Pill Switcher */}
+          <View style={styles.modeSegmentWrap}>
+            {RIDE_MODES.map((m) => {
+              const active = m.id === rideMode;
+              return (
+                <Pressable
+                  key={m.id}
+                  onPress={() => selectRideMode(m)}
+                  style={[
+                    styles.modeMiniBtn,
+                    active && styles.modeMiniBtnActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.modeMiniBtnText,
+                      active && styles.modeMiniBtnTextActive,
+                    ]}
+                  >
+                    {m.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
 
-        {/* Row 2: 3-Column Telemetry Stat Cards (Duration | Speed | Distance) */}
-        <View style={styles.statsThreeColRow}>
-          <View style={styles.statBox}>
-            <Text style={styles.statValueText}>{clock(seconds)}</Text>
-            <Text style={styles.statLabelText}>Duration</Text>
-          </View>
-
-          <View style={styles.statBox}>
-            <Text style={styles.statValueText}>
-              {speed} <Text style={styles.statUnitText}>km/h</Text>
+        {/* 2. Dark-Violet EV Speedometer & Telemetry Cockpit Banner */}
+        <LinearGradient
+          colors={['#130526', '#28094E', '#3D1073']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.cockpitCluster}
+        >
+          {/* Left: Elapsed Duration */}
+          <View style={styles.cockpitSideCol}>
+            <View style={styles.cockpitLabelRow}>
+              <Ionicons name="time-outline" size={12} color="#C4B5FD" />
+              <Text style={styles.cockpitKicker}>DURATION</Text>
+            </View>
+            <Text style={styles.cockpitSideValue}>{clock(seconds)}</Text>
+            <Text style={styles.cockpitSideSub}>
+              {pausedLock ? 'Motor Locked' : 'Active Timer'}
             </Text>
-            <Text style={styles.statLabelText}>Speed</Text>
           </View>
 
-          <View style={styles.statBox}>
-            <Text style={styles.statValueText}>
-              {distance.toFixed(1)} <Text style={styles.statUnitText}>km</Text>
+          <View style={styles.cockpitVerticalDivider} />
+
+          {/* Center: Prominent Speedometer */}
+          <View style={styles.cockpitCenterCol}>
+            <Text style={styles.speedHeroNumber}>{speed}</Text>
+            <Text style={styles.speedHeroUnit}>KM/H · {activeModeObj.label.toUpperCase()}</Text>
+          </View>
+
+          <View style={styles.cockpitVerticalDivider} />
+
+          {/* Right: Trip Distance */}
+          <View style={[styles.cockpitSideCol, { alignItems: 'flex-end' }]}>
+            <View style={styles.cockpitLabelRow}>
+              <Text style={styles.cockpitKicker}>DISTANCE</Text>
+              <Ionicons name="Analytics-outline" size={12} color="#C4B5FD" />
+            </View>
+            <Text style={styles.cockpitSideValue}>
+              {distance.toFixed(1)} <Text style={styles.cockpitSmallUnit}>km</Text>
             </Text>
-            <Text style={styles.statLabelText}>Distance</Text>
+            <Text style={styles.cockpitSideSub}>
+              Est. {activeModeObj.rangeKm} km range
+            </Text>
           </View>
-        </View>
+        </LinearGradient>
 
-        {/* Row 3: 2-Column Info Cards (BMS Auto Scan & Connect + Real SOC | Drop By) */}
-        <View style={styles.infoTwoColRow}>
+        {/* 3. BMS Telemetry Card + Drop Schedule Card */}
+        <View style={styles.cardsTwoCol}>
+          {/* Live BMS Battery Card */}
           <Pressable
             onPress={() => setBmsDetailOpen(true)}
-            style={styles.infoCard}
+            style={styles.bmsCard}
           >
-            <View style={styles.infoCardTopRow}>
-              <View
-                style={[
-                  styles.batteryIconBadge,
-                  bmsStatus === 'scanning' && { backgroundColor: '#EDE4F7' },
-                  bmsStatus === 'disconnected' && { backgroundColor: '#FEE2E2' },
-                ]}
-              >
-                <Ionicons
-                  name={
-                    bmsStatus === 'scanning'
-                      ? 'sync'
-                      : bmsStatus === 'disconnected'
-                      ? 'alert-circle'
-                      : 'battery-charging'
-                  }
-                  size={14}
-                  color={
-                    bmsStatus === 'scanning'
-                      ? PURPLE
-                      : bmsStatus === 'disconnected'
-                      ? '#EF4444'
-                      : '#16A34A'
-                  }
+            <View style={styles.bmsCardHeader}>
+              <View style={styles.bmsLabelCluster}>
+                <View
+                  style={[
+                    styles.bmsDotIndicator,
+                    { backgroundColor: socColor },
+                  ]}
                 />
+                <Text style={styles.cardSmallTitle}>BMS PACK</Text>
               </View>
-              <Text style={styles.infoCardLabel}>BMS Battery</Text>
 
-              {/* Auto Scan & Connect Button */}
               <Pressable
                 hitSlop={8}
-                onPress={runAutoScanBms}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  runAutoScanBms();
+                }}
                 style={[
-                  styles.bmsScanPill,
-                  bmsStatus === 'connected' && styles.bmsScanPillConnected,
+                  styles.bmsSyncChip,
+                  bmsStatus === 'connected' && styles.bmsSyncChipConnected,
                 ]}
               >
-                <Animated.View style={bmsStatus === 'scanning' ? scanSpinStyle : null}>
+                <Animated.View
+                  style={bmsStatus === 'scanning' ? scanSpinStyle : null}
+                >
                   <Ionicons
                     name={
                       bmsStatus === 'scanning'
@@ -583,103 +625,134 @@ export default function RideScreen({
                         : 'refresh'
                     }
                     size={11}
-                    color={bmsStatus === 'connected' ? PURPLE : '#2563EB'}
+                    color={bmsStatus === 'connected' ? BRAND_PURPLE : '#2563EB'}
                   />
                 </Animated.View>
                 <Text
                   style={[
-                    styles.bmsScanPillText,
-                    bmsStatus === 'connected' && { color: PURPLE },
+                    styles.bmsSyncChipText,
+                    bmsStatus === 'connected' && { color: BRAND_PURPLE },
                   ]}
                 >
                   {bmsStatus === 'scanning'
-                    ? 'Scanning...'
+                    ? 'Scan...'
                     : bmsStatus === 'connecting'
-                    ? 'Connecting'
-                    : 'Auto Scan'}
+                    ? 'Sync...'
+                    : 'Synced'}
                 </Text>
               </Pressable>
             </View>
 
-            <Text style={styles.infoCardMainVal}>
-              {bmsSoc}%{' '}
-              <Text style={styles.infoCardSubVal}>
-                · {activeModeObj.rangeKm} km · {bmsBatteryId}
+            <View style={styles.bmsMainReadoutRow}>
+              <Text style={[styles.bmsBigPercent, { color: socColor }]}>
+                {bmsSoc}%
               </Text>
-            </Text>
+              <Text style={styles.bmsRangeMeta}>
+                ~{activeModeObj.rangeKm} km · {bmsVoltage}V
+              </Text>
+            </View>
 
-            <View style={styles.batteryBarTrack}>
-              <View
-                style={[
-                  styles.batteryBarFill,
-                  {
-                    width: `${Math.min(100, Math.max(5, bmsSoc))}%`,
-                    backgroundColor:
-                      bmsSoc < 20 ? '#EF4444' : bmsSoc < 40 ? '#F59E0B' : '#16A34A',
-                  },
-                ]}
-              />
+            {/* 5-Cell Segmented Battery Bar */}
+            <View style={styles.segmentedBarRow}>
+              {[20, 40, 60, 80, 100].map((threshold, idx) => {
+                const filled = bmsSoc >= threshold - 12;
+                return (
+                  <View
+                    key={idx}
+                    style={[
+                      styles.batteryCellSegment,
+                      filled && { backgroundColor: socColor },
+                    ]}
+                  />
+                );
+              })}
             </View>
           </Pressable>
 
-          <View style={styles.infoCard}>
-            <View style={styles.infoCardTopRow}>
-              <View style={styles.dropIconBadge}>
-                <Ionicons name="calendar" size={13} color={PURPLE} />
+          {/* Drop By Schedule Card */}
+          <Pressable
+            onPress={() => setExtendModalOpen(true)}
+            style={styles.dropScheduleCard}
+          >
+            <View style={styles.bmsCardHeader}>
+              <View style={styles.bmsLabelCluster}>
+                <Ionicons name="time" size={13} color={BRAND_PURPLE} />
+                <Text style={styles.cardSmallTitle}>RETURN BY</Text>
               </View>
-              <Text style={styles.infoCardLabel}>Drop By</Text>
+              <View style={styles.extendMiniTag}>
+                <Text style={styles.extendMiniTagText}>+EXTEND</Text>
+              </View>
             </View>
-            <Text style={styles.infoCardMainVal}>
+
+            <Text style={styles.dropBigTime}>
               {formatDropTimeOnly(effectiveDropAt)}
             </Text>
-            <Text style={styles.dropCardSubNote} numberOfLines={1}>
+
+            <Text style={styles.dropZoneSubText} numberOfLines={1}>
               {extraFareTotal > 0
                 ? `Extended (+₹${extraFareTotal})`
-                : trip?.dropName || 'Bill Hub, Vadodara'}
+                : `At ${trip?.dropName || 'Bill Zone'}`}
             </Text>
-          </View>
+          </Pressable>
         </View>
 
-        {/* Row 4: 3 Action Tiles (Pause | Beep EV | Hazard) */}
-        <View style={styles.actionsThreeColRow}>
+        {/* 4. Quick Hardware Controls (Pause Immobilizer | Beep EV | Hazard) */}
+        <View style={styles.hardwareControlsRow}>
           <Pressable
             onPress={() => {
               const next = !pausedLock;
               setPausedLock(next);
               triggerQuickAction(
                 next
-                  ? 'Ride Paused — Wheel Immobilizer Locked'
-                  : 'Ride Resumed — Motor Active'
+                  ? 'Immobilizer Engaged — Rear Wheel Locked'
+                  : 'Immobilizer Released — Ready to Ride'
               );
             }}
             style={[
-              styles.actionTile,
-              pausedLock && styles.actionTileActivePurple,
+              styles.hwSwitchBtn,
+              pausedLock && styles.hwSwitchBtnActiveAmber,
             ]}
           >
-            <Ionicons
-              name={pausedLock ? 'play' : 'pause'}
-              size={16}
-              color={pausedLock ? PURPLE : '#3B3054'}
-            />
-            <Text
+            <View
               style={[
-                styles.actionTileText,
-                pausedLock && { color: PURPLE, fontWeight: '800' },
+                styles.hwIconCircle,
+                pausedLock && { backgroundColor: '#FEF3C7' },
               ]}
             >
-              {pausedLock ? 'Resume' : 'Pause'}
-            </Text>
+              <Ionicons
+                name={pausedLock ? 'lock-open' : 'pause'}
+                size={15}
+                color={pausedLock ? '#D97706' : '#334155'}
+              />
+            </View>
+            <View>
+              <Text
+                style={[
+                  styles.hwSwitchTitle,
+                  pausedLock && { color: '#B45309' },
+                ]}
+              >
+                {pausedLock ? 'Resume' : 'Pause'}
+              </Text>
+              <Text style={styles.hwSwitchSub}>
+                {pausedLock ? 'Locked' : 'Lock EV'}
+              </Text>
+            </View>
           </Pressable>
 
           <Pressable
             onPress={() =>
-              triggerQuickAction('BEEP! EV Horn & Indicators Flashed')
+              triggerQuickAction('BEEP! Horn & Turn Indicators Flashed')
             }
-            style={styles.actionTile}
+            style={styles.hwSwitchBtn}
           >
-            <Ionicons name="volume-high" size={17} color="#3B3054" />
-            <Text style={styles.actionTileText}>Beep EV</Text>
+            <View style={styles.hwIconCircle}>
+              <Ionicons name="volume-high" size={16} color={BRAND_PURPLE} />
+            </View>
+            <View>
+              <Text style={styles.hwSwitchTitle}>Beep EV</Text>
+              <Text style={styles.hwSwitchSub}>Find Ride</Text>
+            </View>
           </Pressable>
 
           <Pressable
@@ -687,57 +760,89 @@ export default function RideScreen({
               const next = !hazardOn;
               setHazardOn(next);
               triggerQuickAction(
-                next ? 'Hazard Blinkers Turned ON' : 'Hazard Blinkers OFF'
+                next ? 'Hazard Lights Flashing' : 'Hazard Lights Turned Off'
               );
             }}
             style={[
-              styles.actionTileHazard,
-              hazardOn && styles.actionTileHazardActive,
+              styles.hwSwitchBtn,
+              hazardOn && styles.hwSwitchBtnActiveRose,
             ]}
           >
-            <Ionicons name="warning" size={16} color="#E11D48" />
-            <Text style={styles.actionTileHazardText}>Hazard</Text>
+            <View
+              style={[
+                styles.hwIconCircle,
+                { backgroundColor: '#FFE4E6' },
+              ]}
+            >
+              <Ionicons name="warning" size={15} color="#E11D48" />
+            </View>
+            <View>
+              <Text
+                style={[
+                  styles.hwSwitchTitle,
+                  { color: '#E11D48' },
+                ]}
+              >
+                Hazard
+              </Text>
+              <Text style={styles.hwSwitchSub}>
+                {hazardOn ? 'Blinking' : 'Blinkers'}
+              </Text>
+            </View>
           </Pressable>
         </View>
 
-        {/* Row 5: Bottom Dual Buttons (Extend ride | End ride) */}
-        <View style={styles.bottomBtnsRow}>
+        {/* 5. Primary Bottom CTA Row (Extend Ride + End Ride) */}
+        <View style={styles.primaryCtaRow}>
           <Pressable
             onPress={() => setExtendModalOpen(true)}
             style={({ pressed }) => [
-              styles.extendBtn,
-              pressed && { opacity: 0.88 },
+              styles.secondaryExtendBtn,
+              pressed && { opacity: 0.85 },
             ]}
           >
-            <Ionicons name="add-circle-outline" size={18} color={PURPLE} />
-            <Text style={styles.extendBtnText}>Extend ride</Text>
+            <Ionicons name="add-circle" size={18} color={BRAND_PURPLE} />
+            <Text style={styles.secondaryExtendBtnText}>Extend Ride</Text>
           </Pressable>
 
-          <Animated.View style={[styles.endBtnWrap, btnStyle]}>
+          <Animated.View style={[styles.primaryEndBtnWrap, btnStyle]}>
             <Pressable
               onPressIn={() => {
-                btnScale.value = withSpring(0.97, {
-                  damping: 15,
-                  stiffness: 300,
+                btnScale.value = withSpring(0.96, {
+                  damping: 16,
+                  stiffness: 280,
                 });
               }}
               onPressOut={() => {
                 btnScale.value = withSpring(1, {
-                  damping: 15,
-                  stiffness: 300,
+                  damping: 16,
+                  stiffness: 280,
                 });
               }}
               onPress={onEnd}
-              style={styles.endBtn}
+              style={styles.primaryEndTouch}
             >
-              <Ionicons name="lock-closed" size={16} color="#FFFFFF" />
-              <Text style={styles.endBtnText}>End ride</Text>
+              <LinearGradient
+                colors={[BRAND_PURPLE, '#6D28D9']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.primaryEndGradient}
+              >
+                <Text style={styles.primaryEndText}>End & Lock Ride</Text>
+                <View style={styles.primaryEndIconPill}>
+                  <Ionicons
+                    name="lock-closed"
+                    size={14}
+                    color={BRAND_PURPLE}
+                  />
+                </View>
+              </LinearGradient>
             </Pressable>
           </Animated.View>
         </View>
       </View>
 
-      {/* Extend Ride Bottom Sheet Modal */}
+      {/* Modal 1: Extend Ride Bottom Sheet */}
       <Modal
         visible={extendModalOpen}
         transparent
@@ -754,17 +859,16 @@ export default function RideScreen({
           <View
             style={[
               styles.modalSheet,
-              { paddingBottom: Math.max(insets.bottom, 18) },
+              { paddingBottom: Math.max(insets.bottom, 20) },
             ]}
           >
-            <View style={styles.modalHandle} />
+            <View style={styles.sheetGrabber} />
 
             <View style={styles.modalHeaderRow}>
               <View>
-                <Text style={styles.modalTitle}>Extend Your EV Ride</Text>
+                <Text style={styles.modalTitle}>Extend Your EV Rental</Text>
                 <Text style={styles.modalSubtitle}>
-                  Keep riding {vehicle?.name || 'Evegah Mink'} without visiting
-                  the hub
+                  Instant top-up without visiting the Zone
                 </Text>
               </View>
               <Pressable
@@ -772,23 +876,34 @@ export default function RideScreen({
                 onPress={() => setExtendModalOpen(false)}
                 style={styles.modalCloseBtn}
               >
-                <Ionicons name="close" size={18} color="#4A4458" />
+                <Ionicons name="close" size={20} color="#334155" />
               </Pressable>
             </View>
 
-            <View style={styles.previewDropCard}>
-              <View style={styles.previewCol}>
-                <Text style={styles.previewKicker}>CURRENT DROP</Text>
-                <Text style={styles.previewVal}>
+            {/* Drop Schedule Comparison Banner */}
+            <View style={styles.scheduleBridgeCard}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.scheduleKicker}>CURRENT DROP</Text>
+                <Text style={styles.scheduleTimeVal}>
                   {formatDropDate(effectiveDropAt)}
                 </Text>
               </View>
-              <Ionicons name="arrow-forward" size={16} color={PURPLE} />
-              <View style={[styles.previewCol, { alignItems: 'flex-end' }]}>
-                <Text style={[styles.previewKicker, { color: PURPLE }]}>
+
+              <View style={styles.scheduleArrowCircle}>
+                <Ionicons
+                  name="arrow-forward"
+                  size={14}
+                  color={BRAND_PURPLE}
+                />
+              </View>
+
+              <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                <Text style={[styles.scheduleKicker, { color: BRAND_PURPLE }]}>
                   NEW DROP TIME
                 </Text>
-                <Text style={[styles.previewVal, { color: PURPLE }]}>
+                <Text
+                  style={[styles.scheduleTimeVal, { color: BRAND_PURPLE }]}
+                >
                   {formatDropDate(previewNewDropAt)}
                 </Text>
               </View>
@@ -796,7 +911,7 @@ export default function RideScreen({
 
             <ScrollView
               showsVerticalScrollIndicator={false}
-              style={styles.optionsList}
+              style={styles.extendOptionsScroll}
             >
               {EXTEND_OPTIONS.map((opt) => {
                 const active = opt.id === selectedExtendId;
@@ -805,50 +920,52 @@ export default function RideScreen({
                     key={opt.id}
                     onPress={() => setSelectedExtendId(opt.id)}
                     style={[
-                      styles.optionRow,
-                      active && styles.optionRowActive,
+                      styles.extendOptionCard,
+                      active && styles.extendOptionCardActive,
                     ]}
                   >
                     <View
                       style={[
-                        styles.optionRadio,
-                        active && styles.optionRadioActive,
+                        styles.radioOuter,
+                        active && styles.radioOuterActive,
                       ]}
                     >
-                      {active ? <View style={styles.optionRadioDot} /> : null}
+                      {active ? <View style={styles.radioInner} /> : null}
                     </View>
+
                     <View style={{ flex: 1 }}>
-                      <View style={styles.optionTitleLine}>
+                      <View style={styles.extendOptTitleRow}>
                         <Text
                           style={[
-                            styles.optionLabel,
-                            active && { color: PURPLE },
+                            styles.extendOptLabel,
+                            active && { color: BRAND_PURPLE },
                           ]}
                         >
                           {opt.label}
                         </Text>
                         <View
                           style={[
-                            styles.optionTagPill,
-                            active && styles.optionTagPillActive,
+                            styles.extendOptTag,
+                            active && styles.extendOptTagActive,
                           ]}
                         >
                           <Text
                             style={[
-                              styles.optionTagText,
-                              active && styles.optionTagTextActive,
+                              styles.extendOptTagText,
+                              active && { color: '#FFFFFF' },
                             ]}
                           >
                             {opt.tag}
                           </Text>
                         </View>
                       </View>
-                      <Text style={styles.optionSub}>{opt.sub}</Text>
+                      <Text style={styles.extendOptSub}>{opt.sub}</Text>
                     </View>
+
                     <Text
                       style={[
-                        styles.optionPrice,
-                        active && { color: PURPLE },
+                        styles.extendOptPrice,
+                        active && { color: BRAND_PURPLE },
                       ]}
                     >
                       ₹{opt.price}
@@ -860,18 +977,18 @@ export default function RideScreen({
 
             <Pressable
               onPress={handleConfirmExtend}
-              style={styles.confirmExtendBtn}
+              style={styles.confirmExtendCta}
             >
-              <Text style={styles.confirmExtendBtnText}>
+              <Text style={styles.confirmExtendCtaText}>
                 Confirm Extension · ₹{chosenOption.price}
               </Text>
-              <Ionicons name="arrow-forward" size={17} color="#FFFFFF" />
+              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
             </Pressable>
           </View>
         </View>
       </Modal>
 
-      {/* Live BMS Detail Sheet Modal */}
+      {/* Modal 2: Live BMS Diagnostic Telemetry Sheet */}
       <Modal
         visible={bmsDetailOpen}
         transparent
@@ -884,77 +1001,93 @@ export default function RideScreen({
             style={styles.modalBackdropTouch}
             onPress={() => setBmsDetailOpen(false)}
           />
-          <View style={styles.bmsSheetContent}>
-            <View style={styles.sheetHandle} />
-            <View style={styles.bmsHeaderRow}>
-              <View style={styles.bmsHeaderLeft}>
-                <View style={styles.bmsIconCircle}>
-                  <Ionicons name="hardware-chip" size={18} color={PURPLE} />
-                </View>
+          <View
+            style={[
+              styles.bmsModalSheet,
+              { paddingBottom: Math.max(insets.bottom, 24) },
+            ]}
+          >
+            <View style={styles.sheetGrabber} />
+
+            <View style={styles.bmsModalHeader}>
+              <View style={styles.bmsModalTitleCluster}>
+                <LinearGradient
+                  colors={[BRAND_PURPLE, BRAND_PURPLE_LIGHT]}
+                  style={styles.bmsModalIconBox}
+                >
+                  <Ionicons name="hardware-chip" size={19} color="#FFFFFF" />
+                </LinearGradient>
                 <View>
-                  <Text style={styles.bmsTitle}>BMS Telemetry & Status</Text>
-                  <Text style={styles.bmsSubTitle}>Pack ID: {bmsBatteryId}</Text>
+                  <Text style={styles.modalTitle}>Smart BMS Diagnostics</Text>
+                  <Text style={styles.modalSubtitle}>
+                    Pack ID: {bmsBatteryId} · CAN Bus Telemetry
+                  </Text>
                 </View>
               </View>
               <Pressable
                 onPress={() => setBmsDetailOpen(false)}
                 style={styles.modalCloseBtn}
               >
-                <Ionicons name="close" size={20} color="#64748B" />
+                <Ionicons name="close" size={20} color="#334155" />
               </Pressable>
             </View>
 
-            <View style={styles.bmsGrid}>
-              <View style={styles.bmsMetricCard}>
-                <Text style={styles.bmsMetricLabel}>Live SOC</Text>
-                <Text
-                  style={[
-                    styles.bmsMetricValue,
-                    { color: bmsSoc < 20 ? '#EF4444' : '#16A34A' },
-                  ]}
-                >
+            {/* 4-Tile Diagnostic Telemetry Grid */}
+            <View style={styles.bmsMetricsGrid}>
+              <View style={styles.bmsDiagTile}>
+                <Text style={styles.bmsDiagKicker}>STATE OF CHARGE</Text>
+                <Text style={[styles.bmsDiagValue, { color: socColor }]}>
                   {bmsSoc}%
                 </Text>
-                <Text style={styles.bmsMetricSub}>State of Charge</Text>
+                <Text style={styles.bmsDiagSub}>
+                  ~{activeModeObj.rangeKm} km remaining
+                </Text>
               </View>
-              <View style={styles.bmsMetricCard}>
-                <Text style={styles.bmsMetricLabel}>Voltage</Text>
-                <Text style={styles.bmsMetricValue}>{bmsVoltage}V</Text>
-                <Text style={styles.bmsMetricSub}>Pack Voltage</Text>
+
+              <View style={styles.bmsDiagTile}>
+                <Text style={styles.bmsDiagKicker}>PACK VOLTAGE</Text>
+                <Text style={styles.bmsDiagValue}>{bmsVoltage} V</Text>
+                <Text style={styles.bmsDiagSub}>Nominal 51.2V LiFePO4</Text>
               </View>
-              <View style={styles.bmsMetricCard}>
-                <Text style={styles.bmsMetricLabel}>Temperature</Text>
-                <Text style={styles.bmsMetricValue}>{bmsTemp}°C</Text>
-                <Text style={styles.bmsMetricSub}>Cell Temp</Text>
+
+              <View style={styles.bmsDiagTile}>
+                <Text style={styles.bmsDiagKicker}>CELL TEMP</Text>
+                <Text style={styles.bmsDiagValue}>{bmsTemp}°C</Text>
+                <Text style={styles.bmsDiagSub}>Thermal Normal</Text>
               </View>
-              <View style={styles.bmsMetricCard}>
-                <Text style={styles.bmsMetricLabel}>Health (SOH)</Text>
-                <Text style={styles.bmsMetricValue}>98%</Text>
-                <Text style={styles.bmsMetricSub}>Optimal</Text>
+
+              <View style={styles.bmsDiagTile}>
+                <Text style={styles.bmsDiagKicker}>PACK HEALTH</Text>
+                <Text style={[styles.bmsDiagValue, { color: '#10B981' }]}>
+                  98% SOH
+                </Text>
+                <Text style={styles.bmsDiagSub}>Balanced Cells</Text>
               </View>
             </View>
 
-            <View style={styles.bmsStatusBanner}>
+            <View style={styles.bmsLiveStatusBanner}>
               <Ionicons
-                name={bmsStatus === 'connected' ? 'shield-checkmark' : 'sync'}
+                name={
+                  bmsStatus === 'connected' ? 'shield-checkmark' : 'sync'
+                }
                 size={18}
-                color={bmsStatus === 'connected' ? '#16A34A' : PURPLE}
+                color={bmsStatus === 'connected' ? '#059669' : BRAND_PURPLE}
               />
-              <Text style={styles.bmsStatusBannerText}>
+              <Text style={styles.bmsLiveStatusText}>
                 {bmsStatus === 'connected'
-                  ? 'Real BMS connected · Telemetry synced with Evegah IoT'
-                  : 'Scanning CAN bus & Bluetooth BLE controller...'}
+                  ? 'Live BLE & CAN bus link active · Encrypted Evegah Telemetry'
+                  : 'Scanning vehicle controller for real-time battery frames...'}
               </Text>
             </View>
 
             <Pressable
-              onPress={() => {
-                runAutoScanBms();
-              }}
-              style={styles.bmsRescanBtn}
+              onPress={runAutoScanBms}
+              style={styles.confirmExtendCta}
             >
-              <Ionicons name="refresh" size={16} color="#FFFFFF" />
-              <Text style={styles.bmsRescanBtnText}>Re-Scan & Sync BMS</Text>
+              <Ionicons name="refresh" size={17} color="#FFFFFF" />
+              <Text style={styles.confirmExtendCtaText}>
+                Re-Scan & Sync BMS Now
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -966,7 +1099,7 @@ export default function RideScreen({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#ECEFF4',
+    backgroundColor: '#E2E8F0',
   },
   mapContainer: {
     flex: 1,
@@ -974,18 +1107,20 @@ const styles = StyleSheet.create({
   },
   osmBadge: {
     position: 'absolute',
-    left: 12,
-    bottom: 22,
-    backgroundColor: 'rgba(255,255,255,0.86)',
+    left: 14,
+    bottom: 26,
+    backgroundColor: 'rgba(255, 255, 255, 0.88)',
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 3.5,
     borderRadius: 6,
   },
   osmBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
+    fontSize: 9.5,
+    fontWeight: '700',
     color: '#64748B',
   },
+
+  /* Map Markers */
   originMarkerOuter: {
     width: 24,
     height: 24,
@@ -1000,22 +1135,22 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   originMarkerInner: {
-    width: 13,
-    height: 13,
-    borderRadius: 6.5,
-    backgroundColor: '#16A34A',
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#10B981',
   },
   routeCalloutBubble: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
+    gap: 8,
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 11,
     paddingVertical: 7,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#E9D5FF',
-    shadowColor: '#1E1035',
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.14,
     shadowRadius: 8,
@@ -1025,19 +1160,18 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 8,
-    backgroundColor: '#F3E8FF',
     alignItems: 'center',
     justifyContent: 'center',
   },
   routeCalloutDist: {
-    fontSize: 12.5,
+    fontSize: 12,
     fontWeight: '800',
-    color: DARK_TEXT,
+    color: DARK_NAVY,
   },
   routeCalloutTime: {
-    fontSize: 10.5,
+    fontSize: 10,
     fontWeight: '600',
-    color: '#6E657F',
+    color: '#64748B',
   },
   scooterMarkerWrap: {
     width: 58,
@@ -1050,15 +1184,17 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(109, 40, 217, 0.18)',
+    backgroundColor: 'rgba(124, 58, 237, 0.2)',
     borderWidth: 1.5,
-    borderColor: 'rgba(109, 40, 217, 0.45)',
+    borderColor: 'rgba(124, 58, 237, 0.5)',
   },
   scooterMarkerImg: {
     width: 44,
     height: 44,
   },
-  topBar: {
+
+  /* Top Floating HUD Bar */
+  topHudBar: {
     position: 'absolute',
     left: 14,
     right: 14,
@@ -1066,420 +1202,557 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  topCircleBtn: {
+  hudCircleBtn: {
     width: 42,
     height: 42,
     borderRadius: 21,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#140826',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.12,
     shadowRadius: 8,
     elevation: 4,
   },
-  topCenterPill: {
+  hudCenterPill: {
     height: 42,
-    paddingHorizontal: 16,
+    paddingLeft: 8,
+    paddingRight: 14,
     borderRadius: 21,
     backgroundColor: '#FFFFFF',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    shadowColor: '#140826',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.12,
     shadowRadius: 8,
     elevation: 4,
   },
-  topPillDot: {
-    width: 9,
-    height: 9,
-    borderRadius: 4.5,
-    backgroundColor: '#22C55E',
+  hudLiveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
-  topPillIdText: {
-    fontSize: 14,
+  hudPulseDot: {
+    width: 6.5,
+    height: 6.5,
+    borderRadius: 3.5,
+    backgroundColor: '#16A34A',
+  },
+  hudLiveBadgeText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#15803D',
+    letterSpacing: 0.5,
+  },
+  hudBookingId: {
+    fontSize: 13.5,
     fontWeight: '800',
-    color: DARK_TEXT,
-    letterSpacing: 0.2,
+    color: DARK_NAVY,
+    letterSpacing: 0.3,
   },
-  mapRightControls: {
+  hudSosBtn: {
+    height: 42,
+    paddingHorizontal: 13,
+    borderRadius: 21,
+    backgroundColor: '#FFF1F2',
+    borderWidth: 1,
+    borderColor: '#FECDD3',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    shadowColor: '#E11D48',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  hudSosText: {
+    fontSize: 11.5,
+    fontWeight: '900',
+    color: '#E11D48',
+  },
+
+  /* Floating Right Map Tools */
+  mapRightStack: {
     position: 'absolute',
     right: 14,
-    bottom: 24,
+    bottom: 28,
     gap: 10,
   },
-  mapFloatBtn: {
+  mapToolBtn: {
     width: 44,
     height: 44,
     borderRadius: 22,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#140826',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.14,
     shadowRadius: 8,
     elevation: 5,
   },
-  extendToast: {
+
+  /* Floating Toasts */
+  extendBannerCard: {
     position: 'absolute',
     left: 14,
     right: 14,
     backgroundColor: '#ECFDF5',
     borderWidth: 1,
-    borderColor: '#A7F3D0',
-    borderRadius: 14,
+    borderColor: '#6EE7B7',
+    borderRadius: 16,
     paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingVertical: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 9,
+    gap: 10,
+    shadowColor: '#065F46',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  extendToastTitle: {
+  extendBannerIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#10B981',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  extendBannerTitle: {
     fontSize: 12.5,
     fontWeight: '800',
     color: '#065F46',
   },
-  extendToastSub: {
+  extendBannerSub: {
     fontSize: 11,
     fontWeight: '600',
     color: '#047857',
   },
-  quickToastPill: {
+  toastPill: {
     position: 'absolute',
     alignSelf: 'center',
-    backgroundColor: 'rgba(36, 8, 60, 0.94)',
+    maxWidth: '90%',
+    backgroundColor: 'rgba(15, 23, 42, 0.94)',
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingVertical: 8.5,
     borderRadius: 999,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
   },
-  quickToastText: {
+  toastIconPulse: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toastText: {
     fontSize: 12,
     fontWeight: '700',
     color: '#FFFFFF',
   },
-  bottomSheet: {
-    marginTop: -16,
+
+  /* Bottom Cockpit Deck Sheet */
+  deckSheet: {
+    marginTop: -18,
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
     paddingHorizontal: 16,
     paddingTop: 10,
-    shadowColor: '#18092E',
-    shadowOffset: { width: 0, height: -6 },
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: -8 },
     shadowOpacity: 0.1,
-    shadowRadius: 16,
-    elevation: 14,
+    shadowRadius: 18,
+    elevation: 16,
   },
-  sheetHandle: {
-    width: 40,
+  sheetGrabber: {
+    width: 38,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#E2DCEB',
+    backgroundColor: '#CBD5E1',
     alignSelf: 'center',
     marginBottom: 12,
   },
-  vehicleHeaderRow: {
+
+  /* Row 1: Vehicle & Mode Switcher */
+  vehicleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
-  vehicleThumbBox: {
-    width: 60,
-    height: 48,
+  vehicleAvatarBox: {
+    width: 56,
+    height: 46,
     borderRadius: 14,
-    backgroundColor: '#F6F3FA',
+    backgroundColor: '#F5F3FF',
     borderWidth: 1,
-    borderColor: '#EAE4F2',
+    borderColor: '#DDD6FE',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  vehicleThumbImg: {
-    width: 50,
-    height: 40,
+  vehicleAvatarImg: {
+    width: 48,
+    height: 38,
   },
-  vehicleHeaderInfo: {
+  vehicleTitleCol: {
     flex: 1,
   },
-  vehicleTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: DARK_TEXT,
-    letterSpacing: -0.3,
-  },
-  vehicleSubRow: {
-    marginTop: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  vehicleCodeText: {
-    fontSize: 12.5,
-    fontWeight: '600',
-    color: '#6E657F',
-  },
-  ridingLiveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-  },
-  ridingPausedBadge: {
-    backgroundColor: '#FEF3C7',
-  },
-  ridingLiveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#16A34A',
-  },
-  ridingLiveText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#15803D',
-  },
-  cityModePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#F3E8FF',
-    borderWidth: 1,
-    borderColor: '#E2CEF8',
-    paddingHorizontal: 11,
-    paddingVertical: 7,
-    borderRadius: 999,
-  },
-  cityModeText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: PURPLE,
-  },
-  statsThreeColRow: {
-    marginTop: 14,
-    flexDirection: 'row',
-    gap: 10,
-  },
-  statBox: {
-    flex: 1,
-    backgroundColor: '#FAF8FC',
-    borderWidth: 1,
-    borderColor: '#ECE7F4',
-    borderRadius: 16,
-    paddingVertical: 11,
-    paddingHorizontal: 10,
-    alignItems: 'center',
-  },
-  statValueText: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: DARK_TEXT,
-    letterSpacing: -0.3,
-    fontVariant: ['tabular-nums'],
-  },
-  statUnitText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: SUB_TEXT,
-  },
-  statLabelText: {
-    marginTop: 3,
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#736B82',
-  },
-  infoTwoColRow: {
-    marginTop: 10,
-    flexDirection: 'row',
-    gap: 10,
-  },
-  infoCard: {
-    flex: 1,
-    backgroundColor: '#FAF8FC',
-    borderWidth: 1,
-    borderColor: '#ECE7F4',
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  infoCardTopRow: {
+  vehicleNameLine: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  batteryIconBadge: {
-    width: 22,
-    height: 22,
-    borderRadius: 7,
-    backgroundColor: '#DCFCE7',
-    alignItems: 'center',
-    justifyContent: 'center',
+  vehicleName: {
+    fontSize: 17,
+    fontWeight: '900',
+    color: DARK_NAVY,
+    letterSpacing: -0.3,
   },
-  dropIconBadge: {
-    width: 22,
-    height: 22,
-    borderRadius: 7,
+  iotVerifiedChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
     backgroundColor: '#F3E8FF',
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
-  infoCardLabel: {
-    fontSize: 12,
+  iotVerifiedText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: BRAND_PURPLE,
+  },
+  vehicleRouteSub: {
+    fontSize: 11.5,
     fontWeight: '600',
-    color: '#736B82',
+    color: '#64748B',
+    marginTop: 2,
+  },
+  modeSegmentWrap: {
+    flexDirection: 'row',
+    backgroundColor: '#F1F5F9',
+    padding: 3,
+    borderRadius: 11,
+  },
+  modeMiniBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  modeMiniBtnActive: {
+    backgroundColor: BRAND_PURPLE,
+  },
+  modeMiniBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+  },
+  modeMiniBtnTextActive: {
+    color: '#FFFFFF',
+  },
+
+  /* Row 2: Dark-Violet Speedometer Cockpit Cluster */
+  cockpitCluster: {
+    marginTop: 12,
+    borderRadius: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  cockpitSideCol: {
     flex: 1,
   },
-  bmsScanPill: {
+  cockpitLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#EFF6FF',
-    borderWidth: 1,
-    borderColor: '#DBEAFE',
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 8,
   },
-  bmsScanPillConnected: {
-    backgroundColor: '#F3E8FF',
-    borderColor: '#E2CEF8',
-  },
-  bmsScanPillText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#2563EB',
-  },
-  infoCardMainVal: {
-    marginTop: 5,
-    fontSize: 16,
+  cockpitKicker: {
+    fontSize: 9.5,
     fontWeight: '800',
-    color: DARK_TEXT,
+    color: '#C4B5FD',
+    letterSpacing: 0.7,
   },
-  infoCardSubVal: {
-    fontSize: 13,
+  cockpitSideValue: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    marginTop: 3,
+    fontVariant: ['tabular-nums'],
+  },
+  cockpitSmallUnit: {
+    fontSize: 12,
     fontWeight: '700',
-    color: '#5B526B',
+    color: '#DDD6FE',
   },
-  batteryBarTrack: {
-    marginTop: 7,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: '#E2E8F0',
-    overflow: 'hidden',
-  },
-  batteryBarFill: {
-    height: '100%',
-    borderRadius: 3,
-    backgroundColor: '#16A34A',
-  },
-  dropCardSubNote: {
-    marginTop: 4,
-    fontSize: 11,
+  cockpitSideSub: {
+    fontSize: 10.5,
     fontWeight: '600',
-    color: '#736B82',
+    color: 'rgba(255,255,255,0.62)',
+    marginTop: 1,
   },
-  actionsThreeColRow: {
+  cockpitVerticalDivider: {
+    width: 1,
+    height: 38,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    marginHorizontal: 10,
+  },
+  cockpitCenterCol: {
+    alignItems: 'center',
+    paddingHorizontal: 6,
+  },
+  speedHeroNumber: {
+    fontSize: 30,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    lineHeight: 33,
+    fontVariant: ['tabular-nums'],
+  },
+  speedHeroUnit: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#34D399',
+    letterSpacing: 0.6,
+    marginTop: 1,
+  },
+
+  /* Row 3: BMS + Return Schedule Cards */
+  cardsTwoCol: {
     marginTop: 10,
     flexDirection: 'row',
     gap: 10,
   },
-  actionTile: {
-    flex: 1,
-    height: 42,
-    borderRadius: 13,
-    backgroundColor: '#F7F4FB',
+  bmsCard: {
+    flex: 1.15,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 11,
     borderWidth: 1,
-    borderColor: '#E8E2F2',
+    borderColor: '#E2E8F0',
+  },
+  dropScheduleCard: {
+    flex: 0.85,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 11,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    justifyContent: 'space-between',
+  },
+  bmsCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
+    justifyContent: 'space-between',
   },
-  actionTileActivePurple: {
+  bmsLabelCluster: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  bmsDotIndicator: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  cardSmallTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.5,
+  },
+  bmsSyncChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  bmsSyncChipConnected: {
     backgroundColor: '#F3E8FF',
-    borderColor: PURPLE,
   },
-  actionTileText: {
-    fontSize: 13,
+  bmsSyncChipText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#2563EB',
+  },
+  bmsMainReadoutRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+    marginTop: 5,
+  },
+  bmsBigPercent: {
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  bmsRangeMeta: {
+    fontSize: 11,
     fontWeight: '700',
-    color: SUB_TEXT,
+    color: '#475569',
   },
-  actionTileHazard: {
+  segmentedBarRow: {
+    flexDirection: 'row',
+    gap: 4,
+    marginTop: 7,
+  },
+  batteryCellSegment: {
     flex: 1,
-    height: 42,
-    borderRadius: 13,
-    backgroundColor: '#FFF1F2',
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#E2E8F0',
+  },
+  extendMiniTag: {
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 5,
+  },
+  extendMiniTagText: {
+    fontSize: 8.5,
+    fontWeight: '900',
+    color: BRAND_PURPLE,
+  },
+  dropBigTime: {
+    fontSize: 17,
+    fontWeight: '900',
+    color: DARK_NAVY,
+    marginTop: 4,
+  },
+  dropZoneSubText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+    marginTop: 2,
+  },
+
+  /* Row 4: Hardware Switch Deck */
+  hardwareControlsRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  hwSwitchBtn: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#FECDD3',
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 9,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
+    gap: 7,
   },
-  actionTileHazardActive: {
-    backgroundColor: '#FFE4E6',
+  hwSwitchBtnActiveAmber: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#F59E0B',
+  },
+  hwSwitchBtnActiveRose: {
+    backgroundColor: '#FFF1F2',
     borderColor: '#E11D48',
   },
-  actionTileHazardText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#E11D48',
+  hwIconCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  bottomBtnsRow: {
+  hwSwitchTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: DARK_NAVY,
+  },
+  hwSwitchSub: {
+    fontSize: 9.5,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+
+  /* Row 5: Bottom Primary CTAs */
+  primaryCtaRow: {
     marginTop: 12,
     flexDirection: 'row',
     gap: 10,
   },
-  extendBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 14,
-    borderWidth: 1.6,
-    borderColor: PURPLE,
-    backgroundColor: '#FAF7FE',
+  secondaryExtendBtn: {
+    flex: 0.9,
+    height: 50,
+    borderRadius: 15,
+    borderWidth: 1.5,
+    borderColor: BRAND_PURPLE,
+    backgroundColor: '#FAF5FF',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
   },
-  extendBtnText: {
-    fontSize: 14.5,
+  secondaryExtendBtnText: {
+    fontSize: 14,
     fontWeight: '800',
-    color: PURPLE,
+    color: BRAND_PURPLE,
   },
-  endBtnWrap: {
-    flex: 1,
+  primaryEndBtnWrap: {
+    flex: 1.25,
   },
-  endBtn: {
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: PURPLE,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
-    shadowColor: PURPLE,
-    shadowOffset: { width: 0, height: 5 },
+  primaryEndTouch: {
+    borderRadius: 15,
+    overflow: 'hidden',
+    shadowColor: BRAND_PURPLE,
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
-    shadowRadius: 10,
+    shadowRadius: 8,
     elevation: 4,
   },
-  endBtnText: {
+  primaryEndGradient: {
+    height: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingLeft: 18,
+    paddingRight: 9,
+  },
+  primaryEndText: {
     fontSize: 14.5,
     fontWeight: '800',
     color: '#FFFFFF',
   },
+  primaryEndIconPill: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  /* Modals */
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(18, 8, 34, 0.52)',
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
     justifyContent: 'flex-end',
   },
   modalBackdropTouch: {
@@ -1493,261 +1766,222 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     maxHeight: '82%',
   },
-  modalHandle: {
-    width: 38,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#DED8E8',
-    alignSelf: 'center',
-    marginBottom: 14,
-  },
   modalHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 14,
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '800',
-    color: DARK_TEXT,
-    letterSpacing: -0.3,
+    fontWeight: '900',
+    color: DARK_NAVY,
   },
   modalSubtitle: {
-    marginTop: 3,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
-    color: '#736B82',
+    color: '#64748B',
+    marginTop: 2,
   },
   modalCloseBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F4F1F8',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  previewDropCard: {
+  scheduleBridgeCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#F8F5FC',
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    padding: 13,
     borderWidth: 1,
-    borderColor: '#E9E1F5',
+    borderColor: '#E2E8F0',
     marginBottom: 12,
   },
-  previewCol: {
-    flex: 1,
-  },
-  previewKicker: {
-    fontSize: 10,
+  scheduleKicker: {
+    fontSize: 9.5,
     fontWeight: '800',
-    color: '#888098',
+    color: '#94A3B8',
     letterSpacing: 0.6,
   },
-  previewVal: {
-    marginTop: 3,
-    fontSize: 12.5,
+  scheduleTimeVal: {
+    fontSize: 12,
     fontWeight: '800',
-    color: DARK_TEXT,
+    color: DARK_NAVY,
+    marginTop: 3,
   },
-  optionsList: {
+  scheduleArrowCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#F3E8FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 8,
+  },
+  extendOptionsScroll: {
     maxHeight: 280,
   },
-  optionRow: {
+  extendOptionCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    borderWidth: 1.2,
-    borderColor: '#ECE8F4',
+    padding: 13,
+    borderRadius: 15,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
     backgroundColor: '#FFFFFF',
     marginBottom: 9,
   },
-  optionRowActive: {
-    borderColor: PURPLE,
-    backgroundColor: '#FAF6FE',
+  extendOptionCardActive: {
+    borderColor: BRAND_PURPLE,
+    backgroundColor: '#FAF5FF',
   },
-  optionRadio: {
+  radioOuter: {
     width: 20,
     height: 20,
     borderRadius: 10,
-    borderWidth: 1.8,
-    borderColor: '#C5BDD4',
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  optionRadioActive: {
-    borderColor: PURPLE,
+  radioOuterActive: {
+    borderColor: BRAND_PURPLE,
   },
-  optionRadioDot: {
+  radioInner: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: PURPLE,
+    backgroundColor: BRAND_PURPLE,
   },
-  optionTitleLine: {
+  extendOptTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 7,
   },
-  optionLabel: {
+  extendOptLabel: {
     fontSize: 14,
     fontWeight: '800',
-    color: DARK_TEXT,
+    color: DARK_NAVY,
   },
-  optionTagPill: {
-    backgroundColor: '#F2EEF8',
+  extendOptTag: {
+    backgroundColor: '#F1F5F9',
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 6,
   },
-  optionTagPillActive: {
-    backgroundColor: PURPLE,
+  extendOptTagActive: {
+    backgroundColor: BRAND_PURPLE,
   },
-  optionTagText: {
+  extendOptTagText: {
     fontSize: 9.5,
     fontWeight: '800',
-    color: '#6A617A',
+    color: '#475569',
   },
-  optionTagTextActive: {
-    color: '#FFFFFF',
-  },
-  optionSub: {
+  extendOptSub: {
+    fontSize: 11.5,
+    color: '#64748B',
     marginTop: 2,
-    fontSize: 12,
-    color: '#7C748C',
-    fontWeight: '500',
   },
-  optionPrice: {
+  extendOptPrice: {
     fontSize: 16,
-    fontWeight: '800',
-    color: DARK_TEXT,
+    fontWeight: '900',
+    color: DARK_NAVY,
   },
-  confirmExtendBtn: {
+  confirmExtendCta: {
     marginTop: 8,
-    height: 50,
-    borderRadius: 14,
-    backgroundColor: PURPLE,
+    height: 52,
+    borderRadius: 15,
+    backgroundColor: BRAND_PURPLE,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
-  confirmExtendBtnText: {
+  confirmExtendCtaText: {
     fontSize: 15,
     fontWeight: '800',
     color: '#FFFFFF',
   },
-  bmsSheetContent: {
+
+  /* BMS Modal Sheet */
+  bmsModalSheet: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 32,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 20,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 18,
+    paddingTop: 10,
   },
-  bmsHeaderRow: {
+  bmsModalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 16,
   },
-  bmsHeaderLeft: {
+  bmsModalTitleCluster: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  bmsIconCircle: {
-    width: 38,
-    height: 38,
+  bmsModalIconBox: {
+    width: 40,
+    height: 40,
     borderRadius: 12,
-    backgroundColor: '#F3E8FF',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bmsTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: DARK_TEXT,
-  },
-  bmsSubTitle: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '500',
-    marginTop: 2,
-  },
-  bmsGrid: {
+  bmsMetricsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
     marginBottom: 14,
   },
-  bmsMetricCard: {
+  bmsDiagTile: {
     width: '48%',
-    backgroundColor: '#FAF8FC',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#ECE7F4',
-    borderRadius: 14,
-    padding: 12,
+    borderColor: '#E2E8F0',
+    borderRadius: 16,
+    padding: 13,
   },
-  bmsMetricLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#736B82',
-    textTransform: 'uppercase',
-  },
-  bmsMetricValue: {
-    fontSize: 20,
+  bmsDiagKicker: {
+    fontSize: 10,
     fontWeight: '800',
-    color: DARK_TEXT,
+    color: '#64748B',
+    letterSpacing: 0.6,
+  },
+  bmsDiagValue: {
+    fontSize: 21,
+    fontWeight: '900',
+    color: DARK_NAVY,
     marginVertical: 4,
   },
-  bmsMetricSub: {
+  bmsDiagSub: {
     fontSize: 11,
-    color: '#9CA3AF',
-    fontWeight: '500',
+    fontWeight: '600',
+    color: '#94A3B8',
   },
-  bmsStatusBanner: {
+  bmsLiveStatusBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#F4FBF7',
+    backgroundColor: '#ECFDF5',
     borderWidth: 1,
-    borderColor: '#D1FAE5',
-    borderRadius: 12,
+    borderColor: '#A7F3D0',
+    borderRadius: 13,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    marginBottom: 16,
+    marginBottom: 8,
   },
-  bmsStatusBannerText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#065F46',
+  bmsLiveStatusText: {
     flex: 1,
-  },
-  bmsRescanBtn: {
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: PURPLE,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  bmsRescanBtnText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#065F46',
   },
 });

@@ -49,7 +49,9 @@ export default function App() {
   const [walletIntro, setWalletIntro] = useState(false);
   const [vehicle, setVehicle] = useState(null);
   const [vehicleFrom, setVehicleFrom] = useState('home');
-  const [payBackTo, setPayBackTo] = useState('rent');
+  const [rentFrom, setRentFrom] = useState('home');
+  const [vehicleListFrom, setVehicleListFrom] = useState('rent');
+  const [payBackTo, setPayBackTo] = useState('vehicle');
   const [trip, setTrip] = useState(null);
   const [receipt, setReceipt] = useState(null);
   const [rideSummary, setRideSummary] = useState(null);
@@ -128,21 +130,12 @@ export default function App() {
         <View style={styles.stage}>
           <RentScreen
             vehicle={vehicle}
-            onBack={() => setScreen('vehicle')}
+            selectedZone={selectedZone}
+            onBack={() => setScreen(rentFrom || 'home')}
             onContinue={(next) => {
               setTrip(next);
-              setPayBackTo('rent');
-              if (!isLoggedIn) {
-                setPendingBooking({
-                  vehicle,
-                  trip: next,
-                  target: 'pay',
-                });
-                setLoginReturnTo('rent');
-                setScreen('login');
-                return;
-              }
-              setScreen('pay');
+              setVehicleListFrom('rent');
+              setScreen('vehicleList');
             }}
           />
           {screen === 'pay' || screen === 'booked' || screen === 'ride' || screen === 'ended' ? (
@@ -212,7 +205,9 @@ export default function App() {
       ) : screen === 'vehicleList' ? (
         <View style={styles.stage}>
           <VehicleListScreen
-            onBack={() => setScreen('home')}
+            trip={trip}
+            selectedZone={selectedZone}
+            onBack={() => setScreen(vehicleListFrom || 'home')}
             onOpenLocation={() => setLocationOpen(true)}
             onSelectVehicle={(next) => {
               setVehicle(next);
@@ -240,7 +235,8 @@ export default function App() {
       ) : screen === 'vehicle' ? (
         <VehicleDetailsScreen
           vehicle={vehicle}
-          onBack={() => setScreen(vehicleFrom)}
+          trip={trip}
+          onBack={() => setScreen(vehicleFrom || 'vehicleList')}
           onBook={(flexiData) => {
             let nextVehicle = vehicle;
             let nextTrip = trip;
@@ -266,19 +262,14 @@ export default function App() {
               setPendingBooking({
                 vehicle: nextVehicle,
                 trip: nextTrip,
-                target: nextTrip ? 'pay' : 'rent',
+                target: 'pay',
               });
               setLoginReturnTo('vehicle');
               setScreen('login');
               return;
             }
-            if (nextTrip) {
-              setPayBackTo('vehicle');
-              setScreen('pay');
-            } else {
-              setPayBackTo('rent');
-              setScreen('rent');
-            }
+            setPayBackTo('vehicle');
+            setScreen('pay');
           }}
         />
       ) : screen === 'bms' ? (
@@ -509,16 +500,25 @@ export default function App() {
             onOpenScan={() => setScreen('scan')}
             onOpenProfile={() => setScreen('profile')}
             onOpenWallet={openWallet}
-            onOpenVehicleList={() => setScreen('vehicleList')}
+            onOpenVehicleList={() => {
+              setVehicleListFrom('home');
+              setScreen('vehicleList');
+            }}
             onSearchVehicles={(tripPayload) => {
               setTrip(tripPayload);
-              setPayBackTo('vehicle');
+              setVehicleListFrom('home');
               setScreen('vehicleList');
             }}
             onOpenVehicle={(next) => {
               setVehicle(next);
               setVehicleFrom('home');
               setScreen('vehicle');
+            }}
+            onOpenRent={(nextVehicle, initialTrip) => {
+              if (nextVehicle) setVehicle(nextVehicle);
+              if (initialTrip) setTrip(initialTrip);
+              setRentFrom('home');
+              setScreen('rent');
             }}
             onOpenNotifications={() => setScreen('notifications')}
             onOpenInsights={() => setScreen('insights')}

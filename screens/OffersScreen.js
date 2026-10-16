@@ -170,7 +170,7 @@ const APPLY_OFFERS = [
     code: 'NAVRATRI100',
     bullets: [
       'Special festive coupon for Navratri & Garba night rides.',
-      'Includes free battery swap at any 24/7 Evegah hub.',
+      'Includes free battery swap at any 24/7 Evegah Zone.',
     ],
   },
   {
@@ -565,8 +565,8 @@ function PopupScratchFoilOverlay({ theme, onComplete }) {
       <View pointerEvents="none" style={styles.foilProgressPill}>
         <Text style={styles.foilProgressText}>
           {pct > 0
-            ? `Scratching... ${pct}% (Scratch to 100% to reveal)`
-            : 'Rub card to scratch & unlock'}
+            ? `Scratching... ${pct}%`
+            : 'Swipe to scratch & reveal code'}
         </Text>
       </View>
     </Animated.View>
@@ -775,110 +775,83 @@ export default function OffersScreen({ onBack }) {
                 <Animated.View
                   style={[styles.rewardPopupCardWrap, cardPopStyle]}
                 >
-                  {selectedCoupon.scratched ? (
-                    /* Real Offer Displayed ONLY After Full Scratch Completion */
-                    <Animated.View
-                      entering={ZoomIn.duration(300)}
-                      style={styles.rewardPopupCard}
-                    >
-                      <BrandLogo type={selectedCoupon.logoType} size={64} />
-                      <Text style={styles.rewardPopupBrand}>
-                        {selectedCoupon.brand}
-                      </Text>
-                      <Text style={styles.rewardPopupOffer}>
-                        {selectedCoupon.title}
-                      </Text>
+                  {/* Actual Scratchable Reward Card (Rendered Directly Under Scratch Foil) */}
+                  <Animated.View
+                    entering={ZoomIn.duration(300)}
+                    style={styles.rewardPopupCard}
+                  >
+                    <BrandLogo type={selectedCoupon.logoType} size={64} />
+                    <Text style={styles.rewardPopupBrand}>
+                      {selectedCoupon.brand}
+                    </Text>
+                    <Text style={styles.rewardPopupOffer}>
+                      {selectedCoupon.title}
+                    </Text>
 
-                      <View style={styles.rewardPopupCodePill}>
-                        <Text style={styles.rewardPopupCodePillText}>
-                          {selectedCoupon.code}
-                        </Text>
-                      </View>
-
-                      <Text style={styles.rewardPopupValid}>
-                        {selectedCoupon.validTill}
-                      </Text>
-
-                      {/* Confetti accents */}
-                      <View
-                        style={[
-                          styles.confettiDot,
-                          { top: 18, left: 22, backgroundColor: '#C084FC' },
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.confettiDot,
-                          { top: 24, right: 24, backgroundColor: '#FDE047' },
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.confettiDot,
-                          { bottom: 16, left: 28, backgroundColor: '#C084FC' },
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.confettiDot,
-                          { bottom: 26, right: 24, backgroundColor: '#F472B6' },
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.confettiDot,
-                          { bottom: 44, right: 32, backgroundColor: '#A78BFA' },
-                        ]}
-                      />
-                    </Animated.View>
-                  ) : (
-                    /* Mystery Shimmer Vault Layer Under Scratch Foil (Hides Real Offer Until 100% Scratched) */
-                    <LinearGradient
-                      colors={['#FEF9C3', '#F3E8FF', '#EDE9FE']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.rewardPopupCard}
-                    >
-                      <View
-                        style={{
-                          width: 68,
-                          height: 68,
-                          borderRadius: 34,
+                    <View
+                      style={[
+                        styles.rewardPopupCodePill,
+                        !selectedCoupon.scratched && {
                           backgroundColor: '#F3E8FF',
-                          borderWidth: 2,
-                          borderColor: '#C084FC',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          marginBottom: 12,
-                        }}
-                      >
-                        <Ionicons name="sparkles" size={32} color={PURPLE} />
-                      </View>
+                          borderStyle: 'dashed',
+                          borderColor: '#A855F7',
+                        },
+                      ]}
+                    >
                       <Text
-                        style={{
-                          fontSize: 16,
-                          fontWeight: '800',
-                          color: PURPLE,
-                          textAlign: 'center',
-                        }}
+                        style={[
+                          styles.rewardPopupCodePillText,
+                          !selectedCoupon.scratched && {
+                            color: '#7C3AED',
+                            letterSpacing: 2,
+                            fontWeight: '800',
+                          },
+                        ]}
                       >
-                        Keep Scratching...
+                        {selectedCoupon.scratched ? selectedCoupon.code : '••••••••'}
                       </Text>
-                      <Text
-                        style={{
-                          marginTop: 6,
-                          fontSize: 12.5,
-                          fontWeight: '600',
-                          color: '#6B21A8',
-                          textAlign: 'center',
-                          paddingHorizontal: 14,
-                        }}
-                      >
-                        Finish scratching the foil to reveal your secret Evegah
-                        offer!
-                      </Text>
-                    </LinearGradient>
-                  )}
+                    </View>
+
+                    <Text style={styles.rewardPopupValid}>
+                      {selectedCoupon.validTill}
+                    </Text>
+
+                    {/* Confetti Accents Only When Scratched */}
+                    {selectedCoupon.scratched ? (
+                      <>
+                        <View
+                          style={[
+                            styles.confettiDot,
+                            { top: 18, left: 22, backgroundColor: '#C084FC' },
+                          ]}
+                        />
+                        <View
+                          style={[
+                            styles.confettiDot,
+                            { top: 24, right: 24, backgroundColor: '#FDE047' },
+                          ]}
+                        />
+                        <View
+                          style={[
+                            styles.confettiDot,
+                            { bottom: 16, left: 28, backgroundColor: '#C084FC' },
+                          ]}
+                        />
+                        <View
+                          style={[
+                            styles.confettiDot,
+                            { bottom: 26, right: 24, backgroundColor: '#F472B6' },
+                          ]}
+                        />
+                        <View
+                          style={[
+                            styles.confettiDot,
+                            { bottom: 44, right: 32, backgroundColor: '#A78BFA' },
+                          ]}
+                        />
+                      </>
+                    ) : null}
+                  </Animated.View>
 
                   {/* Interactive Scratch Foil Overlay if Not Yet Scratched */}
                   {!selectedCoupon.scratched ? (
@@ -952,7 +925,7 @@ export default function OffersScreen({ onBack }) {
                   }}
                 >
                   <Text style={styles.claimPurpleBtnText}>
-                    Apply {selectedCoupon.code} on Evegah Ride
+                    Apply {selectedCoupon.code}
                   </Text>
                 </Pressable>
               </Animated.View>
@@ -964,19 +937,7 @@ export default function OffersScreen({ onBack }) {
                   { paddingBottom: Math.max(insets.bottom, 24) },
                 ]}
               >
-                <View style={styles.scratchPromptCard}>
-                  <View style={styles.scratchPromptIconCircle}>
-                    <Ionicons name="hand-left" size={20} color="#FDE047" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.scratchPromptTitle}>
-                      Scratch the card above!
-                    </Text>
-                    <Text style={styles.scratchPromptSub}>
-                      Swipe your finger across the purple foil to reveal your Evegah ride reward.
-                    </Text>
-                  </View>
-                </View>
+                
               </Animated.View>
             )
           ) : null}

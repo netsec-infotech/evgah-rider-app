@@ -4,17 +4,17 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
 
 const PURPLE = '#4A168C';
 const INDIGO = '#3D2CE0';
+const PROFILE_HERO = require('../assets/profile/profile-hero.png');
 
-const AVATAR_URI =
+const DEFAULT_AVATAR =
   'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300&auto=format&fit=crop&q=80';
-
-const SUB_TABS = ['Overview', 'Activity', 'Badges', 'Documents'];
 
 const PERIODS = [
   {
@@ -39,19 +39,6 @@ const PERIODS = [
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-const SKYLINE_BUILDINGS = [
-  { left: '4%', width: 26, height: 68 },
-  { left: '12%', width: 18, height: 52 },
-  { left: '20%', width: 32, height: 84 },
-  { left: '31%', width: 22, height: 60 },
-  { left: '40%', width: 28, height: 96 },
-  { left: '50%', width: 24, height: 74 },
-  { left: '59%', width: 34, height: 110 },
-  { left: '70%', width: 26, height: 88 },
-  { left: '80%', width: 30, height: 98 },
-  { left: '90%', width: 24, height: 70 },
-];
-
 export default function ProfileScreen({
   profile,
   verified,
@@ -71,13 +58,34 @@ export default function ProfileScreen({
   onOpenWallet,
 }) {
   const insets = useSafeAreaInsets();
-  const [activeTab, setActiveTab] = useState('Overview');
+  const [avatarUri, setAvatarUri] = useState(profile?.avatar || DEFAULT_AVATAR);
   const [periodIdx, setPeriodIdx] = useState(0);
 
   const rawName = profile?.name || '';
   const displayName =
     !rawName || rawName === 'Demo Reviewer' ? 'Himanshu Chavda' : rawName;
   const currentPeriod = PERIODS[periodIdx];
+
+  const handlePickAvatar = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        alert('Please allow media library access to change your profile picture.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+      if (!result.canceled && result.assets && result.assets[0]?.uri) {
+        setAvatarUri(result.assets[0].uri);
+      }
+    } catch (e) {
+      console.warn('Image picker error:', e);
+    }
+  };
 
   const menuCategories = [
     {
@@ -90,12 +98,7 @@ export default function ProfileScreen({
           title: 'Your ride bookings',
           onPress: onOpenMyRide,
         },
-        {
-          id: 'history',
-          icon: 'time-outline',
-          title: 'Past rides & journey summary',
-          onPress: onOpenMyRide,
-        },
+       
         {
           id: 'ride-help',
           icon: 'chatbubble-ellipses-outline',
@@ -181,15 +184,6 @@ export default function ProfileScreen({
     },
   ];
 
-  const handleTabPress = (tab) => {
-    setActiveTab(tab);
-    if (tab === 'Documents') {
-      onKyc?.();
-    } else if (tab === 'Badges') {
-      onRefer?.();
-    }
-  };
-
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
@@ -201,27 +195,18 @@ export default function ProfileScreen({
       >
         {/* Top Dark Indigo/Purple Skyline Header */}
         <LinearGradient
-          colors={['#150D42', '#231763', '#312282']}
+          colors={['#25084A', '#4A168C', '#6B21A8']}
           start={{ x: 0, y: 0 }}
-          end={{ x: 0.3, y: 1 }}
+          end={{ x: 0.4, y: 1 }}
           style={[styles.heroHeader, { paddingTop: insets.top + 10 }]}
         >
-          {/* City Skyline Silhouette */}
-          <View style={styles.skylineWrap} pointerEvents="none">
-            {SKYLINE_BUILDINGS.map((b, idx) => (
-              <View
-                key={idx}
-                style={[
-                  styles.skylineBuilding,
-                  { left: b.left, width: b.width, height: b.height },
-                ]}
-              >
-                <View style={styles.skylineWindows} />
-              </View>
-            ))}
-            <View style={styles.skylineTreesLeft} />
-            <View style={styles.skylineTreesRight} />
-          </View>
+          <Image
+            source={PROFILE_HERO}
+            style={styles.heroArt}
+            contentFit="contain"
+            contentPosition="right bottom"
+            pointerEvents="none"
+          />
 
           {/* Header Bar */}
           <View style={styles.topBar}>
@@ -236,12 +221,15 @@ export default function ProfileScreen({
 
           {/* Avatar */}
           <View style={styles.avatarRow}>
-            <Pressable onPress={onEdit} style={styles.avatarOuter}>
+            <Pressable onPress={handlePickAvatar} style={styles.avatarOuter}>
               <Image
-                source={{ uri: AVATAR_URI }}
+                source={{ uri: avatarUri }}
                 style={styles.avatarImage}
                 contentFit="cover"
               />
+              <View style={styles.cameraBadge}>
+                <Ionicons name="camera" size={13} color="#FFFFFF" />
+              </View>
               <View style={styles.onlineBadge}>
                 <View style={styles.onlineDot} />
               </View>
@@ -302,25 +290,6 @@ export default function ProfileScreen({
             <Text style={styles.statLbl}>CO₂ Saved</Text>
           </View>
         </Animated.View>
-
-        {/* Sub-Tabs Bar */}
-        <View style={styles.subTabsBar}>
-          {SUB_TABS.map((tab) => {
-            const isActive = activeTab === tab;
-            return (
-              <Pressable
-                key={tab}
-                onPress={() => handleTabPress(tab)}
-                style={styles.subTabBtn}
-              >
-                <Text style={[styles.subTabText, isActive && styles.subTabTextActive]}>
-                  {tab}
-                </Text>
-                {isActive ? <View style={styles.subTabIndicator} /> : null}
-              </Pressable>
-            );
-          })}
-        </View>
 
         {/* This Month Impact Card */}
         <Animated.View entering={cardEnter(1)} style={styles.impactCard}>
@@ -479,9 +448,13 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
   },
-  skylineWrap: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
+  heroArt: {
+    position: 'absolute',
+    right: -20,
+    bottom: 46,
+    width: '108%',
+    height: 210,
+    opacity: 0.5,
   },
   skylineBuilding: {
     position: 'absolute',
@@ -553,9 +526,23 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 38,
   },
+  cameraBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: PURPLE,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
   onlineBadge: {
     position: 'absolute',
-    right: 1,
+    left: 1,
     bottom: 1,
     width: 18,
     height: 18,

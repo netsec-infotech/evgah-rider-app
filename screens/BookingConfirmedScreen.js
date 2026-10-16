@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -70,31 +70,38 @@ export default function BookingConfirmedScreen({ vehicle, trip, receipt, onBack,
     paperOpacity.value = 0.4;
     laserScanY.value = 0;
 
-    // Subtle mechanical thermal head vibration while feeding paper
+    // Deliberate mechanical thermal vibration during slow feed
     printerShakeX.value = withRepeat(
       withSequence(
-        withTiming(-1.4, { duration: 45 }),
-        withTiming(1.4, { duration: 45 }),
-        withTiming(0, { duration: 45 }),
+        withTiming(-1.2, { duration: 60 }),
+        withTiming(1.2, { duration: 60 }),
+        withTiming(0, { duration: 60 }),
       ),
-      14,
+      22,
       false,
     );
 
-    // Step-by-step thermal line feed animation out of the printer slot
+    // Realistic, deliberate thermal line feed animation
     paperSlideY.value = withSequence(
-      withTiming(-340, { duration: 280, easing: Easing.out(Easing.quad) }),
-      withDelay(60, withTiming(-190, { duration: 300, easing: Easing.out(Easing.quad) })),
-      withDelay(60, withTiming(-60, { duration: 300, easing: Easing.out(Easing.quad) })),
-      withSpring(0, { damping: 16, stiffness: 150 }),
+      withTiming(-360, { duration: 650, easing: Easing.out(Easing.quad) }),
+      withDelay(120, withTiming(-240, { duration: 650, easing: Easing.out(Easing.quad) })),
+      withDelay(120, withTiming(-100, { duration: 650, easing: Easing.out(Easing.quad) })),
+      withDelay(100, withSpring(0, { damping: 18, stiffness: 120 })),
     );
 
-    paperOpacity.value = withTiming(1, { duration: 550 });
-    laserScanY.value = withTiming(560, { duration: 1150, easing: Easing.inOut(Easing.quad) });
+    paperOpacity.value = withTiming(1, { duration: 1100 });
+    laserScanY.value = withTiming(580, { duration: 2500, easing: Easing.inOut(Easing.quad) });
 
     const doneTimer = setTimeout(() => {
       setPrintingState(isDownload ? 'downloaded' : 'ready');
-    }, 1250);
+      if (isDownload) {
+        Alert.alert(
+          'Receipt Downloaded',
+          `Official Tax Invoice #${receipt?.bookingId || 'EVG29976125'} has been saved to your device and sent to your registered email.`,
+          [{ text: 'OK' }]
+        );
+      }
+    }, 2600);
 
     return () => clearTimeout(doneTimer);
   };
@@ -102,8 +109,8 @@ export default function BookingConfirmedScreen({ vehicle, trip, receipt, onBack,
   useEffect(() => {
     ledGlow.value = withRepeat(
       withSequence(
-        withTiming(1, { duration: 650 }),
-        withTiming(0.35, { duration: 650 }),
+        withTiming(1, { duration: 750 }),
+        withTiming(0.35, { duration: 750 }),
       ),
       -1,
       true,
@@ -218,9 +225,15 @@ export default function BookingConfirmedScreen({ vehicle, trip, receipt, onBack,
               {/* Active Thermal Laser Line while printing */}
               <Animated.View pointerEvents="none" style={[styles.thermalLaserBar, laserLineStyle]} />
 
-              {/* Receipt Header */}
-              <Text style={styles.receiptBrandTitle}>EVEGAH</Text>
-              <Text style={styles.receiptSubKicker}>OFFICIAL RECEIPT</Text>
+              {/* Receipt Header with Real Evegah Logo */}
+              <View style={styles.receiptLogoBox}>
+                <Image
+                  source={require('../assets/login/evegah-logo.png')}
+                  style={styles.receiptLogoImg}
+                  contentFit="contain"
+                />
+              </View>
+              <Text style={styles.receiptSubKicker}>OFFICIAL TAX INVOICE</Text>
               <Text style={styles.receiptStars}>*  *  *  *  *  *  *  *  *  *  *</Text>
 
               <Text style={styles.confirmedHeadline}>Booking confirmed</Text>
@@ -561,6 +574,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.9,
     shadowRadius: 8,
     zIndex: 20,
+  },
+  receiptLogoBox: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  receiptLogoImg: {
+    width: 130,
+    height: 40,
   },
   receiptBrandTitle: {
     textAlign: 'center',

@@ -1,11 +1,18 @@
-import { useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
   Easing,
-  FadeIn,
   ReduceMotion,
   useAnimatedStyle,
   useSharedValue,
@@ -15,14 +22,19 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
 
-const PURPLE = '#4A168C';
+const BRAND_PURPLE = '#4A168C';
+const BRAND_PURPLE_LIGHT = '#7C3AED';
+const BRAND_SURFACE = '#F4F5F9';
 const EASE = Easing.bezier(0.22, 1, 0.36, 1);
+
 const DAY_RATE = {
   'Evegah Fly': 149,
   'Evegah Mink': 199,
   'Evegah City': 229,
   'Evegah Pro': 299,
+  'Evegah CIty': 189,
 };
+
 const DEPOSIT = 250;
 const FLEXI_BASE_FARE = 150;
 
@@ -46,7 +58,7 @@ const CHECKOUT_COUPONS = [
     discount: 100,
     bullets: [
       'Festive special coupon for Garba & night EV rides.',
-      'Includes free battery swap at any 24/7 Evegah hub.',
+      'Includes free battery swap at any 24/7 Evegah Zone.',
     ],
   },
   {
@@ -85,15 +97,15 @@ function billDays(start, end) {
 }
 
 function spanLabel(start, end) {
-  if (!start || !end || end <= start) return '1 day';
+  if (!start || !end || end <= start) return '1 Day';
   const hours = Math.round((end - start) / 36e5);
-  if (hours < 24) return hours <= 1 ? '1 hr' : `${hours} hr`;
+  if (hours < 24) return hours <= 1 ? '1 Hr' : `${hours} Hrs`;
   const days = Math.round(hours / 24);
-  return days === 1 ? '1 day' : `${days} days`;
+  return days === 1 ? '1 Day' : `${days} Days`;
 }
 
 function whenLine(ms) {
-  if (!ms) return 'Select';
+  if (!ms) return 'Today · 10:00 AM';
   const date = new Date(ms);
   const day = date.toLocaleDateString('en-IN', {
     weekday: 'short',
@@ -107,20 +119,6 @@ function whenLine(ms) {
   return `${day} · ${time}`;
 }
 
-function formatCutoffLabel(pickupAt) {
-  const d = pickupAt ? new Date(pickupAt) : new Date(Date.now() + 3600 * 1000);
-  const dayMonth = d.toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-  });
-  const time = d.toLocaleTimeString('en-IN', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
-  return `${dayMonth}, ${time.toUpperCase()}`;
-}
-
 function Segment({ value, onChange }) {
   const [width, setWidth] = useState(0);
   const x = useSharedValue(0);
@@ -128,7 +126,7 @@ function Segment({ value, onChange }) {
 
   useEffect(() => {
     x.value = withTiming(value === 'now' ? 0 : markW, {
-      duration: 320,
+      duration: 300,
       easing: EASE,
       reduceMotion: ReduceMotion.Never,
     });
@@ -148,9 +146,9 @@ function Segment({ value, onChange }) {
         style={[styles.segmentMark, { width: markW }, markStyle]}
       />
       {[
-        ['now', 'Pay now'],
-        ['later', 'Pay later'],
-      ].map(([id, label]) => {
+        ['now', 'Pay Now', '₹250 Refundable'],
+        ['later', 'At Pickup', 'Pay at Zone'],
+      ].map(([id, title, sub]) => {
         const on = value === id;
         return (
           <Pressable
@@ -158,8 +156,11 @@ function Segment({ value, onChange }) {
             style={styles.segmentBtn}
             onPress={() => onChange(id)}
           >
-            <Text style={[styles.segmentText, on && styles.segmentTextOn]}>
-              {label}
+            <Text style={[styles.segmentTitle, on && styles.segmentTitleOn]}>
+              {title}
+            </Text>
+            <Text style={[styles.segmentSub, on && styles.segmentSubOn]}>
+              {sub}
             </Text>
           </Pressable>
         );
@@ -170,18 +171,19 @@ function Segment({ value, onChange }) {
 
 export default function PayScreen({ vehicle, trip, onBack, onPay }) {
   const insets = useSafeAreaInsets();
-  const [offerOn, setOfferOn] = useState(false);
+  const [offerOn, setOfferOn] = useState(true);
   const [appliedCode, setAppliedCode] = useState('FIRST50');
   const [appliedDiscountAmt, setAppliedDiscountAmt] = useState(50);
   const [couponPopupOpen, setCouponPopupOpen] = useState(false);
   const [expandedMap, setExpandedMap] = useState({
     first50: true,
-    navratri100: true,
-    diwali200: true,
-    winter40: true,
+    navratri100: false,
+    diwali200: false,
+    winter40: false,
   });
   const [depositWhen, setDepositWhen] = useState('now');
-  const [method, setMethod] = useState('upi');
+  const [method, setMethod] = useState('gpay');
+
   const btnScale = useSharedValue(1);
   const btnStyle = useAnimatedStyle(() => ({
     transform: [{ scale: btnScale.value }],
@@ -194,332 +196,584 @@ export default function PayScreen({ vehicle, trip, onBack, onPay }) {
   const flexiFee = flexiEnabled ? FLEXI_BASE_FARE : 0;
   const discount = offerOn ? Math.min(appliedDiscountAmt, fare) : 0;
   const deposit = depositWhen === 'now' ? DEPOSIT : 0;
-  const total = fare + flexiFee - discount + deposit;
+  const total = Math.max(0, fare + flexiFee - discount + deposit);
   const span = spanLabel(trip?.pickupAt, trip?.dropAt);
 
   const pickupLabel =
     trip?.flexiPickupAddress ||
     vehicle?.flexiPickupAddress ||
     trip?.pickupName ||
-    'Select';
+    'Gotri Zone';
   const dropLabel =
     trip?.flexiDropAddress ||
     vehicle?.flexiDropAddress ||
     trip?.dropName ||
-    'Select';
+    'Manjalpur Station';
+
+  const methodNames = {
+    gpay: 'Google Pay',
+    phonepe: 'PhonePe',
+    paytm: 'Paytm UPI',
+    card: 'Card',
+    wallet: 'Evegah Wallet',
+  };
 
   return (
     <View style={styles.root}>
-      <StatusBar style="dark" />
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <View style={styles.headerRow}>
-          <Text pointerEvents="none" style={styles.headerTitle}>
-            Checkout
-          </Text>
-          <Pressable hitSlop={8} style={styles.back} onPress={onBack}>
-            <Ionicons name="chevron-back" size={20} color="#1C1C1C" />
+      <StatusBar style="light" />
+
+      {/* Sleek Curved Hero Header */}
+      <LinearGradient
+        colors={['#0F041D', '#230844', '#3D1073']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.heroHeader, { paddingTop: insets.top + 8 }]}
+      >
+        <View style={styles.topBar}>
+          <Pressable hitSlop={12} onPress={onBack} style={styles.backBtn}>
+            <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
           </Pressable>
-          <View style={styles.secure}>
-            <Ionicons name="lock-closed" size={12} color={PURPLE} />
-            <Text style={styles.secureText}>Secure</Text>
+
+          <View style={styles.topCenterCol}>
+            <Text style={styles.topBarTitle}>Review & Pay</Text>
+            <Text style={styles.topBarSubtitle}>
+              {span} Rental • Instant Confirmation
+            </Text>
+          </View>
+
+          <View style={styles.secureBadgePill}>
+            <Ionicons name="lock-closed" size={11} color="#34D399" />
+            <Text style={styles.secureBadgeText}>SSL</Text>
           </View>
         </View>
-      </View>
+      </LinearGradient>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: insets.bottom + 125 },
+        ]}
       >
-        <Animated.View entering={cardEnter(0)} style={styles.card}>
-          <View style={styles.hero}>
+        {/* 1. Overlapping Boarding-Pass Vehicle & Route Card */}
+        <Animated.View entering={cardEnter(0)} style={styles.heroCard}>
+          {/* Top Vehicle Showcase */}
+          <View style={styles.vehicleHeaderRow}>
+            <View style={styles.vehicleMetaCol}>
+              <View style={styles.planTagRow}>
+                <View style={styles.planPill}>
+                  <Text style={styles.planPillText}>{span.toUpperCase()} PLAN</Text>
+                </View>
+                <View style={styles.chargePill}>
+                  <Ionicons name="flash" size={11} color="#059669" />
+                  <Text style={styles.chargePillText}>
+                    {vehicle?.range || '85 km'} range
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={styles.vehicleName}>
+                {vehicle?.name || 'Evegah Smart EV'}
+              </Text>
+              <Text style={styles.vehicleSubtitle}>
+                {vehicle?.line || 'Zero-emission smart city scooter'}
+              </Text>
+            </View>
+
             <View
               style={[
-                styles.heroArt,
-                { backgroundColor: vehicle?.tint || '#F6F1FC' },
+                styles.vehicleArtBox,
+                { backgroundColor: vehicle?.tint || '#F3E8FF' },
               ]}
             >
               {vehicle?.image ? (
                 <Image
                   source={vehicle.image}
-                  style={styles.heroImage}
+                  style={styles.vehicleImg}
                   contentFit="contain"
                 />
-              ) : null}
-            </View>
-            <View style={styles.heroCopy}>
-              <Text style={styles.heroName}>
-                {vehicle?.name || 'Your scooter'}
-              </Text>
-              <Text style={styles.heroLine}>
-                {vehicle?.line || 'Electric ride'}
-              </Text>
-              <Text style={styles.heroMeta}>{vehicle?.range || ''}</Text>
+              ) : (
+                <Ionicons name="bicycle" size={36} color={BRAND_PURPLE} />
+              )}
             </View>
           </View>
-          <View style={styles.rule} />
-          <View style={styles.route}>
-            <View style={styles.routeCol}>
-              <Text style={styles.routeKicker}>
-                {flexiEnabled ? 'Flexi Pickup' : 'Pickup'}
-              </Text>
-              <Text style={styles.routePlace} numberOfLines={2}>
+
+          {/* Boarding Pass Perforation Line */}
+          <View style={styles.ticketDividerWrap}>
+            <View style={styles.notchLeft} />
+            <View style={styles.dashedLine} />
+            <View style={styles.notchRight} />
+          </View>
+
+          {/* Horizontal-Style Timeline Blocks */}
+          <View style={styles.timelineContainer}>
+            <View style={styles.timelineStopBox}>
+              <View style={styles.stopHeaderRow}>
+                <View style={styles.dotPickup} />
+                <Text style={styles.stopTypeLabel}>
+                  {flexiEnabled ? 'FLEXI DELIVERY' : 'PICKUP Zone'}
+                </Text>
+              </View>
+              <Text style={styles.stopStationName} numberOfLines={1}>
                 {pickupLabel}
               </Text>
-              <Text style={styles.routeWhen} numberOfLines={1}>
-                {whenLine(trip?.pickupAt)}
-              </Text>
+              <Text style={styles.stopTimeText}>{whenLine(trip?.pickupAt)}</Text>
             </View>
-            <View style={styles.routeMid}>
-              <View style={styles.routeLine} />
-              <Text style={styles.routeSpan}>{span}</Text>
+
+            <View style={styles.timelineArrowBridge}>
+              <View style={styles.bridgeLine} />
+              <View style={styles.bridgeCircle}>
+                <Ionicons name="arrow-forward" size={13} color={BRAND_PURPLE} />
+              </View>
+              <View style={styles.bridgeLine} />
             </View>
-            <View style={[styles.routeCol, styles.routeEnd]}>
-              <Text style={styles.routeKicker}>
-                {flexiEnabled ? 'Flexi Drop' : 'Drop'}
-              </Text>
+
+            <View style={[styles.timelineStopBox, { alignItems: 'flex-end' }]}>
+              <View style={styles.stopHeaderRow}>
+                <Text style={styles.stopTypeLabel}>
+                  {flexiEnabled ? 'FLEXI RETURN' : 'DROP Zone'}
+                </Text>
+                <View style={styles.dotDrop} />
+              </View>
               <Text
-                style={[styles.routePlace, styles.routeAlign]}
-                numberOfLines={2}
+                style={[styles.stopStationName, { textAlign: 'right' }]}
+                numberOfLines={1}
               >
                 {dropLabel}
               </Text>
-              <Text
-                style={[styles.routeWhen, styles.routeAlign]}
-                numberOfLines={1}
-              >
-                {whenLine(trip?.dropAt)}
-              </Text>
+              <Text style={styles.stopTimeText}>{whenLine(trip?.dropAt)}</Text>
             </View>
           </View>
         </Animated.View>
 
-        <Animated.Text entering={cardEnter(1)} style={styles.section}>
-          Offer
-        </Animated.Text>
+        {/* 2. Perforated Ticket Voucher Card */}
         <Animated.View entering={cardEnter(1)}>
           <Pressable
             onPress={() => setCouponPopupOpen(true)}
-            style={[styles.offer, offerOn && styles.offerOn]}
+            style={[
+              styles.voucherCard,
+              offerOn && styles.voucherCardApplied,
+            ]}
           >
-            <View style={styles.offerMark}>
-              <Ionicons name="pricetag" size={16} color="#FFFFFF" />
+            <View style={styles.voucherStubLeft}>
+              <LinearGradient
+                colors={
+                  offerOn
+                    ? ['#059669', '#10B981']
+                    : [BRAND_PURPLE, BRAND_PURPLE_LIGHT]
+                }
+                style={styles.voucherIconBadge}
+              >
+                <Ionicons
+                  name={offerOn ? 'checkmark-sharp' : 'pricetag'}
+                  size={18}
+                  color="#FFFFFF"
+                />
+              </LinearGradient>
             </View>
-            <View style={styles.offerCopy}>
-              <Text style={styles.offerCode}>
-                {offerOn ? appliedCode : 'Apply Evegah Coupon'}
-              </Text>
-              <Text style={styles.offerText}>
+
+            <View style={styles.voucherContentCol}>
+              <View style={styles.voucherTitleRow}>
+                <Text style={styles.voucherCodeTitle}>
+                  {offerOn ? `'${appliedCode}' Applied` : 'Apply Promo Coupon'}
+                </Text>
+                {offerOn ? (
+                  <View style={styles.voucherSavedTag}>
+                    <Text style={styles.voucherSavedTagText}>
+                      −{rupee(discount)}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={styles.voucherSubText}>
                 {offerOn
-                  ? `₹${discount} off applied on this ride`
-                  : 'First Ride, Navratri, Diwali & Winter Ride coupons'}
+                  ? `You save ₹${discount} instantly on this ride`
+                  : 'Unlock up to ₹200 off on festival & first rides'}
               </Text>
             </View>
-            <Text style={[styles.offerAction, offerOn && styles.offerActionOn]}>
-              {offerOn ? 'Applied' : 'View'}
-            </Text>
+
+            <View style={styles.voucherActionCol}>
+              {offerOn ? (
+                <Pressable
+                  hitSlop={10}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    setOfferOn(false);
+                  }}
+                >
+                  <Text style={styles.voucherRemoveBtn}>CHANGE</Text>
+                </Pressable>
+              ) : (
+                <View style={styles.voucherBrowsePill}>
+                  <Text style={styles.voucherBrowseText}>VIEW</Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={12}
+                    color={BRAND_PURPLE}
+                  />
+                </View>
+              )}
+            </View>
           </Pressable>
         </Animated.View>
 
-        <Animated.Text entering={cardEnter(2)} style={styles.section}>
-          Deposit
-        </Animated.Text>
-        <Animated.View entering={cardEnter(2)} style={styles.card}>
-          <Segment value={depositWhen} onChange={setDepositWhen} />
-          <Text style={styles.depositNote}>
-            {depositWhen === 'now'
-              ? `₹${DEPOSIT} is refundable and comes back after the ride.`
-              : `₹${DEPOSIT} is due before pickup. It is refundable.`}
-          </Text>
-        </Animated.View>
-
-        <Animated.Text entering={cardEnter(3)} style={styles.section}>
-          Pay with
-        </Animated.Text>
-        <Animated.View entering={cardEnter(3)} style={styles.methods}>
-          {[
-            ['upi', 'UPI', 'phone-portrait-outline'],
-            ['card', 'Card', 'card-outline'],
-          ].map(([id, label, icon]) => {
-            const on = method === id;
-            return (
-              <Pressable
-                key={id}
-                onPress={() => setMethod(id)}
-                style={[styles.method, on && styles.methodOn]}
+        {/* 3. Security Deposit Toggle Card */}
+        <Animated.View entering={cardEnter(2)} style={styles.sectionCard}>
+          <View style={styles.sectionHeaderRow}>
+            <View style={styles.sectionTitleCluster}>
+              <View
+                style={[styles.sectionIconWrap, { backgroundColor: '#EDE9FE' }]}
               >
                 <Ionicons
-                  name={icon}
-                  size={20}
-                  color={on ? PURPLE : '#6E6878'}
+                  name="shield-half-sharp"
+                  size={16}
+                  color={BRAND_PURPLE}
                 />
-                <Text style={[styles.methodText, on && styles.methodTextOn]}>
-                  {label}
+              </View>
+              <View>
+                <Text style={styles.sectionHeaderTitle}>Security Deposit</Text>
+                <Text style={styles.sectionHeaderSub}>
+                  100% auto-refunded when ride ends
                 </Text>
-                {on ? (
-                  <Ionicons name="checkmark-circle" size={16} color={PURPLE} />
-                ) : (
-                  <View style={styles.methodDot} />
-                )}
-              </Pressable>
-            );
-          })}
-        </Animated.View>
-
-        <Animated.Text entering={cardEnter(4)} style={styles.section}>
-          Bill
-        </Animated.Text>
-        <Animated.View entering={cardEnter(4)} style={styles.card}>
-          <View style={styles.billRow}>
-            <Text style={styles.billLabel}>
-              Ride fare · {days === 1 ? '1 day' : `${days} days`}
-            </Text>
-            <Text style={styles.billValue}>{rupee(fare)}</Text>
-          </View>
-          {flexiEnabled ? (
-            <View style={styles.billRow}>
-              <Text style={styles.billLabel}>Flexi EV Delivery & Pickup</Text>
-              <Text style={styles.billValue}>{rupee(flexiFee)}</Text>
+              </View>
             </View>
-          ) : null}
-          {discount > 0 ? (
-            <Animated.View
-              entering={FadeIn.duration(220)}
-              style={styles.billRow}
-            >
-              <Text style={styles.billSave}>{appliedCode}</Text>
-              <Text style={styles.billSave}>{rupee(-discount)}</Text>
-            </Animated.View>
-          ) : null}
-          <View style={styles.billRow}>
-            <Text style={styles.billLabel}>Security deposit</Text>
-            <Text style={styles.billValue}>
-              {deposit ? rupee(deposit) : 'Later'}
+            <Text style={styles.depositAmountBadge}>{rupee(DEPOSIT)}</Text>
+          </View>
+
+          <Segment value={depositWhen} onChange={setDepositWhen} />
+
+          <View style={styles.depositHintRow}>
+            <Ionicons
+              name={
+                depositWhen === 'now'
+                  ? 'flash-outline'
+                  : 'time-outline'
+              }
+              size={14}
+              color="#64748B"
+            />
+            <Text style={styles.depositHintText}>
+              {depositWhen === 'now'
+                ? 'Fastest Zone handoff — zero paperwork or payment queue at pickup.'
+                : `Pay only ride fare now. Authorize ${rupee(DEPOSIT)} at the Zone before starting.`}
             </Text>
           </View>
-          <View style={styles.billRule} />
-          <View style={styles.billRow}>
-            <Text style={styles.billTotal}>Total</Text>
-            <Animated.Text
-              key={total}
-              entering={FadeIn.duration(220)}
-              style={styles.billTotal}
-            >
-              {rupee(total)}
-            </Animated.Text>
-          </View>
-          <Text style={styles.billHint}>Includes taxes</Text>
         </Animated.View>
 
-        {/* SECTION: Things to bring with you (KYC & Intercity Permit - Matches Screenshot) */}
-        <Animated.View entering={cardEnter(5)} style={styles.policySectionWrap}>
-          <Text style={styles.policyHeading}>Things to bring with you</Text>
-
-          <View style={styles.bringCard}>
-            <View style={styles.bringIconSquare}>
-              <View style={styles.verifyFaceCircle}>
-                <Ionicons name="person" size={20} color="#F59E0B" />
+        {/* 4. Streamlined Payment Methods (UPI Grid + Full Rows) */}
+        <Animated.View entering={cardEnter(3)} style={styles.sectionCard}>
+          <View style={styles.sectionHeaderRow}>
+            <View style={styles.sectionTitleCluster}>
+              <View
+                style={[styles.sectionIconWrap, { backgroundColor: '#DCFCE7' }]}
+              >
+                <Ionicons name="flash" size={16} color="#15803D" />
               </View>
-              <View style={styles.verifyIdMini}>
-                <Ionicons name="card" size={13} color="#3B82F6" />
+              <View>
+                <Text style={styles.sectionHeaderTitle}>Payment Method</Text>
+                <Text style={styles.sectionHeaderSub}>
+                  Instant UPI or saved instruments
+                </Text>
               </View>
-              <View style={styles.verifyCheckDot}>
-                <Ionicons name="checkmark" size={9} color="#FFFFFF" />
-              </View>
-            </View>
-            <View style={styles.bringCardCopy}>
-              <Text style={styles.bringCardTitle}>Verification</Text>
-              <Text style={styles.bringCardSub}>
-                Carry your Original Driving Licence and Aadhaar for a quick
-                in-person verification at the hub
-              </Text>
             </View>
           </View>
 
-          <View style={styles.bringCard}>
-            <View style={styles.bringIconSquare}>
-              <View style={styles.permitDocSheet}>
-                <View style={styles.permitDocLineLong} />
-                <View style={styles.permitDocLineShort} />
-                <View style={styles.permitStampBadge}>
-                  <Ionicons name="ribbon" size={12} color="#2563EB" />
-                </View>
-              </View>
-            </View>
-            <View style={styles.bringCardCopy}>
-              <Text style={styles.bringCardTitle}>
-                Ask for intercity permit.
-              </Text>
-              <Text style={styles.bringCardSub}>
-                Please ask hub partner for a permit if you&apos;re traveling
-                intercity.
-              </Text>
-            </View>
-          </View>
-        </Animated.View>
+          {/* Express UPI 3-Tile Row */}
+          <Text style={styles.subGroupLabel}>INSTANT UPI APPS</Text>
+          <View style={styles.upiGridRow}>
+            {[
+              { id: 'gpay', label: 'Google Pay', tag: 'FASTEST' },
+              { id: 'phonepe', label: 'PhonePe' },
+              { id: 'paytm', label: 'Paytm' },
+            ].map((upi) => {
+              const active = method === upi.id;
+              return (
+                <Pressable
+                  key={upi.id}
+                  onPress={() => setMethod(upi.id)}
+                  style={[styles.upiTile, active && styles.upiTileActive]}
+                >
+                  {upi.tag ? (
+                    <View style={styles.upiTopMiniTag}>
+                      <Text style={styles.upiTopMiniTagText}>{upi.tag}</Text>
+                    </View>
+                  ) : null}
 
-        {/* SECTION: Cancellation Policy (Matches Screenshot) */}
-        <Animated.View entering={cardEnter(6)} style={styles.policySectionWrap}>
-          <Text style={styles.policyHeading}>Cancellation Policy</Text>
-          <Text style={styles.policySubheading}>
-            Free cancellation available
+                  <View style={styles.upiLogoCenter}>
+                    {upi.id === 'gpay' && (
+                      <View style={styles.gpayBadge}>
+                        <Text style={styles.gpayG}>G</Text>
+                        <Text style={styles.gpayPay}>Pay</Text>
+                      </View>
+                    )}
+                    {upi.id === 'phonepe' && (
+                      <View style={styles.phonepeBadge}>
+                        <Text style={styles.phonepeText}>पे</Text>
+                      </View>
+                    )}
+                    {upi.id === 'paytm' && (
+                      <View style={styles.paytmBadge}>
+                        <Text style={styles.paytmDark}>pay</Text>
+                        <Text style={styles.paytmCyan}>tm</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.upiTileLabel,
+                      active && styles.upiTileLabelActive,
+                    ]}
+                  >
+                    {upi.label}
+                  </Text>
+
+                  <View
+                    style={[
+                      styles.upiCheckCircle,
+                      active && styles.upiCheckCircleActive,
+                    ]}
+                  >
+                    {active ? (
+                      <Ionicons name="checkmark" size={11} color="#FFFFFF" />
+                    ) : null}
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* Cards & Wallet List */}
+          <Text style={[styles.subGroupLabel, { marginTop: 14 }]}>
+            WALLET & CARDS
           </Text>
+          <View style={styles.otherMethodsCol}>
+            {[
+              {
+                id: 'wallet',
+                name: 'Evegah Ride Wallet',
+                sub: 'Available Balance: ₹850',
+                badge: '1-TAP PAY',
+              },
+              {
+                id: 'card',
+                name: 'Credit / Debit Card',
+                sub: 'Visa, Mastercard, RuPay supported',
+              },
+            ].map((item) => {
+              const active = method === item.id;
+              return (
+                <Pressable
+                  key={item.id}
+                  onPress={() => setMethod(item.id)}
+                  style={[
+                    styles.altMethodRow,
+                    active && styles.altMethodRowActive,
+                  ]}
+                >
+                  <LinearGradient
+                    colors={
+                      item.id === 'wallet'
+                        ? [BRAND_PURPLE, BRAND_PURPLE_LIGHT]
+                        : ['#1E293B', '#334155']
+                    }
+                    style={styles.altMethodIcon}
+                  >
+                    <Ionicons
+                      name={item.id === 'wallet' ? 'wallet' : 'card'}
+                      size={16}
+                      color="#FFFFFF"
+                    />
+                  </LinearGradient>
 
-          <View style={styles.cancelBarWrap}>
-            <View style={styles.cancelSplitPill}>
-              <View style={styles.cancelLeftGreen}>
-                <Text style={styles.cancelLeftGreenText}>100% Refund</Text>
-              </View>
-              <View style={styles.cancelRightGrey}>
-                <Text style={styles.cancelRightGreyText}>0% Refund</Text>
-              </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.altMethodTitleLine}>
+                      <Text
+                        style={[
+                          styles.altMethodName,
+                          active && { color: BRAND_PURPLE, fontWeight: '800' },
+                        ]}
+                      >
+                        {item.name}
+                      </Text>
+                      {item.badge ? (
+                        <View style={styles.altBadgePill}>
+                          <Text style={styles.altBadgeText}>{item.badge}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={styles.altMethodSub}>{item.sub}</Text>
+                  </View>
+
+                  <View
+                    style={[
+                      styles.radioCircle,
+                      active && styles.radioCircleActive,
+                    ]}
+                  >
+                    {active ? <View style={styles.radioInnerDot} /> : null}
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Animated.View>
+
+        {/* 5. Receipt-Style Invoice Breakdown */}
+        <Animated.View entering={cardEnter(4)} style={styles.sectionCard}>
+          <View style={styles.receiptHeader}>
+            <Text style={styles.sectionHeaderTitle}>Bill Summary</Text>
+            <Text style={styles.gstTagText}>INCLUSIVE OF GST</Text>
+          </View>
+
+          <View style={styles.billItemsList}>
+            <View style={styles.billLineItem}>
+              <Text style={styles.billItemName}>
+                Rental Fare ({days === 1 ? '1 Day' : `${days} Days`} @ {rupee(rate)}/day)
+              </Text>
+              <Text style={styles.billItemAmt}>{rupee(fare)}</Text>
             </View>
 
-            <View style={styles.cancelCutoffPointer}>
-              <View style={styles.cancelArrowStem} />
-              <Ionicons name="arrow-down" size={15} color="#111827" style={{ marginTop: -5 }} />
-              <Text style={styles.cancelCutoffTimeText}>
-                {formatCutoffLabel(trip?.pickupAt)}
+            {flexiEnabled ? (
+              <View style={styles.billLineItem}>
+                <Text style={styles.billItemName}>
+                  Flexi Doorstep Delivery & Pickup
+                </Text>
+                <Text style={styles.billItemAmt}>{rupee(flexiFee)}</Text>
+              </View>
+            ) : null}
+
+            {discount > 0 ? (
+              <View style={styles.billLineItem}>
+                <View style={styles.discountRowLabel}>
+                  <Ionicons name="sparkles" size={13} color="#16A34A" />
+                  <Text style={styles.discountLabelText}>
+                    Promo Discount ({appliedCode})
+                  </Text>
+                </View>
+                <Text style={styles.discountAmtText}>−{rupee(discount)}</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.billLineItem}>
+              <Text style={styles.billItemName}>
+                Refundable Security Deposit
+              </Text>
+              <Text
+                style={[
+                  styles.billItemAmt,
+                  !deposit && { color: '#64748B', fontWeight: '600' },
+                ]}
+              >
+                {deposit ? rupee(deposit) : 'Pay at Pickup'}
               </Text>
             </View>
+          </View>
+
+          <View style={styles.receiptDivider} />
+
+          <View style={styles.netPayableRow}>
+            <View>
+              <Text style={styles.netPayableLabel}>Net Payable Today</Text>
+              <Text style={styles.netPayableSub}>
+                {depositWhen === 'now'
+                  ? `Includes ₹${DEPOSIT} refundable deposit`
+                  : `Excludes ₹${DEPOSIT} deposit due at pickup`}
+              </Text>
+            </View>
+            <Text style={styles.netPayableValue}>{rupee(total)}</Text>
+          </View>
+
+          {discount > 0 ? (
+            <View style={styles.savingsFooterBanner}>
+              <Ionicons name="happy-outline" size={15} color="#15803D" />
+              <Text style={styles.savingsFooterText}>
+                Yay! You are saving {rupee(discount)} on this booking
+              </Text>
+            </View>
+          ) : null}
+        </Animated.View>
+
+        {/* 6. Compact 2-Column Trust & Policy Strip */}
+        <Animated.View entering={cardEnter(5)} style={styles.policyGrid}>
+          <View style={styles.policyTile}>
+            <View style={[styles.policyMiniIcon, { backgroundColor: '#EFF6FF' }]}>
+              <Ionicons name="id-card-outline" size={16} color="#2563EB" />
+            </View>
+            <Text style={styles.policyTileTitle}>Quick KYC at Zone</Text>
+            <Text style={styles.policyTileSub}>
+              Bring Original Driving Licence & Gov ID at pickup.
+            </Text>
+          </View>
+
+          <View style={styles.policyTile}>
+            <View style={[styles.policyMiniIcon, { backgroundColor: '#FEF3C7' }]}>
+              <Ionicons name="refresh-circle-outline" size={17} color="#D97706" />
+            </View>
+            <Text style={styles.policyTileTitle}>Free Cancellation</Text>
+            <Text style={styles.policyTileSub}>
+              100% refund up to 2 hrs before pickup time.
+            </Text>
           </View>
         </Animated.View>
       </ScrollView>
 
+      {/* Sticky Bottom Checkout Action Bar */}
       <View
-        style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}
+        style={[
+          styles.bottomBar,
+          { paddingBottom: Math.max(insets.bottom, 14) },
+        ]}
       >
-        <View>
-          <Text style={styles.footerKicker}>To pay</Text>
-          <Text style={styles.footerAmount}>{rupee(total)}</Text>
+        <View style={styles.bottomPriceCol}>
+          <View style={styles.payingViaChip}>
+            <Text style={styles.payingViaText}>
+              VIA {methodNames[method]?.toUpperCase()}
+            </Text>
+          </View>
+          <Text style={styles.bottomPriceText}>{rupee(total)}</Text>
         </View>
+
         <Pressable
           onPress={() =>
             onPay?.({
-              total,
               fare,
               flexiFee,
               discount,
               deposit,
+              total,
               days,
               method,
               depositWhen,
               offerOn,
+              appliedCode: offerOn ? appliedCode : null,
             })
           }
           onPressIn={() => {
-            btnScale.value = withSpring(0.96, { damping: 18, stiffness: 280 });
+            btnScale.value = withSpring(0.96, { damping: 18, stiffness: 300 });
           }}
           onPressOut={() => {
             btnScale.value = withSpring(1, { damping: 14, stiffness: 220 });
           }}
+          style={styles.payCtaWrap}
         >
-          <Animated.View style={[styles.pay, btnStyle]}>
-            <Text style={styles.payText}>Pay {rupee(total)}</Text>
+          <Animated.View style={[styles.payCtaTouch, btnStyle]}>
+            <LinearGradient
+              colors={['#4A168C', '#6D28D9']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.payCtaGradient}
+            >
+              <Text style={styles.payCtaText}>Confirm & Pay</Text>
+              <View style={styles.payCtaArrowCircle}>
+                <Ionicons name="arrow-forward" size={16} color={BRAND_PURPLE} />
+              </View>
+            </LinearGradient>
           </Animated.View>
         </Pressable>
       </View>
 
-      {/* Apply Evegah Coupon Popup Modal */}
+      {/* Bottom Sheet Modal: Coupons */}
       <Modal
         visible={couponPopupOpen}
         transparent
@@ -527,111 +781,123 @@ export default function PayScreen({ vehicle, trip, onBack, onPay }) {
         statusBarTranslucent
         onRequestClose={() => setCouponPopupOpen(false)}
       >
-        <View style={styles.popupBackdrop}>
+        <View style={styles.modalBackdrop}>
           <Pressable
-            style={styles.popupBackdropTouch}
+            style={styles.modalDismissArea}
             onPress={() => setCouponPopupOpen(false)}
           />
 
-          <View style={styles.popupCloseCircleWrap}>
-            <Pressable
-              onPress={() => setCouponPopupOpen(false)}
-              style={styles.popupCloseCircle}
-            >
-              <Ionicons name="close" size={22} color="#FFFFFF" />
-            </Pressable>
-          </View>
-
           <View
             style={[
-              styles.popupSheet,
-              { paddingBottom: Math.max(insets.bottom, 20) },
+              styles.modalSheet,
+              { paddingBottom: Math.max(insets.bottom, 22) },
             ]}
           >
-            <Text style={styles.popupMainTitle}>Offers at Evegah</Text>
+            <View style={styles.modalGrabber} />
+
+            <View style={styles.modalHeaderRow}>
+              <View>
+                <Text style={styles.modalTitle}>Evegah Offers & Coupons</Text>
+                <Text style={styles.modalSubtitle}>
+                  Select a promo code to maximize your ride savings
+                </Text>
+              </View>
+              <Pressable
+                hitSlop={10}
+                onPress={() => setCouponPopupOpen(false)}
+                style={styles.modalCloseBtn}
+              >
+                <Ionicons name="close" size={20} color="#1E293B" />
+              </Pressable>
+            </View>
 
             <ScrollView
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.popupScroll}
+              contentContainerStyle={styles.modalListContent}
             >
-              <View style={styles.popupGroupBox}>
-                <Text style={styles.popupGroupHeading}>
-                  Evegah Ride Coupons
-                </Text>
+              {CHECKOUT_COUPONS.map((item) => {
+                const open = expandedMap[item.id] !== false;
+                const isCurrent = offerOn && appliedCode === item.code;
 
-                {CHECKOUT_COUPONS.map((item) => {
-                  const open = expandedMap[item.id] !== false;
-                  return (
-                    <View key={item.id} style={styles.popupCouponCard}>
-                      <Pressable
-                        onPress={() =>
-                          setExpandedMap((prev) => ({
-                            ...prev,
-                            [item.id]: !open,
-                          }))
-                        }
-                        style={styles.popupCouponTop}
-                      >
-                        <View style={styles.popupBlueBadge}>
-                          <Text style={styles.popupBlueBadgeText}>%</Text>
-                        </View>
-
-                        <View style={styles.popupCouponCopy}>
-                          <Text style={styles.popupCouponTitle}>
-                            {item.title}
-                          </Text>
-                          {item.subtitle ? (
-                            <Text style={styles.popupUseCodeSub}>
-                              {item.subtitle}
-                            </Text>
-                          ) : null}
-                          {item.code ? (
-                            <Pressable
-                              onPress={() => {
-                                setAppliedCode(item.code);
-                                setAppliedDiscountAmt(item.discount || 40);
-                                setOfferOn(true);
-                                setCouponPopupOpen(false);
-                              }}
-                              style={styles.popupCodePill}
-                            >
-                              <Text style={styles.popupCodePillText}>
-                                APPLY {item.code}
-                              </Text>
-                            </Pressable>
-                          ) : null}
-                        </View>
-
+                return (
+                  <View
+                    key={item.id}
+                    style={[
+                      styles.modalCouponCard,
+                      isCurrent && styles.modalCouponCardActive,
+                    ]}
+                  >
+                    <View style={styles.modalCouponTopRow}>
+                      <View style={styles.modalCodePill}>
                         <Ionicons
-                          name={open ? 'chevron-up' : 'chevron-down'}
-                          size={18}
-                          color="#6B7280"
+                          name="pricetag"
+                          size={12}
+                          color={BRAND_PURPLE}
                         />
-                      </Pressable>
+                        <Text style={styles.modalCodePillText}>{item.code}</Text>
+                      </View>
 
-                      {open ? (
-                        <>
-                          <View style={styles.popupDashedRule} />
-                          <View style={styles.popupBullets}>
-                            {item.bullets.map((b, idx) => (
-                              <View key={idx} style={styles.popupBulletRow}>
-                                <View style={styles.popupGreenCheck}>
-                                  <Ionicons
-                                    name="checkmark"
-                                    size={11}
-                                    color="#FFFFFF"
-                                  />
-                                </View>
-                                <Text style={styles.popupBulletText}>{b}</Text>
-                              </View>
-                            ))}
-                          </View>
-                        </>
-                      ) : null}
+                      <Pressable
+                        onPress={() => {
+                          setAppliedCode(item.code);
+                          setAppliedDiscountAmt(item.discount || 50);
+                          setOfferOn(true);
+                          setCouponPopupOpen(false);
+                        }}
+                        style={[
+                          styles.modalApplyBtn,
+                          isCurrent && styles.modalApplyBtnCurrent,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.modalApplyBtnText,
+                            isCurrent && styles.modalApplyBtnTextCurrent,
+                          ]}
+                        >
+                          {isCurrent ? 'APPLIED ✓' : 'APPLY'}
+                        </Text>
+                      </Pressable>
                     </View>
-                  );
-                })}
-              </View>
+
+                    <Text style={styles.modalCouponMainTitle}>{item.title}</Text>
+
+                    <Pressable
+                      onPress={() =>
+                        setExpandedMap((prev) => ({
+                          ...prev,
+                          [item.id]: !open,
+                        }))
+                      }
+                      style={styles.modalDetailsToggle}
+                    >
+                      <Text style={styles.modalDetailsToggleText}>
+                        {open ? 'Hide details' : 'View offer terms'}
+                      </Text>
+                      <Ionicons
+                        name={open ? 'chevron-up' : 'chevron-down'}
+                        size={14}
+                        color="#64748B"
+                      />
+                    </Pressable>
+
+                    {open ? (
+                      <View style={styles.modalBulletsWrap}>
+                        {item.bullets.map((b, idx) => (
+                          <View key={idx} style={styles.modalBulletLine}>
+                            <Ionicons
+                              name="checkmark-circle"
+                              size={14}
+                              color="#10B981"
+                            />
+                            <Text style={styles.modalBulletText}>{b}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
             </ScrollView>
           </View>
         </View>
@@ -643,639 +909,946 @@ export default function PayScreen({ vehicle, trip, onBack, onPay }) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#F7F7F8',
+    backgroundColor: BRAND_SURFACE,
   },
-  header: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+
+  /* Hero Header */
+  heroHeader: {
+    paddingHorizontal: 18,
+    paddingBottom: 30,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
   },
-  headerRow: {
-    height: 36,
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  back: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    textAlign: 'center',
-    lineHeight: 36,
-    color: '#1C1C1C',
-    fontSize: 17,
-    fontWeight: '700',
+  topCenterCol: {
+    alignItems: 'center',
   },
-  secure: {
+  topBarTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
+  },
+  topBarSubtitle: {
+    fontSize: 11.5,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.72)',
+    marginTop: 1,
+  },
+  secureBadgePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#F6F1FC',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    height: 32,
+    backgroundColor: 'rgba(16, 185, 129, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.35)',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 12,
   },
-  secureText: {
-    color: PURPLE,
-    fontSize: 12,
-    fontWeight: '700',
+  secureBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#A7F3D0',
   },
-  card: {
-    marginHorizontal: 16,
+
+  /* Scroll Container */
+  scrollContent: {
+    paddingHorizontal: 16,
+    gap: 14,
+  },
+
+  /* Overlapping Boarding-Pass Hero Card */
+  heroCard: {
+    marginTop: 30,
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
-    padding: 16,
+    padding: 18,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
   },
-  hero: {
+  vehicleHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  heroArt: {
-    width: 92,
-    height: 72,
-    borderRadius: 16,
+  vehicleMetaCol: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  planTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  planPill: {
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  planPillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: BRAND_PURPLE,
+    letterSpacing: 0.5,
+  },
+  chargePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  chargePillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  vehicleName: {
+    fontSize: 19,
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.3,
+  },
+  vehicleSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  vehicleArtBox: {
+    width: 78,
+    height: 78,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  heroImage: {
-    width: 84,
-    height: 58,
+  vehicleImg: {
+    width: 68,
+    height: 56,
   },
-  heroCopy: {
-    flex: 1,
-    marginLeft: 14,
-  },
-  heroName: {
-    color: '#1C1C1C',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  heroLine: {
-    marginTop: 2,
-    color: '#6E6878',
-    fontSize: 13,
-  },
-  heroMeta: {
-    marginTop: 6,
-    color: PURPLE,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  rule: {
-    height: 1,
-    backgroundColor: '#F1F1F3',
-    marginVertical: 14,
-  },
-  route: {
+
+  /* Perforated Ticket Divider */
+  ticketDividerWrap: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginVertical: 16,
+    marginHorizontal: -18,
   },
-  routeCol: {
+  notchLeft: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: BRAND_SURFACE,
+    marginLeft: -8,
+  },
+  dashedLine: {
+    flex: 1,
+    height: 1,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+  },
+  notchRight: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: BRAND_SURFACE,
+    marginRight: -8,
+  },
+
+  /* Horizontal Route Journey */
+  timelineContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  timelineStopBox: {
     flex: 1,
   },
-  routeEnd: {
-    alignItems: 'flex-end',
+  stopHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 4,
   },
-  routeAlign: {
-    textAlign: 'right',
+  dotPickup: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: BRAND_PURPLE,
   },
-  routeKicker: {
-    color: '#8A8496',
-    fontSize: 11,
-    fontWeight: '700',
+  dotDrop: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: BRAND_PURPLE,
+    backgroundColor: '#FFFFFF',
   },
-  routePlace: {
+  stopTypeLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#94A3B8',
+    letterSpacing: 0.6,
+  },
+  stopStationName: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  stopTimeText: {
+    fontSize: 11.5,
+    color: '#64748B',
+    fontWeight: '500',
     marginTop: 2,
-    color: '#1C1C1C',
-    fontSize: 14,
-    fontWeight: '700',
   },
-  routeWhen: {
-    marginTop: 2,
-    color: '#6E6878',
-    fontSize: 12,
-  },
-  routeMid: {
-    width: 72,
+  timelineArrowBridge: {
+    flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 8,
   },
-  routeLine: {
-    height: 2,
-    width: '100%',
-    borderRadius: 1,
-    backgroundColor: '#E4D4F5',
+  bridgeLine: {
+    width: 12,
+    height: 1.5,
+    backgroundColor: '#DDD6FE',
   },
-  routeSpan: {
-    marginTop: 6,
-    color: PURPLE,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  section: {
-    marginTop: 22,
-    marginBottom: 10,
-    marginHorizontal: 20,
-    color: '#1C1C1C',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  offer: {
-    marginHorizontal: 16,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
+  bridgeCircle: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#F5F3FF',
     borderWidth: 1,
-    borderColor: '#FFFFFF',
-  },
-  offerOn: {
-    borderColor: '#E4D4F5',
-    backgroundColor: '#FCF9FF',
-  },
-  offerMark: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: PURPLE,
+    borderColor: '#DDD6FE',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  offerCopy: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  offerCode: {
-    color: '#1C1C1C',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  offerText: {
-    marginTop: 2,
-    color: '#6E6878',
-    fontSize: 12,
-  },
-  offerAction: {
-    color: PURPLE,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  offerActionOn: {
-    color: '#1F8A4C',
-  },
-  segment: {
+
+  /* Voucher Card */
+  voucherCard: {
     flexDirection: 'row',
-    backgroundColor: '#F4F4F6',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 14,
+    borderWidth: 1.2,
+    borderColor: '#E2E8F0',
+  },
+  voucherCardApplied: {
+    borderColor: '#86EFAC',
+    backgroundColor: '#F0FDF4',
+  },
+  voucherStubLeft: {
+    marginRight: 12,
+  },
+  voucherIconBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voucherContentCol: {
+    flex: 1,
+  },
+  voucherTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  voucherCodeTitle: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  voucherSavedTag: {
+    backgroundColor: '#16A34A',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  voucherSavedTagText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  voucherSubText: {
+    fontSize: 12,
+    color: '#475569',
+    marginTop: 2,
+  },
+  voucherActionCol: {
+    marginLeft: 8,
+  },
+  voucherRemoveBtn: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: BRAND_PURPLE,
+    letterSpacing: 0.4,
+  },
+  voucherBrowsePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  voucherBrowseText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: BRAND_PURPLE,
+  },
+
+  /* Standard Section Card */
+  sectionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#EEF2F6',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  sectionTitleCluster: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  sectionIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sectionHeaderTitle: {
+    fontSize: 15.5,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  sectionHeaderSub: {
+    fontSize: 11.5,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  depositAmountBadge: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: BRAND_PURPLE,
+  },
+
+  /* Segment Control */
+  segment: {
+    height: 52,
+    backgroundColor: '#F1F5F9',
     borderRadius: 14,
     padding: 4,
+    flexDirection: 'row',
+    position: 'relative',
   },
   segmentMark: {
     position: 'absolute',
-    left: 4,
     top: 4,
+    left: 4,
     bottom: 4,
-    borderRadius: 11,
     backgroundColor: '#FFFFFF',
+    borderRadius: 11,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
   segmentBtn: {
     flex: 1,
-    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 1,
   },
-  segmentText: {
-    color: '#8A8496',
+  segmentTitle: {
     fontSize: 13,
     fontWeight: '700',
+    color: '#64748B',
   },
-  segmentTextOn: {
-    color: '#1C1C1C',
+  segmentTitleOn: {
+    color: BRAND_PURPLE,
+    fontWeight: '800',
   },
-  depositNote: {
+  segmentSub: {
+    fontSize: 10.5,
+    color: '#94A3B8',
+    marginTop: 1,
+  },
+  segmentSubOn: {
+    color: '#6D28D9',
+    fontWeight: '600',
+  },
+  depositHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     marginTop: 12,
-    color: '#6E6878',
-    fontSize: 13,
-    lineHeight: 18,
+    paddingHorizontal: 4,
   },
-  methods: {
-    marginHorizontal: 16,
+  depositHintText: {
+    flex: 1,
+    fontSize: 11.5,
+    color: '#64748B',
+  },
+
+  /* Payment Methods - UPI Grid */
+  subGroupLabel: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#94A3B8',
+    letterSpacing: 0.8,
+    marginBottom: 8,
+  },
+  upiGridRow: {
     flexDirection: 'row',
     gap: 10,
   },
-  method: {
+  upiTile: {
     flex: 1,
-    height: 64,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#FFFFFF',
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  methodOn: {
-    borderColor: PURPLE,
-    backgroundColor: '#FCF9FF',
-  },
-  methodText: {
-    flex: 1,
-    color: '#3C3846',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  methodTextOn: {
-    color: '#1C1C1C',
-  },
-  methodDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: '#D9D4E0',
-  },
-  billRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-  },
-  billLabel: {
-    color: '#6E6878',
-    fontSize: 14,
-  },
-  billValue: {
-    color: '#1C1C1C',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  billSave: {
-    color: '#1F8A4C',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  billRule: {
-    height: 1,
-    backgroundColor: '#F1F1F3',
-    marginVertical: 8,
-  },
-  billTotal: {
-    color: '#1C1C1C',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  billHint: {
-    marginTop: 2,
-    color: '#8A8496',
-    fontSize: 12,
-  },
-  /* Things to bring with you & Cancellation Policy Styles */
-  policySectionWrap: {
-    marginTop: 24,
-    paddingHorizontal: 16,
-  },
-  policyHeading: {
-    fontSize: 19,
-    fontWeight: '800',
-    color: '#111827',
-    letterSpacing: -0.2,
-    marginBottom: 12,
-  },
-  policySubheading: {
-    marginTop: -8,
-    marginBottom: 14,
-    fontSize: 13.5,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  bringCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8FAFC',
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    padding: 14,
-    flexDirection: 'row',
+    paddingVertical: 14,
+    paddingHorizontal: 8,
     alignItems: 'center',
-    gap: 14,
-    marginBottom: 12,
-  },
-  bringIconSquare: {
-    width: 58,
-    height: 58,
-    borderRadius: 14,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
     position: 'relative',
   },
-  verifyFaceCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#FEF3C7',
-    alignItems: 'center',
-    justifyContent: 'center',
+  upiTileActive: {
+    backgroundColor: '#FAF5FF',
+    borderColor: BRAND_PURPLE,
   },
-  verifyIdMini: {
+  upiTopMiniTag: {
     position: 'absolute',
-    right: 6,
-    bottom: 6,
-    width: 20,
-    height: 16,
-    borderRadius: 4,
-    backgroundColor: '#DBEAFE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  verifyCheckDot: {
-    position: 'absolute',
-    left: 6,
-    bottom: 6,
-    width: 15,
-    height: 15,
-    borderRadius: 7.5,
+    top: -8,
     backgroundColor: '#16A34A',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: '#FFFFFF',
-  },
-  permitDocSheet: {
-    width: 34,
-    height: 40,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
     borderRadius: 6,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    padding: 6,
-    justifyContent: 'space-between',
   },
-  permitDocLineLong: {
-    width: '90%',
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: '#9CA3AF',
+  upiTopMiniTagText: {
+    fontSize: 8.5,
+    fontWeight: '900',
+    color: '#FFFFFF',
   },
-  permitDocLineShort: {
-    width: '60%',
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: '#D1D5DB',
+  upiLogoCenter: {
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
   },
-  permitStampBadge: {
-    alignSelf: 'flex-end',
+  upiTileLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  upiTileLabelActive: {
+    color: BRAND_PURPLE,
+    fontWeight: '800',
+  },
+  upiCheckCircle: {
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#DBEAFE',
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    marginTop: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bringCardCopy: {
-    flex: 1,
+  upiCheckCircleActive: {
+    backgroundColor: BRAND_PURPLE,
+    borderColor: BRAND_PURPLE,
   },
-  bringCardTitle: {
-    fontSize: 15.5,
-    fontWeight: '800',
-    color: '#111827',
-  },
-  bringCardSub: {
-    marginTop: 4,
-    fontSize: 13,
-    lineHeight: 18.5,
-    color: '#6B7280',
-    fontWeight: '400',
-  },
-  cancelBarWrap: {
-    alignItems: 'center',
-  },
-  cancelSplitPill: {
-    width: '100%',
-    height: 48,
-    borderRadius: 24,
-    overflow: 'hidden',
+
+  /* Branded Badges */
+  gpayBadge: {
     flexDirection: 'row',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  cancelLeftGreen: {
-    flex: 1,
-    backgroundColor: '#E3F3E8',
     alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelLeftGreenText: {
-    color: '#137333',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  cancelRightGrey: {
-    flex: 1,
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cancelRightGreyText: {
-    color: '#111827',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  cancelCutoffPointer: {
-    alignItems: 'center',
-    marginTop: -2,
-  },
-  cancelArrowStem: {
-    width: 1.5,
-    height: 12,
-    backgroundColor: '#111827',
-  },
-  cancelCutoffTimeText: {
-    marginTop: 2,
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#111827',
-  },
-  footer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     backgroundColor: '#FFFFFF',
-    paddingTop: 12,
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  gpayG: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#4285F4',
+    marginRight: 1,
+  },
+  gpayPay: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#475569',
+  },
+  phonepeBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#5F259F',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  phonepeText: {
+    fontSize: 17,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  paytmBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  paytmDark: {
+    fontSize: 11.5,
+    fontWeight: '900',
+    color: '#002970',
+  },
+  paytmCyan: {
+    fontSize: 11.5,
+    fontWeight: '900',
+    color: '#00BAF2',
+  },
+
+  /* Other Payment Rows */
+  otherMethodsCol: {
+    gap: 9,
+  },
+  altMethodRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 15,
+    borderWidth: 1.2,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    gap: 12,
+  },
+  altMethodRowActive: {
+    borderColor: BRAND_PURPLE,
+    backgroundColor: '#FAF5FF',
+  },
+  altMethodIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  altMethodTitleLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  altMethodName: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  altBadgePill: {
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 5,
+  },
+  altBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: BRAND_PURPLE,
+  },
+  altMethodSub: {
+    fontSize: 11.5,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  radioCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioCircleActive: {
+    borderColor: BRAND_PURPLE,
+  },
+  radioInnerDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: BRAND_PURPLE,
+  },
+
+  /* Receipt Bill Breakdown */
+  receiptHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderTopColor: '#F1F1F3',
-  },
-  footerKicker: {
-    color: '#8A8496',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  footerAmount: {
-    color: '#1C1C1C',
-    fontSize: 20,
-    fontWeight: '800',
-  },
-  pay: {
-    height: 48,
-    paddingHorizontal: 22,
-    borderRadius: 16,
-    backgroundColor: PURPLE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  payText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  popupBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 18, 24, 0.62)',
-    justifyContent: 'flex-end',
-  },
-  popupBackdropTouch: {
-    flex: 1,
-  },
-  popupCloseCircleWrap: {
-    alignItems: 'center',
     marginBottom: 14,
   },
-  popupCloseCircle: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: 'rgba(42, 44, 50, 0.78)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.18)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  popupSheet: {
-    maxHeight: '78%',
-    backgroundColor: '#F4F5F8',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 20,
-  },
-  popupMainTitle: {
-    fontSize: 19,
+  gstTagText: {
+    fontSize: 10,
     fontWeight: '800',
-    color: '#1E293B',
-    paddingHorizontal: 18,
-    marginBottom: 14,
+    color: '#94A3B8',
+    letterSpacing: 0.6,
   },
-  popupScroll: {
-    paddingHorizontal: 14,
-    paddingBottom: 20,
-  },
-  popupGroupBox: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 14,
-    gap: 12,
-  },
-  popupGroupHeading: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#1E293B',
-    marginBottom: 2,
-  },
-  popupCouponCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#ECEEF3',
-    backgroundColor: '#FFFFFF',
-    padding: 14,
-  },
-  popupCouponTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+  billItemsList: {
     gap: 10,
   },
-  popupBlueBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: PURPLE,
+  billLineItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center',
+  },
+  billItemName: {
+    fontSize: 13.5,
+    color: '#475569',
+  },
+  billItemAmt: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  discountRowLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  discountLabelText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#16A34A',
+  },
+  discountAmtText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#16A34A',
+  },
+  receiptDivider: {
+    height: 1,
+    backgroundColor: '#E2E8F0',
+    marginVertical: 14,
+  },
+  netPayableRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  netPayableLabel: {
+    fontSize: 15.5,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  netPayableSub: {
+    fontSize: 11.5,
+    color: '#64748B',
     marginTop: 1,
   },
-  popupBlueBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 12,
+  netPayableValue: {
+    fontSize: 22,
     fontWeight: '900',
+    color: BRAND_PURPLE,
   },
-  popupCouponCopy: {
-    flex: 1,
-  },
-  popupCouponTitle: {
-    fontSize: 14.5,
-    fontWeight: '800',
-    color: '#1E293B',
-  },
-  popupUseCodeSub: {
-    marginTop: 3,
-    fontSize: 12.5,
-    fontWeight: '500',
-    color: '#64748B',
-  },
-  popupCodePill: {
-    marginTop: 8,
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#DDD6FE',
-    backgroundColor: '#F5F3FF',
-  },
-  popupCodePillText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#4A168C',
-    letterSpacing: 0.3,
-  },
-  popupDashedRule: {
-    marginVertical: 12,
-    borderTopWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: '#E5E7EB',
-  },
-  popupBullets: {
-    gap: 8,
-  },
-  popupBulletRow: {
+  savingsFooterBanner: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-  },
-  popupGreenCheck: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#16A34A',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#DCFCE7',
+    paddingVertical: 8,
+    borderRadius: 10,
+    marginTop: 14,
+  },
+  savingsFooterText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#15803D',
+  },
+
+  /* 2-Col Policy Grid */
+  policyGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  policyTile: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#EEF2F6',
+  },
+  policyMiniIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  policyTileTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  policyTileSub: {
+    fontSize: 11.5,
+    color: '#64748B',
+    marginTop: 3,
+    lineHeight: 15.5,
+  },
+
+  /* Bottom Bar */
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  bottomPriceCol: {
+    paddingRight: 16,
+  },
+  payingViaChip: {
+    backgroundColor: '#F1F5F9',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginBottom: 2,
+  },
+  payingViaText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#475569',
+    letterSpacing: 0.5,
+  },
+  bottomPriceText: {
+    fontSize: 23,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  payCtaWrap: {
+    flex: 1,
+  },
+  payCtaTouch: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: BRAND_PURPLE,
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  payCtaGradient: {
+    height: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingLeft: 22,
+    paddingRight: 10,
+  },
+  payCtaText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  payCtaArrowCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  /* Coupon Modal */
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    justifyContent: 'flex-end',
+  },
+  modalDismissArea: {
+    flex: 1,
+  },
+  modalSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    maxHeight: '82%',
+  },
+  modalGrabber: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#CBD5E1',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
     marginTop: 2,
   },
-  popupBulletText: {
-    flex: 1,
+  modalCloseBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalListContent: {
+    gap: 12,
+    paddingBottom: 20,
+  },
+  modalCouponCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 15,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+  },
+  modalCouponCardActive: {
+    borderColor: BRAND_PURPLE,
+    backgroundColor: '#FAF5FF',
+  },
+  modalCouponTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  modalCodePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#F3E8FF',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderStyle: 'dashed',
+  },
+  modalCodePillText: {
     fontSize: 12.5,
-    lineHeight: 17,
+    fontWeight: '900',
+    color: BRAND_PURPLE,
+    letterSpacing: 0.6,
+  },
+  modalApplyBtn: {
+    backgroundColor: BRAND_PURPLE,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 9,
+  },
+  modalApplyBtnCurrent: {
+    backgroundColor: '#DCFCE7',
+  },
+  modalApplyBtnText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  modalApplyBtnTextCurrent: {
+    color: '#15803D',
+  },
+  modalCouponMainTitle: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  modalDetailsToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+  },
+  modalDetailsToggleText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  modalBulletsWrap: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    gap: 6,
+  },
+  modalBulletLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  modalBulletText: {
+    fontSize: 12,
     color: '#475569',
-    fontWeight: '500',
+    flex: 1,
   },
 });

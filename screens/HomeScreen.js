@@ -102,7 +102,7 @@ const CUSTOMER_REVIEWS = [
     quote:
       "EVegah valued our car with the best price for our car and I don't think anyone can compete with the prices offered",
     readMore: false,
-    badge: 'Rent Evegah City',
+    
     image:
       'https://www.evegah.com/images/partner-blinkit.jpg',
   },
@@ -270,7 +270,7 @@ function GyroFooterArt() {
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-function RideCard({ vehicle, index, totalCount, scrollX, active, onOpenVehicle }) {
+function RideCard({ vehicle, index, totalCount, scrollX, active, onOpenVehicle, onOpenRent }) {
   const [saved, setSaved] = useState(false);
   const paint = useSharedValue(active ? 1 : 0);
   const btnWidth = useSharedValue(RIDE_CARD_W - 28);
@@ -400,13 +400,13 @@ function RideCard({ vehicle, index, totalCount, scrollX, active, onOpenVehicle }
                 <Ionicons name="battery-charging" size={13} color="#15803D" />
               </View>
               <Text style={styles.rideSpecValue}>{vehicle.swap || '2m Swap'}</Text>
-              <Text style={styles.rideSpecLabel}>Fast Hub</Text>
+              <Text style={styles.rideSpecLabel}>Fast Zone</Text>
             </View>
           </View>
 
           <AnimatedPressable
             style={[styles.rideBtn, buttonStyle]}
-            onPress={() => onOpenVehicle?.(vehicle)}
+            onPress={() => (onOpenRent ? onOpenRent(vehicle) : onOpenVehicle?.(vehicle))}
             onLayout={(event) => {
               btnWidth.value = event.nativeEvent.layout.width;
             }}
@@ -1206,6 +1206,7 @@ export default function HomeScreen({
   onOpenProfile,
   onOpenWallet,
   onOpenVehicle,
+  onOpenRent,
   onOpenVehicleList,
   onSearchVehicles,
   onOpenNotifications,
@@ -1261,7 +1262,9 @@ export default function HomeScreen({
       packageId,
       flexiEnabled: deliveryAnywhere,
     };
-    if (onSearchVehicles) {
+    if (onOpenRent) {
+      onOpenRent(null, tripPayload);
+    } else if (onSearchVehicles) {
       onSearchVehicles(tripPayload);
     } else {
       onOpenVehicleList?.();
@@ -1618,6 +1621,7 @@ export default function HomeScreen({
                 scrollX={rideX}
                 active={index % vehicles.length === rideIndex % vehicles.length}
                 onOpenVehicle={onOpenVehicle}
+                onOpenRent={onOpenRent}
               />
             ))}
           </Animated.ScrollView>

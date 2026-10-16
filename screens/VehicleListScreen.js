@@ -35,7 +35,7 @@ const LIST_VEHICLES = [
     fuel: 'Electric',
     transmission: 'Automatic',
     rto: 'GJ06',
-    hub: 'HUB · Gotri Charging Zone, Vadodara',
+    Zone: 'Zone · Gotri Charging Zone, Vadodara',
     range: '70-90 km',
     speed: '30 km/h',
     tint: '#F6F1FC',
@@ -54,7 +54,7 @@ const LIST_VEHICLES = [
     fuel: 'Electric',
     transmission: 'Automatic',
     rto: 'GJ06',
-    hub: 'HUB · Manjalpur EV Hub, Vadodara',
+    Zone: 'Zone · Manjalpur EV Zone, Vadodara',
     range: '80-90 km',
     speed: '45 km/h',
     tint: '#F3FBF6',
@@ -73,7 +73,7 @@ const LIST_VEHICLES = [
     fuel: 'Electric',
     transmission: 'Automatic',
     rto: 'GJ06',
-    hub: 'HUB · Alkapuri Station, Vadodara',
+    Zone: 'Zone · Alkapuri Station, Vadodara',
     range: '40-60 km',
     speed: '25 km/h',
     tint: '#EEF3FF',
@@ -92,7 +92,7 @@ const LIST_VEHICLES = [
     fuel: 'Electric',
     transmission: 'Automatic',
     rto: 'GJ06',
-    hub: 'HUB · KPGU Campus Hub, Vadodara',
+    Zone: 'Zone · KPGU Campus Zone, Vadodara',
     range: '110-130 km',
     speed: '75 km/h',
     tint: '#FFF6F2',
@@ -104,11 +104,14 @@ export default function VehicleListScreen({
   onBack,
   onOpenLocation,
   onSelectVehicle,
+  trip,
+  selectedZone,
 }) {
   const insets = useSafeAreaInsets();
   const [savedIds, setSavedIds] = useState({});
   const [priceFilterActive, setPriceFilterActive] = useState(true);
   const [savedFilter, setSavedFilter] = useState(false);
+  const zoneLabel = trip?.pickupName || selectedZone?.shortName || selectedZone?.name || 'Vadodara';
 
   const bannerFloat = useSharedValue(0);
   const bannerZoom = useSharedValue(1);
@@ -189,7 +192,7 @@ export default function VehicleListScreen({
 
         <View style={styles.topRight}>
           <Pressable style={styles.cityPill} onPress={onOpenLocation}>
-            <Text style={styles.cityPillText}>Vadodara</Text>
+            <Text style={styles.cityPillText}>{zoneLabel}</Text>
             <Ionicons name="caret-down" size={12} color={PURPLE} />
           </Pressable>
           <Pressable style={styles.circleIcon}>
@@ -366,18 +369,18 @@ export default function VehicleListScreen({
                 </View>
 
                 <View style={styles.cardFooter}>
-                  <View style={styles.hubRow}>
-                    <View style={styles.hubDiamond}>
-                      <Text style={styles.hubDiamondText}>e</Text>
+                  <View style={styles.ZoneRow}>
+                    <View style={styles.ZoneDiamond}>
+                      <Text style={styles.ZoneDiamondText}>e</Text>
                     </View>
-                    <Text style={styles.hubText} numberOfLines={1}>
-                      {item.hub}
+                    <Text style={styles.ZoneText} numberOfLines={1}>
+                      {item.Zone}
                     </Text>
                   </View>
 
                   <View style={styles.assuredBadge}>
-                    <View style={[styles.hubDiamond, styles.assuredDiamond]}>
-                      <Text style={[styles.hubDiamondText, styles.assuredDiamondText]}>e</Text>
+                    <View style={[styles.ZoneDiamond, styles.assuredDiamond]}>
+                      <Text style={[styles.ZoneDiamondText, styles.assuredDiamondText]}>e</Text>
                     </View>
                     <Text style={styles.assuredText}>Assured</Text>
                   </View>
@@ -714,14 +717,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: '#FFFFFF',
   },
-  hubRow: {
+  ZoneRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     flex: 1,
     paddingRight: 8,
   },
-  hubDiamond: {
+  ZoneDiamond: {
     width: 14,
     height: 14,
     borderRadius: 3,
@@ -731,13 +734,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  hubDiamondText: {
+  ZoneDiamondText: {
     fontSize: 8,
     fontWeight: '800',
     color: '#8B8596',
     transform: [{ rotate: '-45deg' }],
   },
-  hubText: {
+  ZoneText: {
     fontSize: 12,
     color: '#7D7788',
     fontWeight: '500',

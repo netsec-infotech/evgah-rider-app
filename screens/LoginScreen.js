@@ -56,7 +56,7 @@ const INTRO_VIDEO_REVERSE = require('../assets/intro-ride-reverse.mp4');
 // Digit 1–10 of the Indian mobile number, matched to a time in the ride clip.
 // The last time stops before the clip ends so the picture does not flash.
 const DIGIT_VIDEO_TIMES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9.7];
-const GLIDE_RATE = 1.5;
+const GLIDE_RATE = 2.6;
 const CLIP_SECONDS = 10.93;
 
 function clipSpan(duration) {
@@ -275,7 +275,9 @@ export default function LoginScreen({ onContinue, onBack }) {
     const onShow = Keyboard.addListener(showEvent, (e) => {
       cancelAnimation(sheetOffset);
       const duration = e.duration > 0 ? e.duration : 280;
-      sheetOffset.value = withTiming(-LITTLE_UP, { duration, easing: slideEase });
+      const keyboardHeight = e.endCoordinates?.height || 280;
+      const targetOffset = Math.max(160, Math.min(keyboardHeight - 60, 220));
+      sheetOffset.value = withTiming(-targetOffset, { duration, easing: slideEase });
     });
 
     const onHide = Keyboard.addListener(hideEvent, (e) => {
@@ -840,7 +842,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 2,
     borderRadius: 1,
-    backgroundColor: '#111111',
+    backgroundColor: '#FFFFFF',
   },
   scooterWrap: {
     position: 'absolute',
@@ -860,7 +862,7 @@ const styles = StyleSheet.create({
   speedDash: {
     height: 2,
     borderRadius: 1,
-    backgroundColor: '#111111',
+    backgroundColor: '#FFFFFF',
   },
   speedDashLong: {
     width: 22,
@@ -874,6 +876,7 @@ const styles = StyleSheet.create({
   scooter: {
     width: SCOOTER_WIDTH,
     height: SCOOTER_HEIGHT,
+    tintColor: '#FFFFFF',
   },
   terms: {
     marginTop: 14,
@@ -896,7 +899,7 @@ const styles = StyleSheet.create({
     width: SCREEN_W,
     height: BOTTOM_ASSET_HEIGHT,
     alignSelf: 'center',
-    opacity: 0.96,
+    opacity: 0.28,
   },
   toast: {
     position: 'absolute',
