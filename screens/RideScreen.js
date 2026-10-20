@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Linking,
   Modal,
   Pressable,
@@ -12,7 +14,7 @@ import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import MapView, { Circle, Marker, Polyline, UrlTile } from 'react-native-maps';
+import MapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import Animated, {
   Easing,
   FadeInDown,
@@ -23,7 +25,8 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { apiGet } from '../services/api';
+import { WebView } from 'react-native-webview';
+import { apiGet, apiPost, getStoredRider } from '../services/api';
 
 const BRAND_PURPLE = '#4A168C';
 const BRAND_PURPLE_LIGHT = '#7C3AED';
@@ -127,16 +130,147 @@ export default function RideScreen({
   const [extraMs, setExtraMs] = useState(0);
   const [extraFareTotal, setExtraFareTotal] = useState(0);
   const [extendModalOpen, setExtendModalOpen] = useState(false);
-  const [selectedExtendId, setSelectedExtendId] = useState('1d');
+  const [selectedExtendId, setSelectedExtendId] = useState(null);
   const [extendBanner, setExtendBanner] = useState(null);
+  const [extendPackages, setExtendPackages] = useState([]);
+  const [extendLoading, setExtendLoading] = useState(false);
+  const [payuModalVisible, setPayuModalVisible] = useState(false);
+  const [payuCheckoutUrl, setPayuCheckoutUrl] = useState(null);
+  const [payuTxnId, setPayuTxnId] = useState(null);
+  const [payuLoading, setPayuLoading] = useState(true);
+  const [isProcessingPay, setIsProcessingPay] = useState(false);
+  const payuPollRef = useRef(null);
 
-  // BMS Live Telemetry & Auto Scan State
-  const [bmsStatus, setBmsStatus] = useState('connected');
-  const [bmsSoc, setBmsSoc] = useState(86);
-  const [bmsBatteryId, setBmsBatteryId] = useState('EVG-B42');
-  const [bmsTemp, setBmsTemp] = useState(32);
-  const [bmsVoltage, setBmsVoltage] = useState(54.2);
-  const [bmsDetailOpen, setBmsDetailOpen] = useState(false);
+  useEffect(() => {
+    return () => {
+      if (payuPollRef.current) clearInterval(payuPollRef.current);
+    };
+  }, []);
+
+  // Fetch live backend zone packages strictly for the rider's active scooter model
+  useEffect(() => {
+    let mounted = true;
+    async function fetchZoneExtendPackages() {
+      try {
+        setExtendLoading(true);
+        const zonesRes = await apiGet('/zones').catch(() => null);
+        if (!mounted) return;
+        const rawZones = zonesRes?.data || (Array.isArray(zonesRes) ? zonesRes : []);
+
+        const targetZoneName = (
+          trip?.pickupZone?.name ||
+          trip?.pickupName ||
+          vehicle?.Zone ||
+          vehicle?.zone ||
+          'Gotri Zone'
+        ).toLowerCase().trim();
+
+        const zoneObj = rawZones.find((z) => {
+          const zName = (z.name || '').toLowerCase().trim();
+          const zLoc = (z.locality || '').toLowerCase().trim();
+          return (
+            zName.includes(targetZoneName) ||
+            targetZoneName.includes(zName) ||
+            zLoc.includes(targetZoneName) ||
+            targetZoneName.includes(zLoc)
+          );
+        }) || rawZones.find((z) => (z.pricing?.packages || []).length > 0) || rawZones[0];
+
+        const zonePricing = zoneObj?.pricing || {};
+        const isHourly =
+          Boolean(trip?.isHourlyZone) ||
+          (zonePricing?.pricingModel || '').toLowerCase().includes('hour') ||
+          (zonePricing?.pricingModel || '').toLowerCase().includes('minute');
+
+        const vModelName = (
+          vehicle?.name ||
+          vehicle?.vehicle ||
+          vehicle?.model ||
+          vehicle?.vehicle_model ||
+          vehicle?.evegah_model_name ||
+          trip?.vehicle ||
+          trip?.vehicle_model ||
+          'Evegah City'
+        ).toLowerCase().trim();
+
+        let options = [];
+
+        if (isHourly) {
+          const hourlyList = Array.isArray(zonePricing?.hourlyPricing) ? zonePricing.hourlyPricing : [];
+          const specificHourly = hourlyList.find((h) => (h.model || '').toLowerCase().trim().includes(vModelName)) || hourlyList[0];
+          const baseRate = specificHourly?.basePrice ? parseFloat(specificHourly.basePrice) : (parseFloat(zonePricing.basePrice) || 5);
+
+          options = [
+            { id: 'ext_1h', label: '+1 Hour', sub: 'Hourly extension at zone rate', hours: 1, price: baseRate, tag: '1 Hour' },
+            { id: 'ext_2h', label: '+2 Hours', sub: 'Quick city errand extension', hours: 2, price: baseRate * 2, tag: 'Popular' },
+            { id: 'ext_4h', label: '+4 Hours', sub: 'Half-day top-up extension', hours: 4, price: baseRate * 4, tag: 'Half Day' },
+            { id: 'ext_24h', label: '+24 Hours (Full Day)', sub: 'Full day continuous extension', hours: 24, price: baseRate * 18, tag: 'Best Value' },
+          ];
+        } else {
+          const rawPkgs = Array.isArray(zonePricing?.packages) ? zonePricing.packages : [];
+          if (rawPkgs.length === 0 && zonePricing?.modelPackages) {
+            rawPkgs.push(...Object.values(zonePricing.modelPackages).flat());
+          }
+
+          // Normalize vehicle model keyword (mink, city, fly, pro)
+          let modelKeyword = '';
+          if (vModelName.includes('mink')) modelKeyword = 'mink';
+          else if (vModelName.includes('city')) modelKeyword = 'city';
+          else if (vModelName.includes('fly')) modelKeyword = 'fly';
+          else if (vModelName.includes('pro')) modelKeyword = 'pro';
+          else modelKeyword = vModelName.replace(/evegah/gi, '').trim();
+
+          // Find ALL packages matching this exact vehicle model from backend
+          const sameModelPkgs = rawPkgs.filter((p) => {
+            const pMod = String(p.model || p.vehicle_model || p.name || '').toLowerCase().trim();
+            if (!pMod) return false;
+            if (modelKeyword) {
+              return pMod.includes(modelKeyword) || modelKeyword.includes(pMod);
+            }
+            return pMod.includes(vModelName) || vModelName.includes(pMod);
+          });
+
+          const pkgsToUse = sameModelPkgs.length > 0 ? sameModelPkgs : (modelKeyword ? [] : rawPkgs);
+
+          options = pkgsToUse.map((p, idx) => {
+            const dur = parseInt(p.duration, 10) || 1;
+            const hrs = dur * 24;
+            const pName = (p.name || (dur === 1 ? 'Daily' : dur === 7 ? 'Weekly' : dur === 30 ? 'Monthly' : `${dur} Days`)).trim();
+            const price = parseFloat(p.price) || 0;
+            return {
+              id: String(p.id || `ext_${dur}d_${idx}`),
+              label: `+${dur} Day${dur > 1 ? 's' : ''} (${pName})`,
+              sub: `${p.model || vehicle?.name || 'EV Scooter'} · ${dur * 24} hrs at zone rate`,
+              hours: hrs,
+              price: price,
+              tag: dur === 1 ? 'Daily Pass' : dur === 7 ? 'Weekly Pass' : dur === 30 ? 'Monthly Pass' : `${dur}d Pass`,
+              rawPackage: p,
+            };
+          });
+
+          options.sort((a, b) => a.hours - b.hours);
+        }
+
+        if (options.length > 0) {
+          setExtendPackages(options);
+          setSelectedExtendId(options[0].id);
+        } else {
+          setExtendPackages([]);
+          setSelectedExtendId(null);
+        }
+        setExtendLoading(false);
+      } catch (e) {
+        console.warn('Extend packages fetch notice:', e.message);
+        if (mounted) setExtendLoading(false);
+      }
+    }
+
+    fetchZoneExtendPackages();
+
+    return () => {
+      mounted = false;
+    };
+  }, [trip, vehicle]);
 
   const mapRef = useRef(null);
   const btnScale = useSharedValue(1);
@@ -232,33 +366,180 @@ export default function RideScreen({
     ? 0
     : activeModeObj.baseSpeed + Math.round(2 * Math.sin(seconds / 5));
   const distance = (seconds / 3600) * 22;
+  const availableOptions = extendPackages;
   const chosenOption =
-    EXTEND_OPTIONS.find((item) => item.id === selectedExtendId) ||
-    EXTEND_OPTIONS[2];
-  const previewNewDropAt = effectiveDropAt + chosenOption.hours * 3600 * 1000;
+    availableOptions.find((item) => item.id === selectedExtendId) ||
+    availableOptions[0] ||
+    null;
+  const previewNewDropAt = effectiveDropAt + (chosenOption?.hours || 24) * 3600 * 1000;
 
   const selectRideMode = (modeObj) => {
     setRideMode(modeObj.id);
     triggerQuickAction(`Switched to ${modeObj.fullLabel} (${modeObj.rangeKm} km est.)`);
   };
 
-  const handleConfirmExtend = () => {
-    const addedMs = chosenOption.hours * 3600 * 1000;
-    const nextExtraMs = extraMs + addedMs;
-    const nextExtraFare = extraFareTotal + chosenOption.price;
+  const completeExtension = (nextExtraMs, nextExtraFare, txnId) => {
     setExtraMs(nextExtraMs);
     setExtraFareTotal(nextExtraFare);
     setExtendModalOpen(false);
-    setExtendBanner({
-      label: chosenOption.label,
-      newDropText: formatDropDate(baseDropAt + nextExtraMs),
-      price: chosenOption.price,
-    });
-    onExtendRide?.({
-      addedHours: chosenOption.hours,
-      addedPrice: chosenOption.price,
-      newDropAt: baseDropAt + nextExtraMs,
-    });
+    if (chosenOption) {
+      setExtendBanner({
+        label: chosenOption.label,
+        newDropText: formatDropDate(baseDropAt + nextExtraMs),
+        price: chosenOption.price,
+      });
+      onExtendRide?.({
+        addedHours: chosenOption.hours,
+        addedPrice: chosenOption.price,
+        newDropAt: baseDropAt + nextExtraMs,
+        paymentTxnId: txnId,
+      });
+      triggerQuickAction(`Ride extended by ${chosenOption.label}! Paid ₹${chosenOption.price}`);
+    }
+  };
+
+  const handleInitiateExtendPayment = async () => {
+    if (isProcessingPay || !chosenOption) return;
+    setIsProcessingPay(true);
+
+    const price = chosenOption?.price || 0;
+    const addedMs = (chosenOption?.hours || 1) * 3600 * 1000;
+    const nextExtraMs = extraMs + addedMs;
+    const nextExtraFare = extraFareTotal + price;
+
+    if (price <= 0) {
+      setExtendModalOpen(false);
+      completeExtension(nextExtraMs, nextExtraFare, 'FREE_OR_PROMO');
+      setIsProcessingPay(false);
+      return;
+    }
+
+    // 1. Close extend bottom sheet immediately to prevent any Android Dialog collision
+    setExtendModalOpen(false);
+
+    // 2. Open PayU Fullscreen Modal immediately in loading state
+    setPayuTxnId(null);
+    setPayuCheckoutUrl(null);
+    setPayuLoading(true);
+    setPayuModalVisible(true);
+
+    try {
+      const storedRider = await getStoredRider().catch(() => null);
+      const riderName = storedRider?.rider_name || storedRider?.name || trip?.riderName || 'Evegah Rider';
+      const riderPhone = (storedRider?.phone || storedRider?.mobile || trip?.phone || '8128251172').replace(/\D/g, '').slice(-10);
+      const riderEmail = storedRider?.email || `rider_${riderPhone}@evegah.com`;
+
+      const initRes = await apiPost('/payments/payu/initiate', {
+        amount: price,
+        rider_name: riderName,
+        phone: riderPhone,
+        mobile: riderPhone,
+        email: riderEmail,
+        purpose: 'extend_ride',
+        reservation_id: receipt?.bookingId || trip?.id || null,
+      });
+
+      if (!initRes || initRes.status !== 'success' || !initRes.data) {
+        setPayuModalVisible(false);
+        setIsProcessingPay(false);
+        Alert.alert(
+          'Payment Gateway Notice',
+          initRes?.message || 'Could not connect to PayU Gateway. Please try again.'
+        );
+        return;
+      }
+
+      const finalTxnId = initRes.data.txnid || initRes.data.tx_id;
+      const finalCheckoutUrl = initRes.data.checkout_url || `https://evegah.cloud/api/payments/payu/checkout/${finalTxnId}`;
+
+      setPayuTxnId(finalTxnId);
+      setPayuCheckoutUrl(finalCheckoutUrl);
+      setPayuLoading(false);
+      setIsProcessingPay(false);
+
+      if (payuPollRef.current) clearInterval(payuPollRef.current);
+      let attempts = 0;
+      payuPollRef.current = setInterval(async () => {
+        attempts++;
+        try {
+          const stRes = await apiGet(`/payments/payu/status/${finalTxnId}`);
+          const pStatus = String(stRes?.data?.status || stRes?.data?.payment_status || '').toLowerCase();
+          if (pStatus === 'success') {
+            if (payuPollRef.current) clearInterval(payuPollRef.current);
+            setPayuModalVisible(false);
+            completeExtension(nextExtraMs, nextExtraFare, finalTxnId);
+            return;
+          } else if (pStatus === 'failed' || pStatus === 'failure') {
+            if (payuPollRef.current) clearInterval(payuPollRef.current);
+            setPayuModalVisible(false);
+            Alert.alert('Payment Incomplete', stRes?.data?.error_message || 'Payment could not be completed with PayU.');
+            return;
+          }
+        } catch (_) {}
+        if (attempts >= 60) {
+          if (payuPollRef.current) clearInterval(payuPollRef.current);
+        }
+      }, 3000);
+    } catch (err) {
+      setPayuModalVisible(false);
+      setIsProcessingPay(false);
+      Alert.alert('Payment Error', err.message || 'Could not initiate payment session.');
+    }
+  };
+
+  const handlePayuSuccess = (confirmedTxnId) => {
+    if (payuPollRef.current) clearInterval(payuPollRef.current);
+    setPayuModalVisible(false);
+    setIsProcessingPay(false);
+    const price = chosenOption?.price || 0;
+    const addedMs = (chosenOption?.hours || 1) * 3600 * 1000;
+    completeExtension(extraMs + addedMs, extraFareTotal + price, confirmedTxnId || payuTxnId);
+  };
+
+  const handlePayuFailure = (errMsg) => {
+    if (payuPollRef.current) clearInterval(payuPollRef.current);
+    setPayuModalVisible(false);
+    setIsProcessingPay(false);
+    Alert.alert('Payment Failed', errMsg || 'Payment could not be completed.');
+  };
+
+  const handleCancelPayuModal = () => {
+    Alert.alert('Cancel Payment?', 'Do you want to cancel the extension payment?', [
+      { text: 'Continue Payment', style: 'cancel' },
+      {
+        text: 'Cancel',
+        style: 'destructive',
+        onPress: () => {
+          if (payuPollRef.current) clearInterval(payuPollRef.current);
+          setPayuModalVisible(false);
+          setIsProcessingPay(false);
+        },
+      },
+    ]);
+  };
+
+  const onWebViewNavigationStateChange = (navState) => {
+    const { url } = navState;
+    if (url && (url.includes('/payments/payu/response') || url.includes('/response'))) {
+      if (url.toLowerCase().includes('status=failed') || url.toLowerCase().includes('status=failure')) {
+        handlePayuFailure('Payment was cancelled or failed.');
+      } else if (url.toLowerCase().includes('status=success')) {
+        handlePayuSuccess(payuTxnId);
+      }
+    }
+  };
+
+  const onWebViewMessage = (event) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'PAYU_PAYMENT_RESPONSE') {
+        if (String(data.status || '').toLowerCase() === 'success') {
+          handlePayuSuccess(data.txnid);
+        } else {
+          handlePayuFailure(data.message || 'Payment was cancelled or failed.');
+        }
+      }
+    } catch (_) {}
   };
 
   const recenterMap = () => {
@@ -284,7 +565,7 @@ export default function RideScreen({
       <View style={styles.mapContainer}>
         <MapView
           ref={mapRef}
-          mapType="none"
+          provider={PROVIDER_GOOGLE}
           style={StyleSheet.absoluteFill}
           initialRegion={{
             latitude: (startCoord.latitude + position.latitude) / 2,
@@ -296,13 +577,9 @@ export default function RideScreen({
           rotateEnabled={false}
           pitchEnabled={false}
           showsCompass={false}
+          loadingEnabled
           loadingBackgroundColor="#E2E8F0"
         >
-          <UrlTile
-            urlTemplate="https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
-            maximumZ={19}
-            flipY={false}
-          />
 
           {/* Origin Zone Zone Halo */}
           <Circle
@@ -366,11 +643,6 @@ export default function RideScreen({
             </View>
           </Marker>
         </MapView>
-
-        {/* Subtle Map Attribution */}
-        <View style={styles.osmBadge}>
-          <Text style={styles.osmBadgeText}>Leaflet · © OpenStreetMap</Text>
-        </View>
 
         {/* Top Floating Cockpit HUD Bar */}
         <View style={[styles.topHudBar, { top: insets.top + 8 }]}>
@@ -503,10 +775,15 @@ export default function RideScreen({
               <Text style={styles.vehicleName} numberOfLines={1}>
                 {vehicle?.name || 'Evegah Mink'}
               </Text>
-              <View style={styles.iotVerifiedChip}>
-                <Ionicons name="Hardware-chip-outline" size={11} color={BRAND_PURPLE} />
-                <Text style={styles.iotVerifiedText}>IoT Connected</Text>
-              </View>
+              {(vehicle?.regNo || vehicle?.code || receipt?.vehicle_number) ? (
+                <View style={styles.assignedPlateBadge}>
+                  <Ionicons name="card-outline" size={11} color="#6D28D9" />
+                  <Text style={styles.assignedPlateText}>
+                    {vehicle?.regNo || vehicle?.code || receipt?.vehicle_number}
+                  </Text>
+                </View>
+              ) : null}
+             
             </View>
             <Text style={styles.vehicleRouteSub} numberOfLines={1}>
               {trip?.pickupName || 'Gotri Zone'} → {trip?.dropName || 'Bill Zone'}
@@ -514,30 +791,7 @@ export default function RideScreen({
           </View>
 
           {/* Compact 3-Mode Pill Switcher */}
-          <View style={styles.modeSegmentWrap}>
-            {RIDE_MODES.map((m) => {
-              const active = m.id === rideMode;
-              return (
-                <Pressable
-                  key={m.id}
-                  onPress={() => selectRideMode(m)}
-                  style={[
-                    styles.modeMiniBtn,
-                    active && styles.modeMiniBtnActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.modeMiniBtnText,
-                      active && styles.modeMiniBtnTextActive,
-                    ]}
-                  >
-                    {m.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+         
         </View>
 
         {/* 2. Dark-Violet EV Speedometer & Telemetry Cockpit Banner */}
@@ -573,7 +827,7 @@ export default function RideScreen({
           <View style={[styles.cockpitSideCol, { alignItems: 'flex-end' }]}>
             <View style={styles.cockpitLabelRow}>
               <Text style={styles.cockpitKicker}>DISTANCE</Text>
-              <Ionicons name="Analytics-outline" size={12} color="#C4B5FD" />
+              <Ionicons name="analytics-outline" size={12} color="#C4B5FD" />
             </View>
             <Text style={styles.cockpitSideValue}>
               {distance.toFixed(1)} <Text style={styles.cockpitSmallUnit}>km</Text>
@@ -842,15 +1096,9 @@ export default function RideScreen({
         </View>
       </View>
 
-      {/* Modal 1: Extend Ride Bottom Sheet */}
-      <Modal
-        visible={extendModalOpen}
-        transparent
-        animationType="slide"
-        statusBarTranslucent
-        onRequestClose={() => setExtendModalOpen(false)}
-      >
-        <View style={styles.modalBackdrop}>
+      {/* Modal 1: Extend Ride Bottom Sheet (Inline overlay View to eliminate Android native Dialog freeze) */}
+      {extendModalOpen && (
+        <View style={[StyleSheet.absoluteFill, styles.modalBackdrop, { zIndex: 99 }]}>
           <Pressable
             style={styles.modalBackdropTouch}
             onPress={() => setExtendModalOpen(false)}
@@ -913,80 +1161,109 @@ export default function RideScreen({
               showsVerticalScrollIndicator={false}
               style={styles.extendOptionsScroll}
             >
-              {EXTEND_OPTIONS.map((opt) => {
-                const active = opt.id === selectedExtendId;
-                return (
-                  <Pressable
-                    key={opt.id}
-                    onPress={() => setSelectedExtendId(opt.id)}
-                    style={[
-                      styles.extendOptionCard,
-                      active && styles.extendOptionCardActive,
-                    ]}
-                  >
-                    <View
+              {extendLoading ? (
+                <View style={{ paddingVertical: 28, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color={BRAND_PURPLE} />
+                  <Text style={{ marginTop: 8, fontSize: 12, color: '#64748B' }}>
+                    Loading backend zone packages...
+                  </Text>
+                </View>
+              ) : availableOptions.length === 0 ? (
+                <View style={{ paddingVertical: 28, alignItems: 'center' }}>
+                  <Ionicons name="alert-circle-outline" size={28} color="#94A3B8" />
+                  <Text style={{ marginTop: 8, fontSize: 13, color: '#64748B', textAlign: 'center' }}>
+                    No packages available in the zone for this vehicle model.
+                  </Text>
+                </View>
+              ) : (
+                availableOptions.map((opt) => {
+                  const active = opt.id === selectedExtendId;
+                  return (
+                    <Pressable
+                      key={opt.id}
+                      onPress={() => setSelectedExtendId(opt.id)}
                       style={[
-                        styles.radioOuter,
-                        active && styles.radioOuterActive,
+                        styles.extendOptionCard,
+                        active && styles.extendOptionCardActive,
                       ]}
                     >
-                      {active ? <View style={styles.radioInner} /> : null}
-                    </View>
+                      <View
+                        style={[
+                          styles.radioOuter,
+                          active && styles.radioOuterActive,
+                        ]}
+                      >
+                        {active ? <View style={styles.radioInner} /> : null}
+                      </View>
 
-                    <View style={{ flex: 1 }}>
-                      <View style={styles.extendOptTitleRow}>
-                        <Text
-                          style={[
-                            styles.extendOptLabel,
-                            active && { color: BRAND_PURPLE },
-                          ]}
-                        >
-                          {opt.label}
-                        </Text>
-                        <View
-                          style={[
-                            styles.extendOptTag,
-                            active && styles.extendOptTagActive,
-                          ]}
-                        >
+                      <View style={{ flex: 1 }}>
+                        <View style={styles.extendOptTitleRow}>
                           <Text
                             style={[
-                              styles.extendOptTagText,
-                              active && { color: '#FFFFFF' },
+                              styles.extendOptLabel,
+                              active && { color: BRAND_PURPLE },
                             ]}
                           >
-                            {opt.tag}
+                            {opt.label}
                           </Text>
+                          <View
+                            style={[
+                              styles.extendOptTag,
+                              active && styles.extendOptTagActive,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.extendOptTagText,
+                                active && { color: '#FFFFFF' },
+                              ]}
+                            >
+                              {opt.tag}
+                            </Text>
+                          </View>
                         </View>
+                        <Text style={styles.extendOptSub}>{opt.sub}</Text>
                       </View>
-                      <Text style={styles.extendOptSub}>{opt.sub}</Text>
-                    </View>
 
-                    <Text
-                      style={[
-                        styles.extendOptPrice,
-                        active && { color: BRAND_PURPLE },
-                      ]}
-                    >
-                      ₹{opt.price}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+                      <Text
+                        style={[
+                          styles.extendOptPrice,
+                          active && { color: BRAND_PURPLE },
+                        ]}
+                      >
+                        ₹{opt.price}
+                      </Text>
+                    </Pressable>
+                  );
+                })
+              )}
             </ScrollView>
 
             <Pressable
-              onPress={handleConfirmExtend}
-              style={styles.confirmExtendCta}
+              onPress={handleInitiateExtendPayment}
+              disabled={isProcessingPay || !chosenOption}
+              style={[
+                styles.confirmExtendCta,
+                (isProcessingPay || !chosenOption) && { opacity: 0.6 },
+              ]}
             >
-              <Text style={styles.confirmExtendCtaText}>
-                Confirm Extension · ₹{chosenOption.price}
-              </Text>
-              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+              {isProcessingPay ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <>
+                  <Ionicons name="card-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.confirmExtendCtaText}>
+                    {chosenOption
+                      ? `Pay & Extend Ride · ₹${chosenOption.price}`
+                      : 'Select a Package'}
+                  </Text>
+                  <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+                </>
+              )}
             </Pressable>
           </View>
         </View>
-      </Modal>
+      )}
 
       {/* Modal 2: Live BMS Diagnostic Telemetry Sheet */}
       <Modal
@@ -1092,6 +1369,67 @@ export default function RideScreen({
           </View>
         </View>
       </Modal>
+      {/* PayU Extension In-App Checkout Modal */}
+      <Modal
+        visible={payuModalVisible}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={handleCancelPayuModal}
+      >
+        <View style={styles.payuModalContainer}>
+          <StatusBar style="dark" />
+          <View style={[styles.payuHeader, { paddingTop: insets.top + 8 }]}>
+            <View style={styles.payuHeaderLeft}>
+              <View style={styles.payuLogoBadge}>
+                <Ionicons name="card" size={18} color="#4A168C" />
+              </View>
+              <View>
+                <Text style={styles.payuHeaderTitle}>Extend Ride Payment</Text>
+                <Text style={styles.payuHeaderSubtitle}>Secure 256-bit SSL encrypted</Text>
+              </View>
+            </View>
+            <View style={styles.payuHeaderRight}>
+              <View style={styles.payuAmountPill}>
+                <Text style={styles.payuAmountText}>₹{chosenOption?.price || 0}</Text>
+              </View>
+              <Pressable
+                onPress={handleCancelPayuModal}
+                style={styles.payuCloseBtn}
+                hitSlop={8}
+              >
+                <Ionicons name="close" size={20} color="#334155" />
+              </Pressable>
+            </View>
+          </View>
+
+          {payuLoading && (
+            <View style={styles.payuLoadingBar}>
+              <ActivityIndicator size="small" color="#4A168C" />
+              <Text style={styles.payuLoadingText}>Connecting to Payment Gateway...</Text>
+            </View>
+          )}
+
+          {payuCheckoutUrl ? (
+            <WebView
+              source={{ uri: payuCheckoutUrl }}
+              style={styles.payuWebView}
+              javaScriptEnabled
+              domStorageEnabled
+              startInLoadingState
+              renderLoading={() => (
+                <View style={styles.payuWebLoader}>
+                  <ActivityIndicator size="large" color="#4A168C" />
+                  <Text style={styles.payuWebLoaderText}>Loading PayU Payment Interface...</Text>
+                </View>
+              )}
+              onLoadStart={() => setPayuLoading(true)}
+              onLoadEnd={() => setPayuLoading(false)}
+              onNavigationStateChange={onWebViewNavigationStateChange}
+              onMessage={onWebViewMessage}
+            />
+          ) : null}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1104,20 +1442,6 @@ const styles = StyleSheet.create({
   mapContainer: {
     flex: 1,
     position: 'relative',
-  },
-  osmBadge: {
-    position: 'absolute',
-    left: 14,
-    bottom: 26,
-    backgroundColor: 'rgba(255, 255, 255, 0.88)',
-    paddingHorizontal: 8,
-    paddingVertical: 3.5,
-    borderRadius: 6,
-  },
-  osmBadgeText: {
-    fontSize: 9.5,
-    fontWeight: '700',
-    color: '#64748B',
   },
 
   /* Map Markers */
@@ -1434,6 +1758,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 6,
+  },
+  assignedPlateBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#EDE9FE',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  assignedPlateText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#6D28D9',
+    letterSpacing: 0.3,
   },
   iotVerifiedText: {
     fontSize: 9.5,
@@ -1908,6 +2249,83 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFFFFF',
   },
+  payuModalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  payuHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  payuHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  payuLogoBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    backgroundColor: '#F3E8FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  payuHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  payuHeaderSubtitle: {
+    fontSize: 11,
+    color: '#64748B',
+  },
+  payuHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  payuAmountPill: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  payuAmountText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#4A168C',
+  },
+  payuCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  payuLoadingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    gap: 8,
+    backgroundColor: '#FAF5FF',
+  },
+  payuLoadingText: {
+    fontSize: 12,
+    color: '#4A168C',
+    fontWeight: '600',
+  },
+  payuWebView: {
+    flex: 1,
+  },
+
 
   /* BMS Modal Sheet */
   bmsModalSheet: {

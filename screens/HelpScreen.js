@@ -21,7 +21,7 @@ import { cardEnter } from '../utils/cardEnter';
 const SUPPORT_ART = require('../assets/help/support-art.png');
 
 const PURPLE = '#4A168C';
-const PHONE = '+919876543210';
+const PHONE = '1800 889 8791';
 const EMAIL = 'support@evegah.com';
 
 const FAQS = [
@@ -52,7 +52,7 @@ function replyFor(text) {
     return 'Open Wallet, choose an amount, and pay with UPI. The balance is ready for the next ride.';
   }
   if (q.includes('cancel') || q.includes('booking')) {
-    return 'Share the booking id here, or call +91 98765 43210 and the team will close it.';
+    return 'Share the booking id here, or call 1800-889-8791 and the team will close it.';
   }
   if (q.includes('deposit')) {
     return 'The security deposit is ₹250. It is paid at checkout and returned after a clean ride.';
@@ -60,7 +60,7 @@ function replyFor(text) {
   if (q.includes('helmet')) {
     return 'A helmet is included with the ride and shows on your bill.';
   }
-  return 'I can help with unlocking, parking, the wallet, or a booking. You can also call +91 98765 43210.';
+  return 'I can help with unlocking, parking, the wallet, or a booking. You can also call 1800-889-8791';
 }
 
 export default function HelpScreen({ onBack }) {
@@ -138,7 +138,7 @@ export default function HelpScreen({ onBack }) {
               <Ionicons name="call-outline" size={18} color={PURPLE} />
             </View>
             <Text style={styles.contactTitle}>Call</Text>
-            <Text style={styles.contactText}>+91 98765 43210</Text>
+            <Text style={styles.contactText}>1800-889-8791</Text>
           </Pressable>
           <Pressable style={styles.contact} onPress={() => Linking.openURL(`mailto:${EMAIL}`)}>
             <View style={styles.contactIcon}>

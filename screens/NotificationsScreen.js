@@ -11,7 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
-import { apiGet, last10, shortDate } from '../services/api';
+import { apiGet, getStoredRider, last10, shortDate } from '../services/api';
 
 const PURPLE = '#4A168C';
 const PURPLE_DEEP = '#24083C';
@@ -46,24 +46,38 @@ export default function NotificationsScreen({
   const [items, setItems] = useState(notes || []);
 
   useEffect(() => {
-    const mobile = last10(phone);
-    if (!mobile) return;
-    apiGet(`/notifications?mobile=${mobile}`)
-      .then((body) => {
-        const rows = body?.data || [];
-        if (!rows.length) return;
-        setItems(
-          rows.map((item) => ({
-            id: String(item.id),
-            kind: kindFor(item.type),
-            title: item.title,
-            text: item.message,
-            time: shortDate(item.created_at),
-            read: Boolean(item.read),
-          }))
-        );
-      })
-      .catch(() => {});
+    let active = true;
+    async function loadNotifications() {
+      let mobile = last10(phone);
+      if (!mobile) {
+        try {
+          const stored = await getStoredRider();
+          mobile = last10(stored?.mobile || stored?.phone);
+        } catch (_) {}
+      }
+      try {
+        const url = mobile ? `/notifications?mobile=${mobile}` : '/notifications';
+        const body = await apiGet(url);
+        if (!active) return;
+        const rows = body?.data || (Array.isArray(body) ? body : []);
+        if (rows.length > 0) {
+          setItems(
+            rows.map((item) => ({
+              id: String(item.id || Math.random()),
+              kind: kindFor(item.type || item.category),
+              title: item.title,
+              text: item.message || item.text,
+              time: shortDate(item.created_at || item.timestamp),
+              read: Boolean(item.read || item.is_read),
+            }))
+          );
+        }
+      } catch (_) {}
+    }
+    loadNotifications();
+    return () => {
+      active = false;
+    };
   }, [phone]);
 
   const visible = items.filter((item) => filter === 'All' || item.kind === filter);

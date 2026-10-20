@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -66,9 +67,12 @@ export default function RideDetailScreen({ ride, onBack }) {
 
   const handleDownloadInvoice = () => {
     setInvoiceDownloaded(true);
+    const invoiceId = ride.id || ride.reservation_id || 'EVG89421';
+    const receiptUrl = `https://evegah.cloud/api/receipts/${invoiceId}`;
+    Linking.openURL(receiptUrl).catch(() => {});
     Alert.alert(
-      'Invoice Ready',
-      `Tax Invoice for booking #${ride.id} has been generated and saved to your device receipts.`,
+      'Official Tax Invoice',
+      `Tax Invoice #${invoiceId} has been opened for download and print.`,
       [{ text: 'OK' }]
     );
   };
@@ -145,7 +149,7 @@ export default function RideDetailScreen({ ride, onBack }) {
             {/* Top Status & Plan Strip */}
             <View style={styles.heroCardTopStrip}>
               <View style={styles.planPill}>
-                <Ionicons name="Sparkles" size={12} color={BRAND_VIOLET} />
+                <Ionicons name="sparkles" size={12} color={BRAND_VIOLET} />
                 <Text style={styles.planPillText}>
                   {ride.plan || 'Daily'} Pass
                 </Text>
@@ -210,12 +214,12 @@ export default function RideDetailScreen({ ride, onBack }) {
                     { backgroundColor: '#FEF9C3' },
                   ]}
                 >
-                  <Ionicons name="battery-charging" size={15} color="#CA8A04" />
+                  <Ionicons name="speedometer-outline" size={15} color="#CA8A04" />
                 </View>
                 <View>
-                  <Text style={styles.telemetryLabel}>BATTERY</Text>
+                  <Text style={styles.telemetryLabel}>RANGE</Text>
                   <Text style={styles.telemetryVal}>
-                    {ride.battery || '95%'}
+                    {ride.range || '80-90 km'}
                   </Text>
                 </View>
               </View>
@@ -229,12 +233,12 @@ export default function RideDetailScreen({ ride, onBack }) {
                     { backgroundColor: '#F3E8FF' },
                   ]}
                 >
-                  <Ionicons name="navigate" size={14} color={BRAND_VIOLET} />
+                  <Ionicons name="flash-outline" size={14} color={BRAND_VIOLET} />
                 </View>
                 <View>
-                  <Text style={styles.telemetryLabel}>DISTANCE</Text>
+                  <Text style={styles.telemetryLabel}>TOP SPEED</Text>
                   <Text style={styles.telemetryVal}>
-                    {ride.distance || '14.2 km'}
+                    {ride.topSpeed || '45 km/h'}
                   </Text>
                 </View>
               </View>
@@ -273,7 +277,7 @@ export default function RideDetailScreen({ ride, onBack }) {
                   ]}
                 >
                   <Ionicons
-                    name="git-Pull-request-outline"
+                    name="git-pull-request-outline"
                     size={17}
                     color={BRAND_VIOLET}
                   />
@@ -397,7 +401,7 @@ export default function RideDetailScreen({ ride, onBack }) {
                   <View
                     style={[
                       styles.depositMiniPill,
-                      ride.depositBack
+                      (Number(ride.deposit) === 0 || ride.depositBack)
                         ? styles.depositMiniReturned
                         : styles.depositMiniHeld,
                     ]}
@@ -405,20 +409,20 @@ export default function RideDetailScreen({ ride, onBack }) {
                     <Text
                       style={[
                         styles.depositMiniText,
-                        { color: ride.depositBack ? '#15803D' : '#B45309' },
+                        { color: (Number(ride.deposit) === 0 || ride.depositBack) ? '#15803D' : '#B45309' },
                       ]}
                     >
-                      {ride.depositBack ? 'Refunded' : 'Refundable'}
+                      {Number(ride.deposit) === 0 ? 'Waived (₹0)' : (ride.depositBack ? 'Refunded' : 'Refundable')}
                     </Text>
                   </View>
                 </View>
                 <Text
                   style={[
                     styles.billAmount,
-                    ride.depositBack && { color: '#15803D' },
+                    (Number(ride.deposit) === 0 || ride.depositBack) && { color: '#15803D' },
                   ]}
                 >
-                  {ride.depositBack ? '₹0' : rupee(ride.deposit || 250)}
+                  {ride.depositBack ? '₹0' : rupee(ride.deposit != null ? Number(ride.deposit) : 0)}
                 </Text>
               </View>
             </View>
@@ -536,6 +540,20 @@ export default function RideDetailScreen({ ride, onBack }) {
               <Text style={styles.quickActionSub}>Get Ride Support</Text>
             </Pressable>
           </Animated.View>
+
+          {ride.status === 'upcoming' ? (
+            <Animated.View entering={cardEnter(4)} style={styles.stationNoticeCard}>
+              <View style={styles.stationNoticeIconBox}>
+                <Ionicons name="shield-checkmark" size={20} color="#7C3AED" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.stationNoticeTitle}>Physical KYC & Handover Pending</Text>
+                <Text style={styles.stationNoticeSub}>
+                  Physical KYC verification and vehicle/battery assignment are completed in person at the Evegah station. Once handed over by station admin, your ride status will activate.
+                </Text>
+              </View>
+            </Animated.View>
+          ) : null}
         </View>
       </ScrollView>
 
@@ -1155,6 +1173,37 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#64748B',
     marginTop: 2,
+  },
+
+  stationNoticeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#F5F3FF',
+    borderWidth: 1.2,
+    borderColor: '#DDD6FE',
+    borderRadius: 20,
+    padding: 16,
+    marginTop: 14,
+  },
+  stationNoticeIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#EDE9FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stationNoticeTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: '#5B21B6',
+    marginBottom: 3,
+  },
+  stationNoticeSub: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#6D28D9',
   },
 
   /* Sticky Bottom Bar */

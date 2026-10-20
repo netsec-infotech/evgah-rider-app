@@ -13,6 +13,7 @@
       }
     },
     "android": {
+      "package": "com.evegah.rider",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -44,7 +45,8 @@
           "androidGoogleMapsApiKey": "AIzaSyC_Pn12n9hRH5jQdxU7hQUOPDy820ehjwo",
           "iosGoogleMapsApiKey": "AIzaSyC_Pn12n9hRH5jQdxU7hQUOPDy820ehjwo"
         }
-      ]
+      ],
+      "expo-secure-store"
     ]
   }
 }

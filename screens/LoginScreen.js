@@ -261,12 +261,19 @@ export default function LoginScreen({ onContinue, onBack }) {
   const slideEase = Easing.bezier(0.25, 0.1, 0.25, 1);
 
   useEffect(() => {
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => true);
+    const handleBack = () => {
+      if (onBack) {
+        onBack();
+        return true;
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', handleBack);
     return () => {
       revealTokenRef.current += 1;
       sub.remove();
     };
-  }, []);
+  }, [onBack]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -531,11 +538,11 @@ export default function LoginScreen({ onContinue, onBack }) {
           >
             <View style={styles.countryCode}>
               <View style={styles.flagWrap}>
-                <Image
-                  source={require('../assets/login/india-flag-seeklogo.png')}
-                  style={styles.flag}
-                  contentFit="cover"
-                />
+                <View style={{ flex: 1, backgroundColor: '#FF9933' }} />
+                <View style={{ flex: 1, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' }}>
+                  <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: '#000088' }} />
+                </View>
+                <View style={{ flex: 1, backgroundColor: '#138808' }} />
               </View>
               <Text style={styles.countryText}>+91</Text>
             </View>

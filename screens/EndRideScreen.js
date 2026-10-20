@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -149,9 +150,12 @@ export default function EndRideScreen({
 
   const handleDownloadInvoice = () => {
     setInvoiceSaved(true);
+    const invoiceId = receipt?.bookingId || receipt?.id || 'EVG29976125';
+    const receiptUrl = `https://evegah.cloud/api/receipts/${invoiceId}`;
+    Linking.openURL(receiptUrl).catch(() => {});
     Alert.alert(
-      'Tax Invoice Downloaded',
-      `Official receipt for booking #${receipt?.bookingId || 'EVG29976125'} has been saved to your downloads and emailed to your address.`,
+      'Tax Invoice Opened',
+      `Official receipt for booking #${invoiceId} has been opened for download and print.`,
       [{ text: 'OK' }]
     );
   };

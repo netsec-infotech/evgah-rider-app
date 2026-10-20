@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
@@ -15,7 +16,9 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
-import { apiGet, last10, rupee, shortDate } from '../services/api';
+import { WebView } from 'react-native-webview';
+import { apiPost } from '../services/api';
+import { apiGet, getStoredRider, last10, rupee, shortDate } from '../services/api';
 
 const BRAND_PURPLE = '#240B4C';
 const BRAND_PURPLE_ACCENT = '#5B21B6';
@@ -107,40 +110,57 @@ export default function WalletScreen({
   const [custom, setCustom] = useState('');
 
   useEffect(() => {
-    const mobile = last10(phone);
-    if (!mobile) return;
-    apiGet(`/wallet/balance?mobile=${mobile}`)
-      .then((body) => {
-        if (body?.data) setBalance(body.data);
-      })
-      .catch(() => {});
-    apiGet(`/wallet/transactions?mobile=${mobile}`)
-      .then((body) => {
-        const list = body?.data || [];
-        if (!list.length) return;
-        setRows(
-          list.map((item) => {
+    let active = true;
+    async function loadData() {
+      let mobile = last10(phone);
+      if (!mobile) {
+        try {
+          const stored = await getStoredRider();
+          mobile = last10(stored?.mobile || stored?.phone);
+        } catch (_) {}
+      }
+      if (!mobile) return;
+      apiGet(`/wallet/balance?mobile=${mobile}`)
+        .then((body) => {
+          if (active && body?.data) setBalance(body.data);
+        })
+        .catch(() => {});
+      apiGet(`/wallet/transactions?mobile=${mobile}`)
+        .then((body) => {
+          if (!active) return;
+          const list = body?.data || [];
+          if (!list.length) return;
+          const seenKeys = new Set();
+          const mapped = [];
+          for (let i = 0; i < list.length; i++) {
+            const item = list[i];
+            const rawId = item.transaction_id || item.id || `TXN_${i}`;
             const kind = String(item.type || '').toLowerCase();
-            const credit =
-              kind === 'credit' ||
-              kind.includes('add') ||
-              kind.includes('deposit');
-            return {
-              id: String(item.transaction_id || item.id),
-              title: item.title,
-              detail: item.subtitle || item.payment_method || '',
-              date: shortDate(item.created_at),
-              amount: rupee(item.amount, credit),
-              credit,
-              method: item.payment_method || 'UPI',
-              status: item.status || 'Completed',
-              booking: item.reservation_id || '',
-              note: item.note || '',
-            };
-          })
-        );
-      })
-      .catch(() => {});
+            const credit = kind === 'credit' || kind.includes('add');
+            if (!seenKeys.has(String(rawId))) {
+              seenKeys.add(String(rawId));
+              mapped.push({
+                id: String(rawId),
+                title: item.title,
+                detail: item.subtitle || item.payment_method || '',
+                date: shortDate(item.created_at),
+                amount: rupee(item.amount, credit),
+                credit,
+                method: item.payment_method || 'UPI',
+                status: item.status || 'Completed',
+                booking: item.reservation_id || '',
+                note: item.note || '',
+              });
+            }
+          }
+          if (mapped.length > 0) setRows(mapped);
+        })
+        .catch(() => {});
+    }
+    loadData();
+    return () => {
+      active = false;
+    };
   }, [phone]);
 
   const mainNum = Number(balance?.main_balance || 350) + added;
@@ -170,27 +190,199 @@ export default function WalletScreen({
     setCustom('');
   };
 
+  // PayU Real Gateway Checkout States
+  const [payuModalVisible, setPayuModalVisible] = useState(false);
+  const [payuCheckoutUrl, setPayuCheckoutUrl] = useState(null);
+  const [payuTxnId, setPayuTxnId] = useState(null);
+  const [payuLoading, setPayuLoading] = useState(true);
+  const [payuPendingAmount, setPayuPendingAmount] = useState(0);
+  const payuPollRef = useRef(null);
+
+  const fetchWalletData = async () => {
+    let mobile = last10(phone);
+    if (!mobile) {
+      try {
+        const stored = await getStoredRider();
+        mobile = last10(stored?.mobile || stored?.phone);
+      } catch (_) {}
+    }
+    if (!mobile) return;
+    try {
+      const bRes = await apiGet(`/wallet/balance?mobile=${mobile}`);
+      if (bRes?.data) setBalance(bRes.data);
+    } catch (_) {}
+    try {
+      const txRes = await apiGet(`/wallet/transactions?mobile=${mobile}`);
+      const list = txRes?.data || [];
+      if (list.length > 0) {
+        const seenKeys = new Set();
+        const mapped = [];
+        for (let i = 0; i < list.length; i++) {
+          const t = list[i];
+          const rawId = t.transaction_id || t.id || `TXN_${i}`;
+          if (!seenKeys.has(String(rawId))) {
+            seenKeys.add(String(rawId));
+            mapped.push({
+              id: String(rawId),
+              title: t.title || 'Wallet Top-Up',
+              detail: t.subtitle || t.description || 'PayU India Secure Payment',
+              date: shortDate(t.created_at || t.timestamp),
+              amount: `${String(t.type || '').toLowerCase().includes('credit') ? '+' : '−'}₹${Math.abs(Number(t.amount || 0)).toFixed(2)}`,
+              credit: String(t.type || '').toLowerCase().includes('credit'),
+              method: t.payment_method || 'PayU India',
+              status: t.status || 'Completed',
+              booking: t.transaction_id || String(rawId),
+              note: t.subtitle || 'Credited to Evegah wallet',
+            });
+          }
+        }
+        if (mapped.length > 0) setRows(mapped);
+      }
+    } catch (_) {}
+  };
+
+  const handlePayuSuccess = (confirmedTxnId) => {
+    if (payuPollRef.current) clearInterval(payuPollRef.current);
+    setPayuModalVisible(false);
+    fetchWalletData();
+    Alert.alert(
+      'Wallet Top-Up Successful! 🎉',
+      `₹${payuPendingAmount} has been successfully added to your Evegah Wallet via PayU.`
+    );
+  };
+
+  const handlePayuFailure = (errMsg) => {
+    if (payuPollRef.current) clearInterval(payuPollRef.current);
+    setPayuModalVisible(false);
+    Alert.alert(
+      'Payment Incomplete',
+      errMsg || 'Transaction could not be completed with PayU. No amount was deducted.'
+    );
+  };
+
+  const handleCancelPayuModal = () => {
+    Alert.alert(
+      'Cancel Payment?',
+      'Are you sure you want to cancel the ongoing PayU top-up session?',
+      [
+        { text: 'Continue Payment', style: 'cancel' },
+        {
+          text: 'Cancel',
+          style: 'destructive',
+          onPress: () => {
+            if (payuPollRef.current) clearInterval(payuPollRef.current);
+            setPayuModalVisible(false);
+          },
+        },
+      ]
+    );
+  };
+
+  const onWebViewMessage = (event) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'PAYU_PAYMENT_RESPONSE') {
+        if (data.status === 'success' || data.status === 'Success') {
+          handlePayuSuccess(data.txnid);
+        } else {
+          handlePayuFailure(data.message || 'Payment was cancelled or failed.');
+        }
+      }
+    } catch (_) {}
+  };
+
+  const onWebViewNavigationStateChange = (navState) => {
+    const { url } = navState;
+    if (url && (url.includes('/payments/payu/response') || url.includes('/response'))) {
+      if (url.includes('status=failed') || url.includes('status=failure') || url.includes('error=')) {
+        handlePayuFailure('Payment was cancelled or failed.');
+      } else if (url.includes('status=success') || url.includes('status=SUCCESS')) {
+        handlePayuSuccess(payuTxnId);
+      }
+    }
+  };
+
+  const startPayuStatusPolling = (txnId) => {
+    if (payuPollRef.current) clearInterval(payuPollRef.current);
+    let attempts = 0;
+    payuPollRef.current = setInterval(async () => {
+      attempts++;
+      if (attempts > 50) {
+        clearInterval(payuPollRef.current);
+        return;
+      }
+      try {
+        const stRes = await apiGet(`/payments/payu/status/${txnId}`);
+        if (stRes?.status === 'success' && stRes?.data) {
+          const pStatus = (stRes.data.status || '').toLowerCase();
+          if (pStatus === 'success') {
+            clearInterval(payuPollRef.current);
+            handlePayuSuccess(txnId);
+          } else if (pStatus === 'failed' || pStatus === 'failure') {
+            clearInterval(payuPollRef.current);
+            handlePayuFailure(stRes.data.error_message || 'Payment failed.');
+          }
+        }
+      } catch (_) {}
+    }, 3000);
+  };
+
+  const handleInitiatePayUWalletTopUp = async (topUpAmount) => {
+    closeSheet();
+    setPayuPendingAmount(topUpAmount);
+    setPayuLoading(true);
+    setPayuModalVisible(true);
+
+    try {
+      let mobile = last10(phone);
+      let riderName = 'Evegah Rider';
+      let riderEmail = '';
+      try {
+        const stored = await getStoredRider();
+        if (stored) {
+          mobile = last10(stored.mobile || stored.phone) || mobile;
+          riderName = stored.rider_name || stored.name || riderName;
+          riderEmail = stored.email || '';
+        }
+      } catch (_) {}
+
+      const initRes = await apiPost('/payments/payu/initiate', {
+        amount: topUpAmount,
+        rider_name: riderName,
+        phone: mobile || '9999999999',
+        mobile: mobile || '9999999999',
+        email: riderEmail || `rider_${mobile || 'topup'}@evegah.com`,
+        purpose: 'wallet_topup',
+      });
+
+      if (!initRes || initRes.status !== 'success' || !initRes.data) {
+        setPayuModalVisible(false);
+        Alert.alert(
+          'Payment Notice',
+          initRes?.message || 'Could not initiate PayU checkout session. Please check your connection.'
+        );
+        return;
+      }
+
+      const { txnid, tx_id, checkout_url } = initRes.data;
+      const finalTxnId = txnid || tx_id;
+      const finalCheckoutUrl = checkout_url || `https://evegah.cloud/api/payments/payu/checkout/${finalTxnId}`;
+
+      setPayuTxnId(finalTxnId);
+      setPayuCheckoutUrl(finalCheckoutUrl);
+      setPayuLoading(false);
+
+      startPayuStatusPolling(finalTxnId);
+    } catch (err) {
+      setPayuModalVisible(false);
+      Alert.alert('Payment Error', err.message || 'Could not connect to payment gateway.');
+    }
+  };
+
   const confirmSheet = () => {
     if (!amount) return;
     if (sheet === 'add') {
-      setAdded((value) => value + amount);
-      const newTx = {
-        id: `TXN_ADD_${Date.now().toString().slice(-6)}`,
-        title: 'Wallet Top-Up',
-        detail: 'Instant Wallet Credit via UPI',
-        date: 'Today · Just now',
-        amount: `+${moneyLabel(amount)}`,
-        credit: true,
-        method: 'UPI (Google Pay)',
-        status: 'Completed',
-        booking: `EVG_TOPUP_${Date.now().toString().slice(-4)}`,
-        note: `Added ${moneyLabel(amount)} to Evegah Wallet.`,
-      };
-      setRows((current) => [newTx, ...current]);
-      Alert.alert(
-        'Money Added',
-        `${moneyLabel(amount)} has been successfully added to your Evegah Wallet.`
-      );
+      handleInitiatePayUWalletTopUp(amount);
     } else {
       const take = Math.min(amount, mainNum);
       if (take > 0) {
@@ -213,8 +405,8 @@ export default function WalletScreen({
           `${moneyLabel(take)} is being transferred to your linked UPI bank account.`
         );
       }
+      closeSheet();
     }
-    closeSheet();
   };
 
   return (
@@ -502,7 +694,7 @@ export default function WalletScreen({
             {filteredRows.map((item, index) => {
               const isCredit = item.credit;
               return (
-                <Animated.View key={item.id} entering={enter(index + 2)}>
+                <Animated.View key={`${item.id}_${index}`} entering={enter(index + 2)}>
                   <Pressable
                     onPress={() => onOpenTx?.(item)}
                     style={({ pressed }) => [
@@ -758,7 +950,7 @@ export default function WalletScreen({
                 />
                 <Text style={styles.securityBannerText}>
                   {sheet === 'add'
-                    ? '256-bit Encrypted UPI Payment • Powered by Razorpay'
+                    ? '256-bit Encrypted UPI Payment • Powered by PayU'
                     : 'Direct IMPS/UPI settlement to your verified bank account'}
                 </Text>
               </View>
@@ -797,6 +989,68 @@ export default function WalletScreen({
           </View>
         </Modal>
       ) : null}
+
+      {/* PayU Wallet Top-Up In-App Checkout Modal */}
+      <Modal
+        visible={payuModalVisible}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={handleCancelPayuModal}
+      >
+        <View style={styles.payuModalContainer}>
+          <StatusBar style="dark" />
+          <View style={[styles.payuHeader, { paddingTop: insets.top + 8 }]}>
+            <View style={styles.payuHeaderLeft}>
+              <View style={styles.payuLogoBadge}>
+                <Ionicons name="card" size={18} color="#4A168C" />
+              </View>
+              <View>
+                <Text style={styles.payuHeaderTitle}>Add Money to Wallet</Text>
+                <Text style={styles.payuHeaderSubtitle}>Secure 256-bit SSL encrypted</Text>
+              </View>
+            </View>
+            <View style={styles.payuHeaderRight}>
+              <View style={styles.payuAmountPill}>
+                <Text style={styles.payuAmountText}>₹{payuPendingAmount}</Text>
+              </View>
+              <Pressable
+                onPress={handleCancelPayuModal}
+                style={styles.payuCloseBtn}
+                hitSlop={8}
+              >
+                <Ionicons name="close" size={20} color="#334155" />
+              </Pressable>
+            </View>
+          </View>
+
+          {payuLoading && (
+            <View style={styles.payuLoadingBar}>
+              <ActivityIndicator size="small" color="#4A168C" />
+              <Text style={styles.payuLoadingText}>Connecting to Payment Gateway...</Text>
+            </View>
+          )}
+
+          {payuCheckoutUrl ? (
+            <WebView
+              source={{ uri: payuCheckoutUrl }}
+              style={styles.payuWebView}
+              javaScriptEnabled
+              domStorageEnabled
+              startInLoadingState
+              renderLoading={() => (
+                <View style={styles.payuWebLoader}>
+                  <ActivityIndicator size="large" color="#4A168C" />
+                  <Text style={styles.payuWebLoaderText}>Loading PayU Payment Interface...</Text>
+                </View>
+              )}
+              onLoadStart={() => setPayuLoading(true)}
+              onLoadEnd={() => setPayuLoading(false)}
+              onNavigationStateChange={onWebViewNavigationStateChange}
+              onMessage={onWebViewMessage}
+            />
+          ) : null}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1491,5 +1745,103 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '800',
+  },
+
+  /* PayU Checkout Styles */
+  payuModalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  payuHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  payuHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  payuLogoBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: BRAND_PURPLE_ACCENT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  payuHeaderTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  payuHeaderSubtitle: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  payuHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  payuAmountPill: {
+    backgroundColor: '#F5F3FF',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  payuAmountText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: BRAND_PURPLE_ACCENT,
+  },
+  payuCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  payuLoadingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    backgroundColor: '#F8FAFC',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  payuLoadingText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  payuWebView: {
+    flex: 1,
+  },
+  payuWebLoader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  payuWebLoaderText: {
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '600',
   },
 });

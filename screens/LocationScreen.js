@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Dimensions, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Dimensions, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
@@ -13,7 +13,9 @@ import Animated, {
   ZoomIn,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Location from 'expo-location';
 import { cardEnter } from '../utils/cardEnter';
+import { apiGet } from '../services/api';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const PURPLE = '#4A168C';
@@ -22,108 +24,98 @@ const MAP_HEIGHT = Math.round(SCREEN_W * 0.72);
 
 export const EVEGAH_ZONES = [
   {
-    id: 'bill',
-    name: 'Bill, Vadodara-391410',
-    shortName: 'Bill',
-    address: 'Krishna Battery Sales & Services, Bill Road, Vadodara 391410',
-    hours: '06:00 – 23:00',
-    phone: '1800 889 8791',
-    distance: '3.6 km',
-    tint: '#F3EEF8',
-    icon: PURPLE,
-  },
-  {
-    id: 'manjalpur',
-    name: 'Manjalpur, Vadodara-390011',
-    shortName: 'Manjalpur',
-    address: 'Office No. 11, Vidya Dham Society',
-    hours: '10:00 – 22:00',
-    phone: '1800 889 8791',
-    distance: '9.5 km',
-    tint: '#E7F6EC',
-    icon: '#1F8A4C',
-  },
-  {
     id: 'gotri',
-    name: 'Gotri, Vadodara-390021',
+    name: 'Gotri Zone',
     shortName: 'Gotri',
+    city: 'Vadodara',
+    fullLabel: 'Gotri Zone, Vadodara',
     address: 'Office 10, Royal Nandish, New Alkapuri',
     hours: '10:00 – 22:00',
-    phone: '1800 889 8791',
-    distance: '13.0 km',
+    phone: '+91 81282 5117',
+    distance: '3.2 km',
+    lat: 22.3168,
+    lng: 73.1415,
     tint: '#E8F4FC',
     icon: '#2B7BB9',
-  },
-  {
-    id: 'aatapi',
-    name: 'Aatapi, Vadodara-391510',
-    shortName: 'Aatapi',
-    address: 'Evegah Aatapi Wonderland, Ajwa',
-    hours: '09:00 – 21:00',
-    phone: '1800 889 8791',
-    distance: '18.6 km',
-    tint: '#FFF4E8',
-    icon: '#E07A1F',
-  },
-];
-
-const PINS = [
-  { name: 'Evegah', distance: '3.6 km', x: 0.76, y: 0.32, tint: '#F3EEF8', icon: PURPLE, zoneIdx: 0 },
-  { name: 'Manjalpur', distance: '9.5 km', x: 0.2, y: 0.3, tint: '#E7F6EC', icon: '#1F8A4C', zoneIdx: 1 },
-  { name: 'Gotri', distance: '13 km', x: 0.18, y: 0.7, tint: '#E8F4FC', icon: '#2B7BB9', zoneIdx: 2 },
-  { name: 'Aatapi', distance: '18.6 km', x: 0.78, y: 0.66, tint: '#FFF4E8', icon: '#E07A1F', zoneIdx: 3 },
-];
-
-const ZONES = [
-  {
-    id: 'bill',
-    name: 'Evegah Zone',
-    shortName: 'Bill',
-    fullLabel: 'Bill, Vadodara-391410',
-    address: 'Krishna Battery Sales & Services',
-    hours: '06:00 – 23:00',
-    phone: '+91 89809 66376',
-    distance: '3.6 km',
-    tint: '#F3EEF8',
-    icon: PURPLE,
   },
   {
     id: 'manjalpur',
     name: 'Manjalpur Zone',
     shortName: 'Manjalpur',
-    fullLabel: 'Manjalpur, Vadodara-390011',
-    address: 'Office No. 11, Vidya Dham Society',
+    city: 'Vadodara',
+    fullLabel: 'Manjalpur Zone, Vadodara',
+    address: 'Office No. 11, Vidya Dham Society, Manjalpur',
     hours: '10:00 – 22:00',
     phone: '+91 89809 66677',
-    distance: '9.5 km',
+    distance: '5.8 km',
+    lat: 22.2775,
+    lng: 73.1920,
     tint: '#E7F6EC',
     icon: '#1F8A4C',
   },
   {
-    id: 'gotri',
-    name: 'Gotri Zone',
-    shortName: 'Gotri',
-    fullLabel: 'Gotri, Vadodara-390021',
-    address: 'Office 10, Royal Nandish, New Alkapuri',
+    id: 'amitnagar',
+    name: 'Amitnagar Zone',
+    shortName: 'Amitnagar',
+    city: 'Vadodara',
+    fullLabel: 'Amitnagar Zone, Vadodara',
+    address: 'Amitnagar, Vadodara, Gujarat',
     hours: '10:00 – 22:00',
-    phone: '+91 81282 5117',
-    distance: '13.0 km',
-    tint: '#E8F4FC',
-    icon: '#2B7BB9',
+    phone: '+91 89809 66376',
+    distance: '4.1 km',
+    lat: 22.3271,
+    lng: 73.2173,
+    tint: '#F3EEF8',
+    icon: PURPLE,
+  },
+  {
+    id: 'kpgu',
+    name: 'KPGU Zone',
+    shortName: 'KPGU',
+    city: 'Vadodara',
+    fullLabel: 'KPGU Zone, Vadodara',
+    address: 'KPGU Campus, Manjalpur, Vadodara',
+    hours: '10:00 – 22:00',
+    phone: '+91 98765 43210',
+    distance: '7.4 km',
+    lat: 22.2510,
+    lng: 73.2140,
+    tint: '#F3EEF8',
+    icon: PURPLE,
   },
   {
     id: 'aatapi',
     name: 'Aatapi Zone',
     shortName: 'Aatapi',
-    fullLabel: 'Aatapi, Vadodara-391510',
-    address: 'Evegah Aatapi Wonderland, Ajwa',
-    hours: '',
-    phone: '',
+    city: 'Vadodara',
+    fullLabel: 'Aatapi Zone, Vadodara',
+    address: 'Evegah Aatapi Wonderland, Ajwa Rd',
+    hours: '09:00 – 21:00',
+    phone: '+91 89809 66098',
     distance: '18.6 km',
+    lat: 22.3615,
+    lng: 73.3524,
     tint: '#FFF4E8',
     icon: '#E07A1F',
   },
+  {
+    id: 'daman',
+    name: 'Moti Daman Zone',
+    shortName: 'Moti Daman',
+    city: 'Daman',
+    fullLabel: 'Moti Daman Zone, Daman',
+    address: 'Moti Daman, Daman, Dadra Nagar & Haveli',
+    hours: '08:00 – 20:00',
+    phone: '+91 98765 43210',
+    distance: '210 km',
+    lat: 20.4075,
+    lng: 72.8335,
+    tint: '#E7F6EC',
+    icon: '#1F8A4C',
+  },
 ];
+
+const ZONES = EVEGAH_ZONES;
 
 function PressScale({ style, children, scaleTo = 0.975, entering, onPress }) {
   const scale = useSharedValue(1);
@@ -131,7 +123,7 @@ function PressScale({ style, children, scaleTo = 0.975, entering, onPress }) {
     transform: [{ scale: scale.value }],
   }));
 
-  return (
+  const content = (
     <Pressable
       onPress={onPress}
       onPressIn={() => {
@@ -141,9 +133,14 @@ function PressScale({ style, children, scaleTo = 0.975, entering, onPress }) {
         scale.value = withTiming(1, { duration: 280, easing: Easing.out(Easing.cubic) });
       }}
     >
-      <Animated.View entering={entering} style={[style, animStyle]}>{children}</Animated.View>
+      <Animated.View style={[style, animStyle]}>{children}</Animated.View>
     </Pressable>
   );
+
+  if (entering) {
+    return <Animated.View entering={entering}>{content}</Animated.View>;
+  }
+  return content;
 }
 
 function RadarScan({ size }) {
@@ -212,7 +209,7 @@ function RadarScan({ size }) {
   );
 }
 
-function MapRadar({ width, height, topInset, onPinSelect }) {
+function MapRadar({ width, height, topInset, zones = [], onPinSelect }) {
   const sheetOverlap = 28;
   const visibleTop = topInset + 8;
   const visibleBottom = height - sheetOverlap - 8;
@@ -221,53 +218,330 @@ function MapRadar({ width, height, topInset, onPinSelect }) {
   const cx = width / 2;
   const cy = visibleTop + visibleH / 2;
 
+  const pinPositions = [
+    { x: 0.22, y: 0.32, tint: '#F3EEF8', icon: PURPLE },
+    { x: 0.74, y: 0.30, tint: '#E7F6EC', icon: '#1F8A4C' },
+    { x: 0.20, y: 0.68, tint: '#E8F4FC', icon: '#2B7BB9' },
+    { x: 0.78, y: 0.66, tint: '#FFF4E8', icon: '#E07A1F' },
+    { x: 0.50, y: 0.48, tint: '#F3EEF8', icon: PURPLE },
+    { x: 0.62, y: 0.22, tint: '#E7F6EC', icon: '#1F8A4C' },
+  ];
+
+  const displayZones = zones.slice(0, 6);
+
   return (
     <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
       <View pointerEvents="none" style={[styles.radarSlot, { left: cx - size / 2, top: cy - size / 2 }]}>
         <RadarScan size={size} />
       </View>
-      {PINS.map((pin, index) => (
-        <Animated.View
-          key={pin.name}
-          entering={ZoomIn.delay(220 + index * 140).duration(460)}
-          style={[styles.pin, { left: pin.x * width - 46, top: pin.y * height - 24 }]}
-        >
-          <PressScale
-            style={styles.pinPress}
-            scaleTo={0.92}
-            onPress={() => onPinSelect?.(EVEGAH_ZONES[pin.zoneIdx] || EVEGAH_ZONES[0])}
+      {displayZones.map((zone, index) => {
+        const layout = pinPositions[index % pinPositions.length];
+        return (
+          <Animated.View
+            key={`${zone.id || zone.name}-${index}`}
+            entering={ZoomIn.delay(180 + index * 90).duration(420)}
+            style={[styles.pin, { left: layout.x * width - 46, top: layout.y * height - 24 }]}
           >
-            <View style={styles.pinBubble}>
-              <View style={[styles.pinIcon, { backgroundColor: pin.tint }]}>
-                <Ionicons name="storefront" size={15} color={pin.icon} />
+            <PressScale
+              style={styles.pinPress}
+              scaleTo={0.92}
+              onPress={() => onPinSelect?.(zone)}
+            >
+              <View style={styles.pinBubble}>
+                <View style={[styles.pinIcon, { backgroundColor: zone.tint || layout.tint }]}>
+                  <Ionicons name="storefront" size={15} color={zone.icon || layout.icon} />
+                </View>
               </View>
-            </View>
-            <View style={styles.pinPill}>
-              <Text style={styles.pinText}>
-                {pin.name} · {pin.distance}
-              </Text>
-            </View>
-          </PressScale>
-        </Animated.View>
-      ))}
+              <View style={styles.pinPill}>
+                <Text style={styles.pinText} numberOfLines={1}>
+                  {zone.shortName} · {zone.distance}
+                </Text>
+              </View>
+            </PressScale>
+          </Animated.View>
+        );
+      })}
     </View>
   );
 }
 
-export default function LocationScreen({ onBack, onSelectZone }) {
+function calculateHaversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Earth's radius in km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function getZoneCenterAndPoints(z) {
+  let pts = [];
+  try {
+    if (typeof z.points === 'string') {
+      pts = JSON.parse(z.points);
+    } else if (Array.isArray(z.points)) {
+      pts = z.points;
+    }
+  } catch (_) {}
+
+  let lat = Number(z.lat);
+  let lng = Number(z.lng);
+
+  if ((!lat || !lng) && pts.length > 0) {
+    const validPts = pts.filter((p) => p && typeof p.lat === 'number' && typeof p.lng === 'number');
+    if (validPts.length > 0) {
+      lat = validPts.reduce((acc, p) => acc + p.lat, 0) / validPts.length;
+      lng = validPts.reduce((acc, p) => acc + p.lng, 0) / validPts.length;
+    }
+  }
+
+  return { lat, lng, pts };
+}
+
+function getShortestDistanceKm(userLoc, zoneCenter, zonePoints) {
+  if (!userLoc || !userLoc.lat || !userLoc.lng) return null;
+  const distances = [];
+  if (zoneCenter && zoneCenter.lat && zoneCenter.lng) {
+    distances.push(calculateHaversineKm(userLoc.lat, userLoc.lng, zoneCenter.lat, zoneCenter.lng));
+  }
+  if (Array.isArray(zonePoints)) {
+    zonePoints.forEach((p) => {
+      if (p && p.lat && p.lng) {
+        distances.push(calculateHaversineKm(userLoc.lat, userLoc.lng, Number(p.lat), Number(p.lng)));
+      }
+    });
+  }
+  if (distances.length === 0) return null;
+  return Math.min(...distances);
+}
+
+function processZones(data, currentLoc, vehiclesList = []) {
+  return data
+    .filter((z) => {
+      const t = (z.type || '').toLowerCase();
+      const n = (z.name || '').toLowerCase();
+      return !t.includes('service') && !t.includes('maintenance') && !n.includes('service center');
+    })
+    .map((z, idx) => {
+      const fallback = EVEGAH_ZONES[idx % EVEGAH_ZONES.length];
+      const { lat, lng, pts } = getZoneCenterAndPoints(z);
+      const targetCenter = { lat: lat || fallback.lat, lng: lng || fallback.lng };
+      const shortestDist = getShortestDistanceKm(currentLoc, targetCenter, pts);
+      const distanceLabel =
+        shortestDist !== null
+          ? shortestDist < 1
+            ? `${Math.round(shortestDist * 1000)} m`
+            : `${shortestDist.toFixed(1)} km`
+          : fallback.distance;
+
+      const cityName = z.city ? String(z.city).trim() : fallback.city;
+      const zoneNameClean = (z.name || fallback.name || '').toLowerCase().trim();
+      const zoneLocClean = (z.locality || '').toLowerCase().trim();
+
+      const realBikeCount = Array.isArray(vehiclesList) && vehiclesList.length > 0
+        ? vehiclesList.filter((v) => {
+            const vZone = (v.zone || '').toLowerCase().trim();
+            return (
+              vZone &&
+              (vZone.includes(zoneNameClean) ||
+                zoneNameClean.includes(vZone) ||
+                (zoneLocClean && vZone.includes(zoneLocClean)))
+            );
+          }).length
+        : z.available_vehicles !== undefined
+        ? z.available_vehicles
+        : (z.bike_count || 0);
+
+      return {
+        id: String(z.code || z.id || fallback.id).toLowerCase(),
+        name: z.name || fallback.name,
+        shortName: z.locality || z.name?.replace(/ Zone.*$/i, '') || fallback.shortName,
+        city: cityName,
+        fullLabel: `${z.name || fallback.name}, ${cityName}`,
+        address: z.address || fallback.address,
+        hours: z.is_24_hours
+          ? '24 Hours Open'
+          : z.open_time
+          ? `${z.open_time} – ${z.close_time}`
+          : fallback.hours,
+        phone: z.phone || fallback.phone,
+        distance: distanceLabel,
+        distanceKm: shortestDist !== null ? shortestDist : 999,
+        lat: targetCenter.lat,
+        lng: targetCenter.lng,
+        map_link: z.map_link || '',
+        bikeCount: realBikeCount,
+        tint: fallback.tint,
+        icon: fallback.icon,
+      };
+    })
+    .sort((a, b) => a.distanceKm - b.distanceKm);
+}
+
+export default function LocationScreen({ onBack, onSelectZone, selectedZone }) {
   const insets = useSafeAreaInsets();
   const mapH = MAP_HEIGHT + insets.top;
+  const [zonesList, setZonesList] = useState(ZONES);
+  const [userLocation, setUserLocation] = useState(null);
+  const [currentAddress, setCurrentAddress] = useState('Detecting current GPS location...');
+  const [isLocating, setIsLocating] = useState(false);
+
+  // Accurate GPS acquisition and reverse geocoding
+  const getPreciseLocation = async () => {
+    setIsLocating(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setCurrentAddress('GPS permission not granted');
+        setIsLocating(false);
+        return null;
+      }
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      if (pos?.coords) {
+        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setUserLocation(coords);
+
+        try {
+          const rev = await Location.reverseGeocodeAsync({
+            latitude: coords.lat,
+            longitude: coords.lng,
+          });
+          if (rev && rev.length > 0) {
+            const item = rev[0];
+            const parts = [
+              item.name || item.street,
+              item.subregion || item.district,
+              item.city,
+            ].filter(Boolean);
+            const clean = Array.from(new Set(parts)).join(', ');
+            setCurrentAddress(clean || `${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`);
+          } else {
+            setCurrentAddress(`${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`);
+          }
+        } catch (_) {
+          setCurrentAddress(`${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`);
+        }
+        setIsLocating(false);
+        return coords;
+      }
+    } catch (err) {
+      console.warn('GPS location fetch error:', err.message);
+      if (typeof navigator !== 'undefined' && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          async (pos) => {
+            if (pos?.coords) {
+              const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+              setUserLocation(coords);
+              try {
+                const rev = await Location.reverseGeocodeAsync({
+                  latitude: coords.lat,
+                  longitude: coords.lng,
+                });
+                if (rev && rev.length > 0) {
+                  const parts = [rev[0].name || rev[0].street, rev[0].subregion || rev[0].district, rev[0].city].filter(Boolean);
+                  setCurrentAddress(Array.from(new Set(parts)).join(', '));
+                } else {
+                  setCurrentAddress(`${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`);
+                }
+              } catch (_) {
+                setCurrentAddress(`${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`);
+              }
+            }
+          },
+          () => {
+            setCurrentAddress('Current location unavailable');
+          }
+        );
+      } else {
+        setCurrentAddress('Current location unavailable');
+      }
+    }
+    setIsLocating(false);
+    return null;
+  };
+
+  useEffect(() => {
+    getPreciseLocation();
+  }, []);
+
+  // Fetch real backend zones and sort by distance
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadZones() {
+      try {
+        const [zonesRes, vehiclesRes] = await Promise.all([
+          apiGet('/zones', { forceRefresh: true }).catch(() => null),
+          apiGet('/vehicles?status=Available', { forceRefresh: true }).catch(() => null),
+        ]);
+        let list = zonesRes?.data || (Array.isArray(zonesRes) ? zonesRes : []);
+        const vehiclesList = vehiclesRes?.data || (Array.isArray(vehiclesRes) ? vehiclesRes : []);
+
+        if (!list || list.length === 0) {
+          const fallbackRes = await apiGet('/v1/getzoneDetailWithBikeCountList', { forceRefresh: true }).catch(() => null);
+          list = fallbackRes?.data || (Array.isArray(fallbackRes) ? fallbackRes : []);
+        }
+        if (mounted && Array.isArray(list) && list.length > 0) {
+          setZonesList(processZones(list, userLocation, vehiclesList));
+        }
+      } catch (err) {
+        console.warn('Zones live fetch notice:', err.message);
+      }
+    }
+
+    loadZones();
+    return () => {
+      mounted = false;
+    };
+  }, [userLocation]);
 
   const handleChooseZone = (zoneObj) => {
     if (onSelectZone) {
       onSelectZone({
-        id: zoneObj.id || 'bill',
-        name: zoneObj.fullLabel || zoneObj.name || 'Bill, Vadodara-391410',
-        shortName: zoneObj.shortName || zoneObj.name?.replace(' Zone', '') || 'Bill',
+        id: zoneObj.id || 'gotri',
+        name: zoneObj.fullLabel || zoneObj.name || 'Gotri Zone, Vadodara',
+        shortName: zoneObj.shortName || zoneObj.name?.replace(' Zone', '') || 'Gotri',
         address: zoneObj.address || '',
+        city: zoneObj.city || 'Vadodara',
+        lat: zoneObj.lat,
+        lng: zoneObj.lng,
+        pricing: zoneObj.pricing || {},
       });
     } else {
       onBack?.();
+    }
+  };
+
+  const handleUseCurrentLocation = async () => {
+    let loc = userLocation;
+    if (!loc) {
+      loc = await getPreciseLocation();
+    }
+    if (zonesList && zonesList.length > 0) {
+      const sorted = [...zonesList].sort((a, b) => (a.distanceKm || 9999) - (b.distanceKm || 9999));
+      handleChooseZone(sorted[0]);
+    }
+  };
+
+  const handleOpenDirection = (zone) => {
+    if (zone.map_link && zone.map_link.trim().length > 0) {
+      Linking.openURL(zone.map_link.trim()).catch(() => {
+        const dest = zone.lat && zone.lng ? `${zone.lat},${zone.lng}` : encodeURIComponent(`${zone.name} ${zone.city || ''}`);
+        Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${dest}`);
+      });
+    } else if (zone.lat && zone.lng) {
+      Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${zone.lat},${zone.lng}`);
+    } else {
+      Linking.openURL(
+        `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(zone.name + ' ' + (zone.city || ''))}`,
+      );
     }
   };
 
@@ -280,6 +554,7 @@ export default function LocationScreen({ onBack, onSelectZone }) {
           width={SCREEN_W}
           height={mapH}
           topInset={insets.top}
+          zones={zonesList}
           onPinSelect={handleChooseZone}
         />
       </View>
@@ -294,9 +569,10 @@ export default function LocationScreen({ onBack, onSelectZone }) {
 
       <ScrollView
         style={styles.sheet}
-        contentContainerStyle={[styles.sheetContent, { paddingBottom: insets.bottom + 28 }]}
+        contentContainerStyle={[styles.sheetContent, { paddingBottom: insets.bottom + 32 }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Real Live Rider Current Location Card */}
         <Animated.View entering={cardEnter(0)} style={styles.currentCard}>
           <View style={styles.currentIcon}>
             <Ionicons name="locate" size={20} color={PURPLE} />
@@ -304,11 +580,11 @@ export default function LocationScreen({ onBack, onSelectZone }) {
           <View style={styles.currentCopy}>
             <Text style={styles.currentTitle}>Current Location</Text>
             <Text style={styles.currentAddress} numberOfLines={1}>
-              868Q+5X4, Ajwa Rd, Sonalvatika
+              {isLocating ? 'Detecting current GPS location...' : currentAddress}
             </Text>
           </View>
           <Pressable
-            onPress={() => handleChooseZone(ZONES[0])}
+            onPress={handleUseCurrentLocation}
             hitSlop={8}
             style={styles.useCurrent}
           >
@@ -317,6 +593,7 @@ export default function LocationScreen({ onBack, onSelectZone }) {
           </Pressable>
         </Animated.View>
 
+        {/* Nearest Zones Section Header */}
         <View style={styles.sectionHead}>
           <Ionicons name="navigate" size={14} color={PURPLE} />
           <View>
@@ -325,25 +602,51 @@ export default function LocationScreen({ onBack, onSelectZone }) {
           </View>
         </View>
 
-        {ZONES.map((zone, index) => (
+        {/* Clean Zone List */}
+        {zonesList.map((zone, index) => (
           <PressScale
-            key={zone.name}
+            key={zone.id || `${zone.name}-${index}`}
             entering={cardEnter(index + 1)}
             style={styles.zoneCard}
             onPress={() => handleChooseZone(zone)}
           >
             <View style={styles.zoneTop}>
-              <View style={[styles.zoneMark, { backgroundColor: zone.tint }]}>
-                <Ionicons name="storefront" size={22} color={zone.icon} />
+              <View style={[styles.zoneMark, { backgroundColor: zone.tint || '#F3EEF8' }]}>
+                <Ionicons name="storefront" size={22} color={zone.icon || PURPLE} />
               </View>
               <View style={styles.zoneMain}>
                 <View style={styles.zoneTitleRow}>
                   <Text style={styles.zoneName} numberOfLines={1}>
                     {zone.name}
                   </Text>
-                  <View style={styles.livePill}>
-                    <View style={styles.liveDot} />
-                    <Text style={styles.liveText}>Operational</Text>
+                  <View
+                    style={[
+                      styles.livePill,
+                      zone.bikeCount > 0
+                        ? { backgroundColor: '#F3EEF8' }
+                        : { backgroundColor: '#FEE2E2' },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.liveDot,
+                        zone.bikeCount > 0
+                          ? { backgroundColor: '#4A168C' }
+                          : { backgroundColor: '#DC2626' },
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        styles.liveText,
+                        zone.bikeCount > 0
+                          ? { color: '#4A168C', fontWeight: '700' }
+                          : { color: '#DC2626', fontWeight: '700' },
+                      ]}
+                    >
+                      {zone.bikeCount > 0
+                        ? `${zone.bikeCount} ${zone.bikeCount === 1 ? 'EV Available' : 'Available'}`
+                        : '0 Available'}
+                    </Text>
                   </View>
                 </View>
                 <Text style={styles.zoneAddress} numberOfLines={1}>
@@ -373,7 +676,7 @@ export default function LocationScreen({ onBack, onSelectZone }) {
               </View>
               <Pressable
                 style={styles.direction}
-                onPress={() => handleChooseZone(zone)}
+                onPress={() => handleOpenDirection(zone)}
               >
                 <Ionicons name="navigate-outline" size={14} color={PURPLE} />
                 <Text style={styles.directionText}>Direction</Text>
@@ -474,6 +777,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 7,
     paddingVertical: 3,
+    maxWidth: 96,
   },
   pinText: {
     fontSize: 9,
@@ -494,6 +798,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 4,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   sheet: {
     flex: 1,
@@ -516,6 +825,11 @@ const styles = StyleSheet.create({
     gap: 10,
     borderWidth: 1,
     borderColor: '#F0F0F2',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
   currentIcon: {
     width: 42,
@@ -536,12 +850,16 @@ const styles = StyleSheet.create({
   currentAddress: {
     marginTop: 2,
     fontSize: 12,
-    color: '#8A8A8A',
+    color: '#6E6E6E',
   },
   useCurrent: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    backgroundColor: '#F3EEF8',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
   },
   useCurrentText: {
     fontSize: 12,
@@ -549,7 +867,7 @@ const styles = StyleSheet.create({
     color: PURPLE,
   },
   sectionHead: {
-    marginTop: 22,
+    marginTop: 18,
     marginBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -569,9 +887,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
     padding: 12,
-    marginBottom: 12,
+    marginBottom: 10,
     borderWidth: 1,
     borderColor: '#F0F0F2',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    elevation: 2,
   },
   zoneTop: {
     flexDirection: 'row',
@@ -579,8 +902,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   zoneMark: {
-    width: 56,
-    height: 56,
+    width: 54,
+    height: 54,
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
@@ -640,7 +963,7 @@ const styles = StyleSheet.create({
     color: '#8A8A8A',
   },
   zoneFoot: {
-    marginTop: 12,
+    marginTop: 10,
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',

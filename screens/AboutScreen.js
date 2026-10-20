@@ -641,9 +641,8 @@ export default function AboutScreen({ onBack, onExplore }) {
               pagingEnabled
               showsHorizontalScrollIndicator={false}
               onMomentumScrollEnd={(e) => {
-                const idx = Math.round(
-                  e.nativeEvent.contentOffset.x / cultureCardW
-                );
+                const offsetX = e?.nativeEvent?.contentOffset?.x ?? 0;
+                const idx = Math.round(offsetX / cultureCardW);
                 setCultureIdx(
                   Math.max(0, Math.min(CULTURE_SLIDES.length - 1, idx))
                 );

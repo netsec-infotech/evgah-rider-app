@@ -17,19 +17,13 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
+import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const PURPLE = '#4A168C';
 const DARK_TEXT = '#24083C';
 const SUB_TEXT = '#280D42';
 const GENDERS = ['Male', 'Female', 'Other'];
-
-const AVATAR_PRESETS = [
-  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=300&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=300&auto=format&fit=crop&q=80',
-];
 
 function formatDob(value) {
   const digits = String(value || '')
@@ -62,21 +56,21 @@ function FloatingFieldBox({ label, children, style }) {
 
 export default function EditProfileScreen({ profile, onBack, onSave }) {
   const insets = useSafeAreaInsets();
-  const [name, setName] = useState(profile?.name || 'Demo Reviewer');
+  const [name, setName] = useState(profile?.name || '');
   const [phone, setPhone] = useState(
-    String(profile?.phone || '9999999999').replace(/^\+91\s*/, '')
+    String(profile?.phone || '').replace(/^\+91\s*/, '')
   );
   const [editingPhone, setEditingPhone] = useState(false);
-  const [dob, setDob] = useState(profile?.dob || '14/08/1998');
+  const [email, setEmail] = useState(profile?.email || '');
+  const [drivingLicense, setDrivingLicense] = useState(
+    profile?.drivingLicense || profile?.dl_number || ''
+  );
+  const [dob, setDob] = useState(profile?.dob || '');
   const [gender, setGender] = useState(profile?.gender || 'Male');
   const [genderModalOpen, setGenderModalOpen] = useState(false);
-  const [address, setAddress] = useState(
-    profile?.address || '103, New Alkapuri, Laxmipura, Vadodara - 391410'
-  );
-  const [aadhaar, setAadhaar] = useState(
-    profile?.aadhaar || '4829 6173 9042'
-  );
-  const [avatarIdx, setAvatarIdx] = useState(profile?.avatarIndex || 0);
+  const [address, setAddress] = useState(profile?.address || '');
+  const [aadhaar, setAadhaar] = useState(profile?.aadhaar || '');
+  const [avatarUri, setAvatarUri] = useState(profile?.avatar || '');
   const [savedToast, setSavedToast] = useState(false);
 
   const btnScale = useSharedValue(1);
@@ -84,8 +78,31 @@ export default function EditProfileScreen({ profile, onBack, onSave }) {
     transform: [{ scale: btnScale.value }],
   }));
 
-  const cycleAvatar = () => {
-    setAvatarIdx((prev) => (prev + 1) % AVATAR_PRESETS.length);
+  const pickAvatar = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        alert('Please allow gallery access to upload your profile photo.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+        base64: true,
+      });
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const asset = result.assets[0];
+        let photoUri = asset.uri;
+        if (asset.base64) {
+          photoUri = `data:image/jpeg;base64,${asset.base64}`;
+        }
+        setAvatarUri(photoUri);
+      }
+    } catch (e) {
+      console.warn('Image picker error:', e);
+    }
   };
 
   const save = () => {
@@ -99,11 +116,13 @@ export default function EditProfileScreen({ profile, onBack, onSave }) {
       onSave?.({
         name: nextName,
         phone: cleanPhone,
+        email: email.trim(),
+        drivingLicense: drivingLicense.trim(),
         gender,
         dob,
         address: address.trim(),
         aadhaar: aadhaar.trim(),
-        avatarIndex: avatarIdx,
+        avatar: avatarUri,
       });
     }, 320);
   };
@@ -134,14 +153,20 @@ export default function EditProfileScreen({ profile, onBack, onSave }) {
           {/* Top Center Dome Arch + Circular Profile Pic + Edit Badge */}
           <View style={styles.domeAvatarAnchor}>
             <View style={styles.domeOuterArch}>
-              <Pressable onPress={cycleAvatar} style={styles.avatarRingWrap}>
-                <Image
-                  source={{ uri: AVATAR_PRESETS[avatarIdx] }}
-                  style={styles.avatarImg}
-                  contentFit="cover"
-                />
+              <Pressable onPress={pickAvatar} style={styles.avatarRingWrap}>
+                {avatarUri ? (
+                  <Image
+                    source={{ uri: avatarUri }}
+                    style={styles.avatarImg}
+                    contentFit="cover"
+                  />
+                ) : (
+                  <View style={[styles.avatarImg, styles.avatarPlaceholder]}>
+                    <Ionicons name="person" size={42} color={PURPLE} />
+                  </View>
+                )}
                 <View style={styles.avatarEditBadge}>
-                  <Ionicons name="pencil" size={14} color={PURPLE} />
+                  <Ionicons name="camera" size={14} color={PURPLE} />
                 </View>
               </Pressable>
             </View>
@@ -192,6 +217,22 @@ export default function EditProfileScreen({ profile, onBack, onSave }) {
               </View>
             </FloatingFieldBox>
 
+            {/* Email Address */}
+            <FloatingFieldBox label="Email Address">
+              <View style={styles.fieldRowInner}>
+                <TextInput
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="name@example.com"
+                  placeholderTextColor="#9D96AD"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  style={styles.fieldInput}
+                />
+                <Ionicons name="mail-outline" size={19} color="#7A7389" />
+              </View>
+            </FloatingFieldBox>
+
             {/* 3. Date of birth */}
             <FloatingFieldBox label="Date of birth">
               <View style={styles.fieldRowInner}>
@@ -230,17 +271,32 @@ export default function EditProfileScreen({ profile, onBack, onSave }) {
                       >
                         <Text
                           style={[
-                            styles.genderMiniChipText,
-                            active && styles.genderMiniChipTextActive,
-                          ]}
-                        >
-                          {g}
-                        </Text>
-                      </Pressable>
+                          styles.genderMiniChipText,
+                          active && styles.genderMiniChipTextActive,
+                        ]}
+                      >
+                        {g}
+                      </Text>
+                    </Pressable>
                     );
                   })}
                 </View>
               </Pressable>
+            </FloatingFieldBox>
+
+            {/* Driving License Number */}
+            <FloatingFieldBox label="Driving License Number">
+              <View style={styles.fieldRowInner}>
+                <TextInput
+                  value={drivingLicense}
+                  onChangeText={(v) => setDrivingLicense(v.toUpperCase())}
+                  placeholder="e.g. GJ06 20200012345"
+                  placeholderTextColor="#9D96AD"
+                  autoCapitalize="characters"
+                  style={styles.fieldInput}
+                />
+                <Ionicons name="card-outline" size={19} color="#7A7389" />
+              </View>
             </FloatingFieldBox>
 
             {/* 5. Aadhaar Card Number */}
@@ -460,6 +516,11 @@ const styles = StyleSheet.create({
     width: 98,
     height: 98,
     borderRadius: 49,
+  },
+  avatarPlaceholder: {
+    backgroundColor: '#F3E8FF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatarEditBadge: {
     position: 'absolute',

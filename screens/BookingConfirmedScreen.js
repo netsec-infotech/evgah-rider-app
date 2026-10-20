@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -95,9 +95,12 @@ export default function BookingConfirmedScreen({ vehicle, trip, receipt, onBack,
     const doneTimer = setTimeout(() => {
       setPrintingState(isDownload ? 'downloaded' : 'ready');
       if (isDownload) {
+        const id = receipt?.bookingId || receipt?.id || 'EVG29976125';
+        const receiptUrl = `https://evegah.cloud/api/receipts/${id}`;
+        Linking.openURL(receiptUrl).catch(() => {});
         Alert.alert(
-          'Receipt Downloaded',
-          `Official Tax Invoice #${receipt?.bookingId || 'EVG29976125'} has been saved to your device and sent to your registered email.`,
+          'Official Tax Invoice',
+          `Tax Invoice #${id} has been opened for download and dispatched via WhatsApp.`,
           [{ text: 'OK' }]
         );
       }
@@ -145,18 +148,22 @@ export default function BookingConfirmedScreen({ vehicle, trip, receipt, onBack,
     transform: [{ scale: dlBtnScale.value }],
   }));
 
-  const rideFare = receipt?.fare ?? 150;
-  const deposit = receipt?.depositWhen === 'later' ? 0 : (receipt?.deposit ?? 250);
-  const discount = receipt?.discount ?? 40;
+  const rideFare = receipt?.fare ?? 0;
+  const deposit = receipt?.depositWhen === 'later' ? 0 : (receipt?.deposit ?? 0);
+  const discount = receipt?.discount ?? 0;
   const totalPaid = receipt?.total ?? Math.max(0, rideFare + deposit - discount);
   const paidMethodLabel =
-    receipt?.method === 'payu'
-      ? 'PayU'
+    String(receipt?.method || '').toLowerCase().includes('payu')
+      ? 'PayU Gateway'
       : receipt?.method === 'card'
-        ? 'Card'
-        : receipt?.method === 'netbanking'
-          ? 'NetBanking'
-          : 'PayU';
+        ? 'Credit / Debit Card'
+        : receipt?.method === 'gpay'
+          ? 'Google Pay (UPI)'
+          : receipt?.method === 'phonepe'
+            ? 'PhonePe (UPI)'
+            : receipt?.method === 'paytm'
+              ? 'Paytm (UPI)'
+              : 'PayU Secure';
 
   return (
     <View style={styles.root}>
@@ -403,8 +410,8 @@ export default function BookingConfirmedScreen({ vehicle, trip, receipt, onBack,
           }}
         >
           <Animated.View style={[styles.startBtn, startBtnStyle]}>
-            <Ionicons name="flash" size={17} color="#FFFFFF" />
-            <Text style={styles.startBtnText}>Start ride</Text>
+            <Ionicons name="bicycle-outline" size={18} color="#FFFFFF" />
+            <Text style={styles.startBtnText}>Go to My Rides</Text>
           </Animated.View>
         </Pressable>
       </View>

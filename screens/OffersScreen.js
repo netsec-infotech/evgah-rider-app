@@ -28,6 +28,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { apiGet } from '../services/api';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const GRID_GAP = 14;
@@ -580,12 +581,41 @@ export default function OffersScreen({ onBack }) {
   const [justRevealedId, setJustRevealedId] = useState(null);
   const [applySheetOpen, setApplySheetOpen] = useState(false);
   const [copiedCode, setCopiedCode] = useState('');
-  const [expandedOffers, setExpandedOffers] = useState({
-    first50: true,
-    navratri100: true,
-    diwali200: true,
-    winter40: true,
-  });
+  const [expandedOffers, setExpandedOffers] = useState({});
+
+  useEffect(() => {
+    let mounted = true;
+    apiGet('/coupons')
+      .then((res) => {
+        if (!mounted) return;
+        const list = res?.data || (Array.isArray(res) ? res : []);
+        const active = list.filter((c) => String(c.status || '').toLowerCase() === 'active');
+        if (active.length > 0) {
+          const themes = ['royalPurple', 'deepIndigo', 'sunsetGold', 'emeraldGreen'];
+          const logos = ['navratri', 'diwali', 'first', 'weekend'];
+          const mapped = active.map((c, idx) => ({
+            id: String(c.id || c.code),
+            brand: c.applicable_on || 'Evegah EV Rides',
+            logoType: logos[idx % logos.length],
+            title: c.title || `Flat ₹${parseFloat(c.discount_value || 50)} OFF`,
+            expiry: c.end_date ? `Valid till ${new Date(c.end_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : 'Active Offer',
+            validTill: c.end_date ? `Valid till ${new Date(c.end_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}` : 'Valid for all riders',
+            code: c.code,
+            about: c.description || `Get instant discount of ₹${parseFloat(c.discount_value || 50)} on your ride bookings above ₹${parseFloat(c.min_order || 0)}.`,
+            scratched: idx === 0, // reveal first coupon as unlocked
+            scratchTheme: themes[idx % themes.length],
+          }));
+          setCoupons(mapped);
+        }
+      })
+      .catch((err) => {
+        console.warn('OffersScreen coupons fetch notice:', err.message);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const selectedCoupon =
     coupons.find((c) => c.id === selectedCouponId) || null;

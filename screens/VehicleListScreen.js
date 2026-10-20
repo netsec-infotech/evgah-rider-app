@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Dimensions, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Dimensions, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
@@ -14,6 +14,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
+import { apiGet, resolveMediaUrl } from '../services/api';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const PURPLE = '#300D4F';
@@ -21,80 +22,87 @@ const ACCENT_PURPLE = '#6300B5';
 const CHIP_BG = '#F4ECFF';
 const CHIP_BORDER = '#8E5CE6';
 
-const LIST_VEHICLES = [
+const LOCAL_FALLBACK_IMAGES = {
+  'evegah mink': require('../assets/home/vehicle-mink.png'),
+  'evegah city': require('../assets/home/vehicle-city.png'),
+  'evegah fly': require('../assets/home/vehicle-fly.png'),
+  'evegah pro': require('../assets/home/vehicle-pro.png'),
+};
+
+const DEFAULT_MODELS = [
   {
     id: 'mink',
-    year: '2026',
     name: 'Evegah Mink',
     tag: 'E-Scooter',
-    edition: 'RXT Smart Li-Ion Edition',
+    edition: 'Smart Li-Ion Edition',
     line: 'Smooth city miles',
-    price: '₹250/day',
-    emi: '₹3499/month',
     km: '70-90 km',
+    rangeNum: 80,
     fuel: 'Electric',
     transmission: 'Automatic',
     rto: 'GJ06',
-    Zone: 'Zone · Gotri Charging Zone, Vadodara',
+    Zone: 'Zone · Gotri Zone, Vadodara',
     range: '70-90 km',
     speed: '30 km/h',
+    speedNum: 30,
+    deposit: 0,
     tint: '#F6F1FC',
     image: require('../assets/home/vehicle-mink.png'),
   },
   {
     id: 'city',
-    year: '2026',
     name: 'Evegah City',
     tag: 'E-Scooter',
     edition: 'Revotron Urban Commuter XM',
     line: 'Quiet across town',
-    price: '₹349/day',
-    emi: '₹6,599/month',
     km: '80-90 km',
+    rangeNum: 85,
     fuel: 'Electric',
     transmission: 'Automatic',
     rto: 'GJ06',
-    Zone: 'Zone · Manjalpur EV Zone, Vadodara',
+    Zone: 'Zone · Gotri Zone, Vadodara',
     range: '80-90 km',
     speed: '45 km/h',
+    speedNum: 45,
+    deposit: 0,
     tint: '#F3FBF6',
     image: require('../assets/home/vehicle-city.png'),
   },
   {
     id: 'fly',
-    year: '2026',
     name: 'Evegah Fly',
     tag: 'E-Scooter',
     edition: 'Lite Everyday City Edition',
     line: 'Light for every day',
-    price: '₹149/day',
-    emi: '₹999/month',
     km: '40-60 km',
+    rangeNum: 50,
     fuel: 'Electric',
     transmission: 'Automatic',
     rto: 'GJ06',
-    Zone: 'Zone · Alkapuri Station, Vadodara',
+    Zone: 'Zone · Gotri Zone, Vadodara',
     range: '40-60 km',
     speed: '25 km/h',
+    speedNum: 25,
+    deposit: 0,
     tint: '#EEF3FF',
     image: require('../assets/home/vehicle-fly.png'),
   },
   {
     id: 'pro',
-    year: '2026',
     name: 'Evegah Pro',
     tag: 'E-Scooter',
-    edition: ' Sharp Dual-Battery Long Range',
+    edition: 'Sharp Dual-Battery Long Range',
     line: 'Built for longer rides',
-    price: '₹279/day',
-    emi: '₹1,799/month',
     km: '110-130 km',
+    rangeNum: 120,
     fuel: 'Electric',
     transmission: 'Automatic',
     rto: 'GJ06',
-    Zone: 'Zone · KPGU Campus Zone, Vadodara',
+    Zone: 'Zone · Gotri Zone, Vadodara',
     range: '110-130 km',
     speed: '75 km/h',
+    speedNum: 75,
+    deposit: 0,
     tint: '#FFF6F2',
     image: require('../assets/home/vehicle-pro.png'),
   },
@@ -109,9 +117,22 @@ export default function VehicleListScreen({
 }) {
   const insets = useSafeAreaInsets();
   const [savedIds, setSavedIds] = useState({});
-  const [priceFilterActive, setPriceFilterActive] = useState(true);
+  const [vehiclesList, setVehiclesList] = useState([]);
+  const [distinctModelNames, setDistinctModelNames] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Real Filter States
+  const [sortBy, setSortBy] = useState('recommended'); // 'recommended' | 'price_asc' | 'price_desc' | 'speed' | 'range'
+  const [priceRange, setPriceRange] = useState('all'); // 'all' | 'under200' | '200_300' | 'above300'
+  const [selectedModel, setSelectedModel] = useState('all');
   const [savedFilter, setSavedFilter] = useState(false);
-  const zoneLabel = trip?.pickupName || selectedZone?.shortName || selectedZone?.name || 'Vadodara';
+
+  // Modals for real interactive filters
+  const [sortModalOpen, setSortModalOpen] = useState(false);
+  const [priceModalOpen, setPriceModalOpen] = useState(false);
+  const [modelModalOpen, setModelModalOpen] = useState(false);
+
+  const zoneLabel = trip?.pickupName || selectedZone?.shortName || selectedZone?.name || 'Gotri Zone';
 
   const bannerFloat = useSharedValue(0);
   const bannerZoom = useSharedValue(1);
@@ -172,8 +193,511 @@ export default function VehicleListScreen({
     transform: [{ translateX: bannerShimmer.value }, { rotate: '-20deg' }],
   }));
 
+  const [zonePackagesList, setZonePackagesList] = useState([]);
+  const [zoneAvailableVehicles, setZoneAvailableVehicles] = useState([]);
+  const [rawBackendModels, setRawBackendModels] = useState([]);
+  const [activeZoneData, setActiveZoneData] = useState(null);
+  const [packageTabs, setPackageTabs] = useState([]);
+  const [isHourlyZone, setIsHourlyZone] = useState(false);
+  const [hourlySummary, setHourlySummary] = useState('');
+  const [activePackageKey, setActivePackageKey] = useState(() => {
+    const dur =
+      trip?.packageDays ||
+      trip?.durationDays ||
+      trip?.selectedPackage?.duration ||
+      trip?.selectedPackage?.days;
+    const pkgName = (
+      trip?.packageName ||
+      trip?.selectedPackage?.name ||
+      trip?.packageId ||
+      ''
+    ).toLowerCase();
+
+    if (dur === 1 || pkgName.includes('daily')) {
+      return 'daily';
+    }
+    if (dur === 7 || pkgName.includes('weekly')) {
+      return 'weekly';
+    }
+    if (dur === 30 || pkgName.includes('month') || pkgName.includes('monthly')) {
+      return 'monthly';
+    }
+    return 'daily';
+  });
+
+  // Connect Vehicle List with Backend API (Selected Zone & Zone Pricing)
+  useEffect(() => {
+    let mounted = true;
+
+    async function fetchZoneVehicles() {
+      try {
+        setIsLoading(true);
+        const [modelsRes, zonesRes, vehiclesRes] = await Promise.all([
+          apiGet('/vehicles/models').catch(() => null),
+          apiGet('/zones').catch(() => null),
+          apiGet('/vehicles?status=Available').catch(() => null),
+        ]);
+
+        if (!mounted) return;
+
+        const rawModels = modelsRes?.data || (Array.isArray(modelsRes) ? modelsRes : []);
+        const rawZones = zonesRes?.data || (Array.isArray(zonesRes) ? zonesRes : []);
+        let rawVehicles = vehiclesRes?.data || (Array.isArray(vehiclesRes) ? vehiclesRes : []);
+
+        // Also fetch all vehicles if status=Available returned empty (to handle Online status)
+        if (rawVehicles.length === 0) {
+          const allVehiclesRes = await apiGet('/vehicles').catch(() => null);
+          const allVehicles = allVehiclesRes?.data || (Array.isArray(allVehiclesRes) ? allVehiclesRes : []);
+          rawVehicles = allVehicles.filter(
+            (v) => !v.status || v.status.toLowerCase() === 'online' || v.status.toLowerCase() === 'available'
+          );
+        }
+
+        // Find active zone data
+        const currentZoneName = (
+          selectedZone?.name ||
+          selectedZone?.shortName ||
+          trip?.pickupName ||
+          'Gotri Zone'
+        ).toLowerCase().trim();
+
+        const zoneObj = rawZones.find((z) => {
+          const zName = (z.name || '').toLowerCase().trim();
+          const zLoc = (z.locality || '').toLowerCase().trim();
+          return (
+            zName.includes(currentZoneName) ||
+            currentZoneName.includes(zName) ||
+            zLoc.includes(currentZoneName) ||
+            currentZoneName.includes(zLoc)
+          );
+        }) || selectedZone || rawZones[0];
+
+        setActiveZoneData(zoneObj);
+
+        const zonePricing = zoneObj?.pricing || {};
+        const hourlyPricing = Array.isArray(zonePricing?.hourlyPricing) ? zonePricing.hourlyPricing : [];
+        const hasHourly =
+          hourlyPricing.length > 0 ||
+          (zonePricing?.basePrice !== undefined && zonePricing?.basePrice !== null && Number(zonePricing.basePrice) > 0);
+        const isHourly =
+          Boolean(trip?.isHourlyZone) ||
+          (zonePricing?.pricingModel || '').toLowerCase().includes('hour') ||
+          (zonePricing?.pricingModel || '').toLowerCase().includes('minute') ||
+          (hasHourly && (!Array.isArray(zonePricing?.packages) || zonePricing.packages.length === 0));
+
+        setIsHourlyZone(isHourly);
+
+        if (isHourly) {
+          const firstHourly = hourlyPricing[0] || {};
+          const baseRate = firstHourly.basePrice ? parseFloat(firstHourly.basePrice) : (zonePricing?.basePrice || 5);
+          const extraRate = firstHourly.extraPrice ? parseFloat(firstHourly.extraPrice) : (zonePricing?.extraPrice || 10);
+          const rule = firstHourly.roundingRule || 'Per 15 Minutes';
+          setHourlySummary(`₹${baseRate}/hr Base • ₹${extraRate} ${rule}`);
+        }
+
+        // Extract zone packages
+        let allZonePackages = [];
+        if (!isHourly) {
+          if (Array.isArray(zonePricing?.packages) && zonePricing.packages.length > 0) {
+            allZonePackages = zonePricing.packages.map((p, idx) => ({
+              id: String(p.id || `pkg_${idx}`),
+              name: (p.name || 'Daily').trim(),
+              model: (p.model || '').trim(),
+              price: parseFloat(p.price) || 0,
+              deposit: p.deposit !== undefined ? parseFloat(p.deposit) : 0,
+              duration: parseInt(p.duration, 10) || 1,
+            }));
+          } else if (zonePricing?.modelPackages && typeof zonePricing.modelPackages === 'object') {
+            Object.entries(zonePricing.modelPackages).forEach(([mName, pkgs]) => {
+              if (Array.isArray(pkgs)) {
+                pkgs.forEach((p, idx) => {
+                  allZonePackages.push({
+                    id: String(p.id || `${mName}_pkg_${idx}`),
+                    name: (p.name || 'Daily').trim(),
+                    model: mName.trim(),
+                    price: parseFloat(p.price) || 0,
+                    deposit: p.deposit !== undefined ? parseFloat(p.deposit) : 0,
+                    duration: parseInt(p.duration, 10) || 1,
+                  });
+                });
+              }
+            });
+          }
+        }
+
+        setZonePackagesList(allZonePackages);
+
+        // Build distinct package tabs
+        const tabs = [];
+        const seenKeys = new Set();
+        allZonePackages.forEach((p) => {
+          const dur = p.duration;
+          const pName = p.name.toLowerCase();
+          const key =
+            dur === 1 || pName.includes('daily')
+              ? 'daily'
+              : dur === 7 || pName.includes('weekly')
+              ? 'weekly'
+              : dur === 30 || pName.includes('month')
+              ? 'monthly'
+              : `${pName}_${dur}`;
+          const label =
+            dur === 1 || pName.includes('daily')
+              ? 'Daily'
+              : dur === 7 || pName.includes('weekly')
+              ? 'Weekly'
+              : dur === 30 || pName.includes('month')
+              ? 'Monthly'
+              : `${p.name} (${dur}d)`;
+
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            tabs.push({
+              key,
+              label,
+              duration: dur,
+              name: p.name,
+              price: p.price,
+            });
+          }
+        });
+        setPackageTabs(tabs);
+
+        // If activePackageKey is not in tabs, pick first tab
+        if (tabs.length > 0) {
+          const exists = tabs.some((t) => t.key === activePackageKey);
+          if (!exists) {
+            setActivePackageKey(tabs[0].key);
+          }
+        }
+
+        // Extract vehicles assigned to this zone
+        const matchedVehicles = rawVehicles.filter((v) => {
+          if (!v.zone) return false;
+          const vZone = v.zone.toLowerCase().trim();
+          return (
+            vZone.includes(currentZoneName) ||
+            currentZoneName.includes(vZone) ||
+            (zoneObj?.name && vZone.includes(zoneObj.name.toLowerCase().trim())) ||
+            (zoneObj?.locality && vZone.includes(zoneObj.locality.toLowerCase().trim()))
+          );
+        });
+
+        setZoneAvailableVehicles(matchedVehicles);
+        setRawBackendModels(rawModels);
+        setIsLoading(false);
+      } catch (err) {
+        console.warn('Vehicle list dynamic fetch notice:', err.message);
+        setIsLoading(false);
+      }
+    }
+
+    fetchZoneVehicles();
+
+    return () => {
+      mounted = false;
+    };
+  }, [selectedZone, trip]);
+
+  // Derive filtered vehicles strictly according to selected package & backend pricing
+  useEffect(() => {
+    if (isLoading) return;
+
+    if (zoneAvailableVehicles.length === 0) {
+      setVehiclesList([]);
+      setDistinctModelNames([]);
+      return;
+    }
+
+    const availableModelNames = Array.from(
+      new Set(
+        zoneAvailableVehicles
+          .map((v) =>
+            (v.evegah_model_name || v.vehicle_model || v.name || '').trim().toLowerCase()
+          )
+          .filter(Boolean)
+      )
+    );
+
+    const modelsPool = rawBackendModels.length > 0 ? rawBackendModels : DEFAULT_MODELS;
+
+    if (isHourlyZone) {
+      // Hourly zone: match vehicles that have hourly pricing defined in the zone
+      const zonePricing = activeZoneData?.pricing || {};
+      const hourlyList = Array.isArray(zonePricing?.hourlyPricing) ? zonePricing.hourlyPricing : [];
+      const baseRate = hourlyList[0]?.basePrice ? parseFloat(hourlyList[0].basePrice) : (zonePricing?.basePrice || 5);
+      const extraRate = hourlyList[0]?.extraPrice ? parseFloat(hourlyList[0].extraPrice) : (zonePricing?.extraPrice || 10);
+      const rule = hourlyList[0]?.roundingRule || 'Per 15 Minutes';
+
+      const modelsToRender = modelsPool.filter((m) => {
+        const mName = (m.name || m.evegah_model_name || '').toLowerCase().trim();
+        const matchesHourly =
+          hourlyList.length === 0 ||
+          hourlyList.some((h) => (h.model || '').toLowerCase().trim().includes(mName) || mName.includes((h.model || '').toLowerCase().trim()));
+        const hasAvail = availableModelNames.some((avail) => avail.includes(mName) || mName.includes(avail));
+        return matchesHourly && hasAvail;
+      });
+
+      const mapped = modelsToRender.map((m, index) => {
+        const mName = m.name || m.evegah_model_name || `Model ${index + 1}`;
+        const mKey = mName.toLowerCase();
+        const specificHourly = hourlyList.find((h) => (h.model || '').toLowerCase().trim() === mKey) || hourlyList[0];
+        const mBase = specificHourly?.basePrice ? parseFloat(specificHourly.basePrice) : baseRate;
+        const mExtra = specificHourly?.extraPrice ? parseFloat(specificHourly.extraPrice) : extraRate;
+        const mRule = specificHourly?.roundingRule || rule;
+        const depositAmount = specificHourly?.deposit !== undefined ? parseFloat(specificHourly.deposit) : 0;
+
+        let resolvedImg = null;
+        if (m.main_image || m.vehicle_image) {
+          const remoteUrl = resolveMediaUrl(m.main_image || m.vehicle_image);
+          if (remoteUrl) resolvedImg = { uri: remoteUrl };
+        }
+        if (!resolvedImg) {
+          resolvedImg = LOCAL_FALLBACK_IMAGES[mKey] || LOCAL_FALLBACK_IMAGES['evegah mink'];
+        }
+
+        const speedVal = m.top_speed || m.topSpeed || `${30 + index * 15} km/h`;
+        const rangeVal = m.range || `${70 + index * 15}-${90 + index * 15} km`;
+
+        return {
+          id: String(m.id || m.code || `model-${index}`),
+          modelId: m.id,
+          name: mName,
+          tag: m.category || 'E-Scooter',
+          edition: m.tagline || m.edition || 'Smart Li-Ion Edition',
+          line: m.description || 'Smooth city miles',
+          price: `₹${mBase}/hr`,
+          priceNum: mBase,
+          packagePrice: mBase,
+          packageDuration: 0,
+          packageName: 'Hourly / Minute Rental',
+          emi: `+₹${mExtra} ${mRule}`,
+          km: rangeVal,
+          range: rangeVal,
+          rangeNum: parseInt(rangeVal) || 75,
+          fuel: 'Electric',
+          transmission: 'Automatic',
+          rto: 'GJ06',
+          Zone: `Zone · ${activeZoneData?.name || zoneLabel}`,
+          speed: typeof speedVal === 'number' ? `${speedVal} km/h` : speedVal,
+          speedNum: parseInt(speedVal) || 40,
+          deposit: depositAmount,
+          image: resolvedImg,
+          rawModel: m,
+          isHourly: true,
+        };
+      });
+
+      setVehiclesList(mapped);
+      setDistinctModelNames(Array.from(new Set(mapped.map((v) => v.name))));
+      return;
+    }
+
+    // Package Based: STRICTLY filter to the active package
+    const activePackages = zonePackagesList.filter((p) => {
+      if (activePackageKey === 'daily') return p.duration === 1 || p.name.toLowerCase().includes('daily');
+      if (activePackageKey === 'weekly') return p.duration === 7 || p.name.toLowerCase().includes('weekly');
+      if (activePackageKey === 'monthly') return p.duration === 30 || p.name.toLowerCase().includes('monthly');
+      return p.id === activePackageKey || `${p.name.toLowerCase()}_${p.duration}` === activePackageKey;
+    });
+
+    if (activePackages.length === 0) {
+      setVehiclesList([]);
+      setDistinctModelNames([]);
+      return;
+    }
+
+    // Filter models: A model MUST satisfy ALL conditions:
+    // 1) Must have at least 1 available vehicle in this zone
+    // 2) Must have a configured package in activePackages specifically for this model (or generic package with no model filter)
+    const validModelPackages = [];
+
+    modelsPool.forEach((m) => {
+      const mName = (m.name || m.evegah_model_name || '').trim();
+      const mKey = mName.toLowerCase();
+
+      // 1. Vehicle availability check
+      const hasAvailableVehicle = availableModelNames.some(
+        (avail) => avail.includes(mKey) || mKey.includes(avail)
+      );
+      if (!hasAvailableVehicle) return;
+
+      // 2. Strict package matching
+      // If package defines a specific model, it MUST match this model
+      const matchingPkg = activePackages.find((p) => {
+        if (!p.model) return true; // generic package for any model
+        const pMod = p.model.toLowerCase().trim();
+        return pMod.includes(mKey) || mKey.includes(pMod);
+      });
+
+      // If no package configured for this model in this package tier, DO NOT DISPLAY!
+      if (!matchingPkg) return;
+
+      validModelPackages.push({ model: m, package: matchingPkg });
+    });
+
+    const mapped = validModelPackages.map(({ model: m, package: matchingPkg }, index) => {
+      const mName = m.name || m.evegah_model_name || `Model ${index + 1}`;
+      const mKey = mName.toLowerCase();
+
+      const pkgPrice = parseFloat(matchingPkg.price) || 0;
+      const pkgDur = matchingPkg.duration || 1;
+      const depositAmount = matchingPkg.deposit !== undefined ? parseFloat(matchingPkg.deposit) : 0;
+      const isDaily = pkgDur === 1 || matchingPkg.name.toLowerCase().includes('daily');
+      const isWeekly = pkgDur === 7 || matchingPkg.name.toLowerCase().includes('weekly');
+      const isMonthly = pkgDur === 30 || matchingPkg.name.toLowerCase().includes('monthly');
+
+      let priceStr = '';
+      let emiRate = '';
+
+      if (isDaily) {
+        priceStr = `₹${pkgPrice}/day`;
+        emiRate = ''; // Daily package: only daily price, no emi/monthly rate shown
+      } else if (isWeekly) {
+        priceStr = `₹${pkgPrice}/week`;
+        const dailyVal = pkgPrice / 7;
+        const dailyFormatted = pkgPrice % 7 === 0 ? dailyVal : dailyVal.toFixed(2);
+        emiRate = `₹${dailyFormatted}/day`;
+      } else if (isMonthly) {
+        priceStr = `₹${pkgPrice}/month`;
+        const dailyVal = pkgPrice / 30;
+        const dailyFormatted = pkgPrice % 30 === 0 ? dailyVal : dailyVal.toFixed(2);
+        emiRate = `₹${dailyFormatted}/day`;
+      } else {
+        priceStr = `₹${pkgPrice}/${pkgDur} days`;
+        emiRate = `₹${(pkgPrice / pkgDur).toFixed(2)}/day`;
+      }
+
+      let resolvedImg = null;
+      if (m.main_image || m.vehicle_image) {
+        const remoteUrl = resolveMediaUrl(m.main_image || m.vehicle_image);
+        if (remoteUrl) resolvedImg = { uri: remoteUrl };
+      }
+      if (!resolvedImg) {
+        resolvedImg = LOCAL_FALLBACK_IMAGES[mKey] || LOCAL_FALLBACK_IMAGES['evegah mink'];
+      }
+
+      const speedVal = m.top_speed || m.topSpeed || `${30 + index * 15} km/h`;
+      const rangeVal = m.range || `${70 + index * 15}-${90 + index * 15} km`;
+
+      return {
+        id: String(m.id || m.code || `model-${index}`),
+        modelId: m.id,
+        name: mName,
+        tag: m.category || 'E-Scooter',
+        edition: m.tagline || m.edition || 'Smart Li-Ion Edition',
+        line: m.description || 'Smooth city miles',
+        price: priceStr,
+        priceNum: pkgPrice,
+        packagePrice: pkgPrice,
+        packageDuration: pkgDur,
+        packageName: matchingPkg.name,
+        emi: emiRate,
+        km: rangeVal,
+        range: rangeVal,
+        rangeNum: parseInt(rangeVal) || 75,
+        fuel: 'Electric',
+        transmission: 'Automatic',
+        rto: 'GJ06',
+        Zone: `Zone · ${activeZoneData?.name || zoneLabel}`,
+        speed: typeof speedVal === 'number' ? `${speedVal} km/h` : speedVal,
+        speedNum: parseInt(speedVal) || 40,
+        deposit: depositAmount,
+        image: resolvedImg,
+        rawModel: m,
+        selectedPackage: matchingPkg,
+      };
+    });
+
+    setVehiclesList(mapped);
+    setDistinctModelNames(Array.from(new Set(mapped.map((v) => v.name))));
+  }, [
+    activePackageKey,
+    zonePackagesList,
+    zoneAvailableVehicles,
+    rawBackendModels,
+    isHourlyZone,
+    activeZoneData,
+    isLoading,
+  ]);
+
+  // Real Filtered & Sorted Vehicles
+  const filteredVehicles = useMemo(() => {
+    let list = [...vehiclesList];
+
+    // 1. Model Filter
+    if (selectedModel !== 'all') {
+      list = list.filter((v) => v.name.toLowerCase() === selectedModel.toLowerCase());
+    }
+
+    // 2. Price Range Filter
+    if (priceRange === 'under200') {
+      list = list.filter((v) => v.priceNum < 200);
+    } else if (priceRange === '200_300') {
+      list = list.filter((v) => v.priceNum >= 200 && v.priceNum <= 300);
+    } else if (priceRange === 'above300') {
+      list = list.filter((v) => v.priceNum > 300);
+    }
+
+    // 3. Saved Filter
+    if (savedFilter) {
+      list = list.filter((v) => !!savedIds[v.id]);
+    }
+
+    // 4. Sorting
+    if (sortBy === 'price_asc') {
+      list.sort((a, b) => a.priceNum - b.priceNum);
+    } else if (sortBy === 'price_desc') {
+      list.sort((a, b) => b.priceNum - a.priceNum);
+    } else if (sortBy === 'speed') {
+      list.sort((a, b) => b.speedNum - a.speedNum);
+    } else if (sortBy === 'range') {
+      list.sort((a, b) => b.rangeNum - a.rangeNum);
+    }
+
+    return list;
+  }, [vehiclesList, selectedModel, priceRange, savedFilter, savedIds, sortBy]);
+
+  // Active filter count
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (sortBy !== 'recommended') count++;
+    if (priceRange !== 'all') count++;
+    if (selectedModel !== 'all') count++;
+    if (savedFilter) count++;
+    return count;
+  }, [sortBy, priceRange, selectedModel, savedFilter]);
+
   const toggleSave = (id) => {
     setSavedIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const getSortLabel = () => {
+    switch (sortBy) {
+      case 'price_asc':
+        return 'Price: Low to High';
+      case 'price_desc':
+        return 'Price: High to Low';
+      case 'speed':
+        return 'Top Speed';
+      case 'range':
+        return 'Longest Range';
+      default:
+        return 'Sort';
+    }
+  };
+
+  const getPriceRangeLabel = () => {
+    switch (priceRange) {
+      case 'under200':
+        return 'Under ₹200/d';
+      case '200_300':
+        return '₹200 - ₹300/d';
+      case 'above300':
+        return 'Above ₹300/d';
+      default:
+        return 'Price Range';
+    }
   };
 
   return (
@@ -195,19 +719,103 @@ export default function VehicleListScreen({
             <Text style={styles.cityPillText}>{zoneLabel}</Text>
             <Ionicons name="caret-down" size={12} color={PURPLE} />
           </Pressable>
-          <Pressable style={styles.circleIcon}>
+          <Pressable
+            style={styles.circleIcon}
+            onPress={() => setModelModalOpen(true)}
+          >
             <Ionicons name="search-outline" size={18} color={PURPLE} />
           </Pressable>
-          <Pressable style={styles.circleIcon}>
-            <Ionicons name="heart-outline" size={18} color={PURPLE} />
+          <Pressable
+            style={[styles.circleIcon, savedFilter && { backgroundColor: '#FCE7F3' }]}
+            onPress={() => setSavedFilter((v) => !v)}
+          >
+            <Ionicons
+              name={savedFilter ? 'heart' : 'heart-outline'}
+              size={18}
+              color={savedFilter ? '#E0245E' : PURPLE}
+            />
           </Pressable>
         </View>
       </View>
+
+      {/* Dynamic Package Tabs from Backend Zone Packages (Sticky Top Selector) */}
+      {packageTabs.length > 0 && !isHourlyZone ? (
+        <View style={styles.packageTabsSection}>
+          <View style={styles.packageTabsHeader}>
+            <Text style={styles.packageTabsTitle}>Rental Package</Text>
+            <Text style={styles.packageTabsSub}>Showing models configured in {zoneLabel}</Text>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.packageTabsScroll}
+          >
+            {packageTabs.map((pkg) => {
+              const isActive = activePackageKey === pkg.key;
+              return (
+                <Pressable
+                  key={pkg.key}
+                  style={[styles.packageTabChip, isActive && styles.packageTabChipActive]}
+                  onPress={() => {
+                    setActivePackageKey(pkg.key);
+                    setSelectedModel('all');
+                  }}
+                >
+                  <Ionicons
+                    name={
+                      pkg.key === 'daily'
+                        ? 'flash'
+                        : pkg.key === 'weekly'
+                        ? 'calendar-outline'
+                        : 'calendar'
+                    }
+                    size={14}
+                    color={isActive ? '#FFFFFF' : ACCENT_PURPLE}
+                  />
+                  <Text
+                    style={[
+                      styles.packageTabLabel,
+                      isActive && styles.packageTabLabelActive,
+                    ]}
+                  >
+                    {pkg.label}
+                  </Text>
+                  {pkg.price ? (
+                    <View
+                      style={[
+                        styles.packageTabPriceBadge,
+                        isActive && styles.packageTabPriceBadgeActive,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.packageTabPrice,
+                          isActive && styles.packageTabPriceActive,
+                        ]}
+                      >
+                        ₹{pkg.price}
+                      </Text>
+                    </View>
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      ) : isHourlyZone ? (
+        <View style={styles.hourlyNoticeBar}>
+          <Ionicons name="time" size={16} color={ACCENT_PURPLE} />
+          <Text style={styles.hourlyNoticeText}>
+            {hourlySummary || 'Hourly / Minute Rental Zone'}
+          </Text>
+        </View>
+      ) : null}
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
       >
+        {/* Animated Navratri Header Banner */}
         <View style={styles.bannerWrap}>
           <Animated.View style={[StyleSheet.absoluteFillObject, bannerBgAnimStyle]}>
             <Image
@@ -249,40 +857,111 @@ export default function VehicleListScreen({
           </Animated.View>
         </View>
 
+        {/* Real Interactive Filter Row */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterRow}
         >
-          <Pressable style={[styles.filterChip, styles.filterChipActive]}>
-            <Ionicons name="filter" size={14} color={PURPLE} />
-            <Text style={[styles.filterChipText, styles.filterChipTextActive]}>Filter</Text>
+          {/* Active Filters Master Reset / Indicator */}
+          <Pressable
+            style={[styles.filterChip, activeFiltersCount > 0 && styles.filterChipActive]}
+            onPress={() => {
+              if (activeFiltersCount > 0) {
+                setSortBy('recommended');
+                setPriceRange('all');
+                setSelectedModel('all');
+                setSavedFilter(false);
+              } else {
+                setPriceModalOpen(true);
+              }
+            }}
+          >
+            <Ionicons
+              name={activeFiltersCount > 0 ? 'close-circle' : 'filter'}
+              size={14}
+              color={activeFiltersCount > 0 ? '#FFFFFF' : PURPLE}
+            />
+            <Text
+              style={[
+                styles.filterChipText,
+                activeFiltersCount > 0 && styles.filterChipTextActive,
+              ]}
+            >
+              {activeFiltersCount > 0 ? 'Reset' : 'Filter'}
+            </Text>
             <View style={styles.filterCountBadge}>
-              <Text style={styles.filterCountText}>{priceFilterActive ? '1' : '0'}</Text>
+              <Text style={styles.filterCountText}>{activeFiltersCount}</Text>
             </View>
           </Pressable>
 
-          <Pressable style={styles.filterChip}>
-            <Ionicons name="swap-vertical" size={14} color={PURPLE} />
-            <Text style={styles.filterChipText}>Sort</Text>
-          </Pressable>
-
+          {/* Sort Filter Chip */}
           <Pressable
-            style={[styles.filterChip, priceFilterActive && styles.filterChipActive]}
-            onPress={() => setPriceFilterActive((v) => !v)}
+            style={[styles.filterChip, sortBy !== 'recommended' && styles.filterChipActive]}
+            onPress={() => setSortModalOpen(true)}
           >
-            <Text style={[styles.filterChipText, priceFilterActive && styles.filterChipTextActive]}>
-              Price Range
+            <Ionicons
+              name="swap-vertical"
+              size={14}
+              color={sortBy !== 'recommended' ? '#FFFFFF' : PURPLE}
+            />
+            <Text
+              style={[
+                styles.filterChipText,
+                sortBy !== 'recommended' && styles.filterChipTextActive,
+              ]}
+            >
+              {getSortLabel()}
             </Text>
-            <Ionicons name="caret-down" size={11} color={PURPLE} />
+            <Ionicons
+              name="caret-down"
+              size={11}
+              color={sortBy !== 'recommended' ? '#FFFFFF' : PURPLE}
+            />
           </Pressable>
 
-          <Pressable style={styles.filterChip}>
-            <Text style={styles.filterChipText}>Make + Models</Text>
-            <Ionicons name="caret-down" size={11} color={PURPLE} />
+          {/* Price Range Filter Chip */}
+          <Pressable
+            style={[styles.filterChip, priceRange !== 'all' && styles.filterChipActive]}
+            onPress={() => setPriceModalOpen(true)}
+          >
+            <Text
+              style={[
+                styles.filterChipText,
+                priceRange !== 'all' && styles.filterChipTextActive,
+              ]}
+            >
+              {getPriceRangeLabel()}
+            </Text>
+            <Ionicons
+              name="caret-down"
+              size={11}
+              color={priceRange !== 'all' ? '#FFFFFF' : PURPLE}
+            />
+          </Pressable>
+
+          {/* Make + Models Filter Chip */}
+          <Pressable
+            style={[styles.filterChip, selectedModel !== 'all' && styles.filterChipActive]}
+            onPress={() => setModelModalOpen(true)}
+          >
+            <Text
+              style={[
+                styles.filterChipText,
+                selectedModel !== 'all' && styles.filterChipTextActive,
+              ]}
+            >
+              {selectedModel === 'all' ? 'Make + Models' : selectedModel}
+            </Text>
+            <Ionicons
+              name="caret-down"
+              size={11}
+              color={selectedModel !== 'all' ? '#FFFFFF' : PURPLE}
+            />
           </Pressable>
         </ScrollView>
 
+        {/* Sub-Filter Pill Bar: Saved Filters & Quick Price Pill */}
         <View style={styles.subFilterRow}>
           <Pressable
             style={[styles.saveFilterPill, savedFilter && styles.saveFilterPillActive]}
@@ -291,29 +970,58 @@ export default function VehicleListScreen({
             <Ionicons
               name={savedFilter ? 'bookmark' : 'bookmark-outline'}
               size={14}
-              color="#D94E43"
+              color={savedFilter ? '#FFFFFF' : '#D94E43'}
             />
-            <Text style={styles.saveFilterText}>Save Filters</Text>
+            <Text
+              style={[
+                styles.saveFilterText,
+                savedFilter && { color: '#FFFFFF', fontWeight: '700' },
+              ]}
+            >
+              {savedFilter ? 'Saved Only' : 'Save Filters'}
+            </Text>
           </Pressable>
 
-          {priceFilterActive ? (
+          {priceRange !== 'all' ? (
             <Pressable
               style={[styles.filterChip, styles.filterChipActive]}
-              onPress={() => setPriceFilterActive(false)}
+              onPress={() => setPriceRange('all')}
             >
               <Text style={[styles.filterChipText, styles.filterChipTextActive]}>
-                ₹149 - ₹299/d
+                {getPriceRangeLabel()}
               </Text>
-              <Ionicons name="close" size={14} color={PURPLE} />
+              <Ionicons name="close" size={14} color="#FFFFFF" />
+            </Pressable>
+          ) : null}
+
+          {selectedModel !== 'all' ? (
+            <Pressable
+              style={[styles.filterChip, styles.filterChipActive]}
+              onPress={() => setSelectedModel('all')}
+            >
+              <Text style={[styles.filterChipText, styles.filterChipTextActive]}>
+                {selectedModel}
+              </Text>
+              <Ionicons name="close" size={14} color="#FFFFFF" />
             </Pressable>
           ) : null}
         </View>
 
+        {/* Real Dynamic Results Heading */}
         <Text style={styles.resultsHeading}>
-          <Text style={styles.resultsCount}>217</Text> EV Scooters under Rs 299/day in Vadodara
+          <Text style={styles.resultsCount}>{filteredVehicles.length}</Text> EV{' '}
+          {filteredVehicles.length === 1 ? 'Scooter' : 'Scooters'} available in {zoneLabel}
         </Text>
 
-        {LIST_VEHICLES.map((item, index) => {
+        {isLoading ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator size="large" color={PURPLE} />
+            <Text style={styles.loadingText}>Checking live EV availability in {zoneLabel}...</Text>
+          </View>
+        ) : null}
+
+        {/* Vehicle Cards: shows model name as per backend (without fixed 2026) */}
+        {filteredVehicles.map((item, index) => {
           const isSaved = !!savedIds[item.id];
           return (
             <Animated.View key={item.id} entering={cardEnter(index)} style={styles.cardWrap}>
@@ -344,8 +1052,9 @@ export default function VehicleListScreen({
 
                 <View style={styles.cardBody}>
                   <View style={styles.cardTitleRow}>
+                    {/* Shows vehicle models name as per backend without fixed 2026 */}
                     <Text style={styles.cardTitle} numberOfLines={1}>
-                      {item.year} {item.name}
+                      {item.name}
                     </Text>
                     <Text style={styles.cardPrice}>{item.price}</Text>
                   </View>
@@ -354,9 +1063,11 @@ export default function VehicleListScreen({
                     <Text style={styles.cardEdition} numberOfLines={1}>
                       {item.edition}
                     </Text>
-                    <View style={styles.emiWrap}>
-                      <Text style={styles.cardEmi}>{item.emi}</Text>
-                    </View>
+                    {item.emi ? (
+                      <View style={styles.emiWrap}>
+                        <Text style={styles.cardEmi}>{item.emi}</Text>
+                      </View>
+                    ) : null}
                   </View>
 
                   <View style={styles.pillsRow}>
@@ -389,14 +1100,186 @@ export default function VehicleListScreen({
             </Animated.View>
           );
         })}
+
+        {filteredVehicles.length === 0 && (
+          <View style={styles.noVehiclesWrap}>
+            <Image
+              source={require('../assets/vehicles/novehicle.png')}
+              style={styles.noVehiclesImg}
+              contentFit="contain"
+            />
+            <Text style={styles.noVehiclesTitle}>
+              {vehiclesList.length === 0
+                ? `No EVs Available in ${zoneLabel}`
+                : 'No vehicles match selected filter'}
+            </Text>
+            <Text style={styles.noVehiclesSub}>
+              {vehiclesList.length === 0
+                ? 'All electric scooters at this hub are currently on rent or charging. Please choose another nearby hub to start your booking.'
+                : 'Try selecting all models or reset your price filter.'}
+            </Text>
+            <Pressable
+              style={styles.resetFilterBtn}
+              onPress={() => {
+                if (vehiclesList.length === 0) {
+                  onOpenLocation?.();
+                } else {
+                  setSortBy('recommended');
+                  setPriceRange('all');
+                  setSelectedModel('all');
+                  setSavedFilter(false);
+                }
+              }}
+            >
+              <Text style={styles.resetFilterBtnText}>
+                {vehiclesList.length === 0 ? 'Choose Another Zone' : 'Reset All Filters'}
+              </Text>
+            </Pressable>
+          </View>
+        )}
       </ScrollView>
 
+      {/* Floating Call Action Button */}
       <Pressable
         onPress={() => Linking.openURL('tel:18008898791')}
         style={[styles.callFab, { bottom: Math.max(insets.bottom, 16) + 16 }]}
       >
         <Ionicons name="call" size={24} color="#FFFFFF" />
       </Pressable>
+
+      {/* ── Sort Filter Modal ── */}
+      <Modal
+        visible={sortModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSortModalOpen(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setSortModalOpen(false)}
+        >
+          <View style={styles.filterModalCard}>
+            <View style={styles.filterModalHeader}>
+              <Text style={styles.filterModalTitle}>Sort Vehicles</Text>
+              <Pressable hitSlop={8} onPress={() => setSortModalOpen(false)}>
+                <Ionicons name="close" size={20} color="#1E293B" />
+              </Pressable>
+            </View>
+
+            {[
+              { id: 'recommended', label: 'Recommended' },
+              { id: 'price_asc', label: 'Price: Low to High' },
+              { id: 'price_desc', label: 'Price: High to Low' },
+              { id: 'speed', label: 'Top Speed' },
+              { id: 'range', label: 'Longest Range' },
+            ].map((opt) => {
+              const selected = sortBy === opt.id;
+              return (
+                <Pressable
+                  key={opt.id}
+                  style={[styles.filterOptionRow, selected && styles.filterOptionRowActive]}
+                  onPress={() => {
+                    setSortBy(opt.id);
+                    setSortModalOpen(false);
+                  }}
+                >
+                  <Text style={[styles.filterOptionText, selected && styles.filterOptionTextActive]}>
+                    {opt.label}
+                  </Text>
+                  {selected && <Ionicons name="checkmark-circle" size={18} color={PURPLE} />}
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* ── Price Range Filter Modal ── */}
+      <Modal
+        visible={priceModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPriceModalOpen(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setPriceModalOpen(false)}
+        >
+          <View style={styles.filterModalCard}>
+            <View style={styles.filterModalHeader}>
+              <Text style={styles.filterModalTitle}>Price Range (Per Day)</Text>
+              <Pressable hitSlop={8} onPress={() => setPriceModalOpen(false)}>
+                <Ionicons name="close" size={20} color="#1E293B" />
+              </Pressable>
+            </View>
+
+            {[
+              { id: 'all', label: 'All Prices' },
+              { id: 'under200', label: 'Under ₹200 / day' },
+              { id: '200_300', label: '₹200 – ₹300 / day' },
+              { id: 'above300', label: 'Above ₹300 / day' },
+            ].map((opt) => {
+              const selected = priceRange === opt.id;
+              return (
+                <Pressable
+                  key={opt.id}
+                  style={[styles.filterOptionRow, selected && styles.filterOptionRowActive]}
+                  onPress={() => {
+                    setPriceRange(opt.id);
+                    setPriceModalOpen(false);
+                  }}
+                >
+                  <Text style={[styles.filterOptionText, selected && styles.filterOptionTextActive]}>
+                    {opt.label}
+                  </Text>
+                  {selected && <Ionicons name="checkmark-circle" size={18} color={PURPLE} />}
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* ── Make + Models Filter Modal ── */}
+      <Modal
+        visible={modelModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModelModalOpen(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setModelModalOpen(false)}
+        >
+          <View style={styles.filterModalCard}>
+            <View style={styles.filterModalHeader}>
+              <Text style={styles.filterModalTitle}>Select Vehicle Model</Text>
+              <Pressable hitSlop={8} onPress={() => setModelModalOpen(false)}>
+                <Ionicons name="close" size={20} color="#1E293B" />
+              </Pressable>
+            </View>
+
+            {['all', ...distinctModelNames].map((modelName) => {
+              const selected = selectedModel === modelName;
+              return (
+                <Pressable
+                  key={modelName}
+                  style={[styles.filterOptionRow, selected && styles.filterOptionRowActive]}
+                  onPress={() => {
+                    setSelectedModel(modelName);
+                    setModelModalOpen(false);
+                  }}
+                >
+                  <Text style={[styles.filterOptionText, selected && styles.filterOptionTextActive]}>
+                    {modelName === 'all' ? 'All Models' : modelName}
+                  </Text>
+                  {selected && <Ionicons name="checkmark-circle" size={18} color={PURPLE} />}
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -775,5 +1658,203 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 12,
     elevation: 8,
+  },
+  saveFilterPillActive: {
+    backgroundColor: '#D94E43',
+    borderColor: '#D94E43',
+  },
+  loadingWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  noVehiclesWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 24,
+    gap: 8,
+  },
+  noVehiclesImg: {
+    width: 200,
+    height: 130,
+    marginBottom: 8,
+  },
+  noVehiclesTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#334155',
+    textAlign: 'center',
+  },
+  noVehiclesSub: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  resetFilterBtn: {
+    backgroundColor: PURPLE,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 14,
+    marginTop: 4,
+  },
+  resetFilterBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  filterModalCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  filterModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1EFF6',
+  },
+  filterModalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: PURPLE,
+  },
+  filterOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    marginBottom: 4,
+  },
+  filterOptionRowActive: {
+    backgroundColor: '#F3EEF8',
+  },
+  filterOptionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  filterOptionTextActive: {
+    color: PURPLE,
+    fontWeight: '800',
+  },
+  packageTabsSection: {
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0EBF8',
+  },
+  packageTabsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  packageTabsTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#300D4F',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
+  packageTabsSub: {
+    fontSize: 11,
+    color: '#8A8297',
+    fontWeight: '500',
+  },
+  packageTabsScroll: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  packageTabChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 13,
+    borderRadius: 20,
+    backgroundColor: '#F7F3FB',
+    borderWidth: 1,
+    borderColor: '#E8DEF8',
+  },
+  packageTabChipActive: {
+    backgroundColor: ACCENT_PURPLE,
+    borderColor: ACCENT_PURPLE,
+    shadowColor: ACCENT_PURPLE,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  packageTabLabel: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#300D4F',
+  },
+  packageTabLabelActive: {
+    color: '#FFFFFF',
+  },
+  packageTabPriceBadge: {
+    backgroundColor: '#EDE4FA',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 8,
+  },
+  packageTabPriceBadgeActive: {
+    backgroundColor: '#FFFFFF',
+  },
+  packageTabPrice: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: ACCENT_PURPLE,
+  },
+  packageTabPriceActive: {
+    color: ACCENT_PURPLE,
+  },
+  hourlyNoticeBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#F3E8FF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+  },
+  hourlyNoticeText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#6300B5',
   },
 });

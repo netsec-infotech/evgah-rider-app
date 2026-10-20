@@ -1,8 +1,12 @@
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Dimensions,
+  Keyboard,
+  KeyboardAvoidingView,
   Linking,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   Share,
@@ -11,6 +15,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { WebView } from 'react-native-webview';
+import * as Location from 'expo-location';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -19,11 +25,43 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
+import { apiGet, resolveMediaUrl } from '../services/api';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const PRIMARY_BLUE = '#3729E8';
 const FLEXI_PURPLE = '#4A168C';
 const STORY_VIDEO = require('../assets/home/vid1.mp4');
+const GOOGLE_MAPS_KEY = 'AIzaSyC_Pn12n9hRH5jQdxU7hQUOPDy820ehjwo';
+
+function haversineDistKm(lat1, lon1, lat2, lon2) {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return 1;
+  const R = 6371; // km
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const straightKm = R * c;
+  return Math.max(1, parseFloat((straightKm * 1.25).toFixed(1)));
+}
+
+async function fetchGoogleDistanceKm(originLat, originLng, destLat, destLng) {
+  if (!originLat || !originLng || !destLat || !destLng) return 1;
+  try {
+    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${originLat},${originLng}&destinations=${destLat},${destLng}&key=${GOOGLE_MAPS_KEY}`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if (json?.status === 'OK' && json?.rows?.[0]?.elements?.[0]?.distance?.value) {
+      const meters = json.rows[0].elements[0].distance.value;
+      return Math.max(1, parseFloat((meters / 1000).toFixed(1)));
+    }
+  } catch (_) {}
+  return haversineDistKm(originLat, originLng, destLat, destLng);
+}
 
 const PRIME_LOCATIONS = [
   {
@@ -173,7 +211,7 @@ const EXTRA = {
   'Evegah Fly': {
     price: '₹149/day',
     monthly: '₹999/month',
-    discount: '₹30 off applied, ends on 21st Oct',
+    
     variant: 'LITE 1.2 LI-ION PEDAL-ASSIST',
     battery: '1.2 kWh',
     motor: '1000 W',
@@ -212,7 +250,7 @@ const EXTRA = {
   'Evegah Mink': {
     price: '₹199/day',
     monthly: '₹1,299/month',
-    discount: '₹40 off applied, ends on 21st Oct',
+   
     variant: 'SHARP 3.2 DCT ELECTRIC',
     battery: '3.2 kWh',
     motor: '3000 W',
@@ -251,7 +289,7 @@ const EXTRA = {
   'Evegah City': {
     price: '₹229/day',
     monthly: '₹1,499/month',
-    discount: '₹50 off applied, ends on 21st Oct',
+    
     variant: 'URBAN 2.5 SMART AUTOMATIC',
     battery: '2.3 kWh',
     motor: '2500 W',
@@ -290,7 +328,7 @@ const EXTRA = {
   'Evegah Pro': {
     price: '₹279/day',
     monthly: '₹1,799/month',
-    discount: '₹60 off applied, ends on 21st Oct',
+   
     variant: 'PRO 2.5 DUAL-BATTERY MAX',
     battery: '2.5 kWh',
     motor: '2500 W',
@@ -388,10 +426,11 @@ const QUESTIONS = [
   },
 ];
 
-function VehicleStoryModal({ onClose }) {
+function VehicleStoryModal({ videoSource, onClose }) {
   const insets = useSafeAreaInsets();
   const [muted, setMuted] = useState(false);
-  const player = useVideoPlayer(STORY_VIDEO, (instance) => {
+  const src = videoSource || STORY_VIDEO;
+  const player = useVideoPlayer(src, (instance) => {
     instance.loop = true;
     instance.muted = false;
     instance.play();
@@ -428,7 +467,7 @@ function VehicleStoryModal({ onClose }) {
   );
 }
 
-export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
+export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBack, onBook }) {
   const insets = useSafeAreaInsets();
   const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
@@ -441,6 +480,14 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
   const [storyOpen, setStoryOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState(0);
 
+  // Selected Zone Hub coordinates
+  const zoneCoords = useMemo(() => {
+    const lat = selectedZone?.lat || selectedZone?.center?.lat || (trip?.pickupZoneObj?.lat) || 22.3168;
+    const lng = selectedZone?.lng || selectedZone?.center?.lng || (trip?.pickupZoneObj?.lng) || 73.1415;
+    const name = selectedZone?.name || trip?.pickupName || 'Gotri Zone';
+    return { lat: Number(lat), lng: Number(lng), name };
+  }, [selectedZone, trip]);
+
   // Flexi Vehicle Pickup & Drop State
   const [flexiEnabled, setFlexiEnabled] = useState(Boolean(vehicle?.flexiEnabled));
   const [sameFlexiLocation, setSameFlexiLocation] = useState(false);
@@ -450,6 +497,13 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
   const [flexiDropAddress, setFlexiDropAddress] = useState(
     vehicle?.flexiDropAddress || ''
   );
+  const [pickupCoords, setPickupCoords] = useState(null);
+  const [dropCoords, setDropCoords] = useState(null);
+  const [pickupKm, setPickupKm] = useState(0);
+  const [dropKm, setDropKm] = useState(0);
+  const [pickupDeliveryCharge, setPickupDeliveryCharge] = useState(0);
+  const [dropDeliveryCharge, setDropDeliveryCharge] = useState(0);
+
   const [addressTarget, setAddressTarget] = useState('pickup'); // 'pickup' | 'drop'
   const [addressSheetOpen, setAddressSheetOpen] = useState(false);
   const [mapPickerOpen, setMapPickerOpen] = useState(false);
@@ -467,6 +521,281 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
   );
   const [editingAddressId, setEditingAddressId] = useState(null);
   const [thingsKeepInMindOpen, setThingsKeepInMindOpen] = useState(false);
+
+  // Gallery image preview modal state
+  const [previewImage, setPreviewImage] = useState(null);
+
+  // Real Google Map states & methods
+  const webMapRef = useRef(null);
+  const webMapReady = useRef(false);
+  const [mapLoading, setMapLoading] = useState(true);
+  const [mapRegion, setMapRegion] = useState({
+    latitude: 22.3168,
+    longitude: 73.1415,
+    latitudeDelta: 0.012,
+    longitudeDelta: 0.012,
+  });
+  const [userMapCoords, setUserMapCoords] = useState(null);
+
+  // Live distance from zone to currently pinned map location
+  const liveDistanceKm = useMemo(() => {
+    return haversineDistKm(zoneCoords.lat, zoneCoords.lng, mapRegion.latitude, mapRegion.longitude);
+  }, [zoneCoords, mapRegion.latitude, mapRegion.longitude]);
+
+  // Google Maps HTML template loaded in WebView
+  const googleMapHtml = useMemo(() => {
+    const lat = 22.3168;
+    const lng = 73.1415;
+    const hubLat = zoneCoords.lat || 22.3168;
+    const hubLng = zoneCoords.lng || 73.1415;
+    const hubName = (zoneCoords.name || 'Vadodara').replace(/Zone/i, '').trim();
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #E5E3DF;
+      touch-action: pan-x pan-y pinch-zoom;
+    }
+    #map {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+  </style>
+  <script src="https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_KEY}&libraries=places"></script>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    var map;
+    var hubMarker;
+
+    function initMap() {
+      try {
+        var startCenter = { lat: ${lat}, lng: ${lng} };
+        map = new google.maps.Map(document.getElementById('map'), {
+          center: startCenter,
+          zoom: 16,
+          disableDefaultUI: true,
+          zoomControl: false,
+          mapTypeControl: false,
+          scaleControl: false,
+          streetViewControl: false,
+          rotateControl: false,
+          fullscreenControl: false,
+          gestureHandling: 'greedy',
+          clickableIcons: false
+        });
+
+        hubMarker = new google.maps.Marker({
+          position: { lat: ${hubLat}, lng: ${hubLng} },
+          map: map,
+          title: "${hubName} Hub",
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 9,
+            fillColor: "#4A168C",
+            fillOpacity: 1,
+            strokeWeight: 2.5,
+            strokeColor: "#FFFFFF"
+          }
+        });
+
+        google.maps.event.addListener(map, 'idle', function() {
+          var c = map.getCenter();
+          if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'MAP_IDLE',
+              latitude: c.lat(),
+              longitude: c.lng()
+            }));
+          }
+        });
+
+        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MAP_READY' }));
+        }
+      } catch (err) {
+        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MAP_ERROR', message: String(err) }));
+        }
+      }
+    }
+
+    window.panToLocation = function(lat, lng) {
+      if (map && map.panTo) {
+        map.panTo({ lat: Number(lat), lng: Number(lng) });
+      }
+    };
+
+    window.onload = initMap;
+  </script>
+</body>
+</html>`;
+  }, [zoneCoords.lat, zoneCoords.lng, zoneCoords.name]);
+
+  const handleWebMapMessage = async (event) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'MAP_READY') {
+        webMapReady.current = true;
+        setMapLoading(false);
+        if (mapRegion.latitude && mapRegion.longitude) {
+          webMapRef.current?.injectJavaScript(`window.panToLocation(${mapRegion.latitude}, ${mapRegion.longitude}); true;`);
+        }
+      } else if (data.type === 'MAP_IDLE') {
+        const { latitude, longitude } = data;
+        setMapRegion((prev) => ({
+          ...prev,
+          latitude,
+          longitude,
+        }));
+
+        try {
+          const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${GOOGLE_MAPS_KEY}`;
+          const res = await fetch(geoUrl);
+          const json = await res.json();
+          if (json?.status === 'OK' && json?.results?.[0]?.formatted_address) {
+            setMapAddressDraft(json.results[0].formatted_address);
+            return;
+          }
+        } catch (_) {}
+
+        try {
+          const rev = await Location.reverseGeocodeAsync({ latitude, longitude });
+          if (rev && rev[0]) {
+            const item = rev[0];
+            const parts = [item.name || item.street, item.subregion || item.district, item.city].filter(Boolean);
+            if (parts.length > 0) setMapAddressDraft(parts.join(', '));
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  };
+
+  // Google Places live autocomplete states
+  const [googlePlacesPredictions, setGooglePlacesPredictions] = useState([]);
+  const [isSearchingPlaces, setIsSearchingPlaces] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const query = searchAddressQuery.trim();
+    if (query.length < 2) {
+      setGooglePlacesPredictions([]);
+      setIsSearchingPlaces(false);
+      return;
+    }
+    setIsSearchingPlaces(true);
+    const timeout = setTimeout(async () => {
+      try {
+        const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(query)}&components=country:in&key=${GOOGLE_MAPS_KEY}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (active && data?.predictions) {
+          setGooglePlacesPredictions(data.predictions);
+        }
+      } catch (err) {
+        console.warn('Google Places Autocomplete error:', err);
+      } finally {
+        if (active) setIsSearchingPlaces(false);
+      }
+    }, 280);
+
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+    };
+  }, [searchAddressQuery]);
+
+  const selectGooglePlace = async (placeId, description) => {
+    try {
+      Keyboard.dismiss();
+      const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=geometry,formatted_address,name&key=${GOOGLE_MAPS_KEY}`;
+      const res = await fetch(url);
+      const json = await res.json();
+      if (json?.result?.geometry?.location) {
+        const { lat, lng } = json.result.geometry.location;
+        const newCoords = {
+          latitude: lat,
+          longitude: lng,
+          latitudeDelta: 0.008,
+          longitudeDelta: 0.008,
+        };
+        setMapRegion(newCoords);
+        webMapRef.current?.injectJavaScript(`window.panToLocation(${newCoords.latitude}, ${newCoords.longitude}); true;`);
+        const fullAddr = json.result.formatted_address || description;
+        setMapAddressDraft(fullAddr);
+        setCompleteAddressDraft(fullAddr);
+        setLocalityDraft(json.result.name || 'vadodara');
+      } else {
+        setMapAddressDraft(description);
+        setCompleteAddressDraft(description);
+      }
+    } catch (_) {
+      setMapAddressDraft(description);
+      setCompleteAddressDraft(description);
+    }
+    setSearchAddressPopupOpen(false);
+  };
+
+  const getMapUserLocation = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      if (pos?.coords) {
+        const coords = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          latitudeDelta: 0.008,
+          longitudeDelta: 0.008,
+        };
+        setUserMapCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+        setMapRegion(coords);
+        webMapRef.current?.injectJavaScript(`window.panToLocation(${coords.latitude}, ${coords.longitude}); true;`);
+
+        try {
+          const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${pos.coords.latitude},${pos.coords.longitude}&key=${GOOGLE_MAPS_KEY}`;
+          const res = await fetch(geoUrl);
+          const json = await res.json();
+          if (json?.status === 'OK' && json?.results?.[0]?.formatted_address) {
+            setMapAddressDraft(json.results[0].formatted_address);
+          } else {
+            const rev = await Location.reverseGeocodeAsync({
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+            });
+            if (rev && rev[0]) {
+              const item = rev[0];
+              const parts = [item.name || item.street, item.subregion || item.district, item.city, item.postalCode].filter(Boolean);
+              const addr = parts.join(', ');
+              if (addr) setMapAddressDraft(addr);
+            }
+          }
+        } catch (_) {}
+      }
+    } catch (e) {
+      console.warn('Map user location error:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (mapPickerOpen) {
+      getMapUserLocation();
+    }
+  }, [mapPickerOpen]);
 
   const filteredRecent = SEARCH_RECENT_LOCATIONS.filter(
     (item) =>
@@ -487,37 +816,68 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
     setAddressSheetOpen(true);
   };
 
-  const applySelectedAddress = (addrString) => {
+  const applySelectedAddress = async (addrString, coords) => {
+    const locCoords = coords || { latitude: mapRegion.latitude, longitude: mapRegion.longitude };
+    const km = await fetchGoogleDistanceKm(zoneCoords.lat, zoneCoords.lng, locCoords.latitude, locCoords.longitude);
+    const charge = Math.round(km * 30);
+
     if (addressTarget === 'pickup') {
       setFlexiPickupAddress(addrString);
+      setPickupCoords(locCoords);
+      setPickupKm(km);
+      setPickupDeliveryCharge(charge);
       if (sameFlexiLocation) {
         setFlexiDropAddress(addrString);
+        setDropCoords(locCoords);
+        setDropKm(km);
+        setDropDeliveryCharge(charge);
       }
       setAddressSheetOpen(false);
     } else {
       setFlexiDropAddress(addrString);
+      setDropCoords(locCoords);
+      setDropKm(km);
+      setDropDeliveryCharge(charge);
       setAddressSheetOpen(false);
     }
   };
 
+  // Sync same drop location if checkbox is toggled
+  useEffect(() => {
+    if (sameFlexiLocation && flexiPickupAddress) {
+      setFlexiDropAddress(flexiPickupAddress);
+      setDropCoords(pickupCoords);
+      setDropKm(pickupKm);
+      setDropDeliveryCharge(pickupDeliveryCharge);
+    }
+  }, [sameFlexiLocation, flexiPickupAddress, pickupCoords, pickupKm, pickupDeliveryCharge]);
+
+  const totalDeliveryCharge = sameFlexiLocation
+    ? pickupDeliveryCharge * 2
+    : pickupDeliveryCharge + (flexiDropAddress ? dropDeliveryCharge : 0);
+  const totalDeliveryKm = sameFlexiLocation
+    ? pickupKm * 2
+    : pickupKm + (flexiDropAddress ? dropKm : 0);
+
   const handleConfirmMapPin = () => {
     const cleanAddr =
       mapAddressDraft.trim() || '746R+56R, Vadodara, Gujarat 391410, India';
+    const currentCoords = { latitude: mapRegion.latitude, longitude: mapRegion.longitude };
     if (editingAddressId) {
       setSavedAddresses((prev) =>
         prev.map((item) =>
-          item.id === editingAddressId ? { ...item, address: cleanAddr } : item
+          item.id === editingAddressId ? { ...item, address: cleanAddr, coords: currentCoords } : item
         )
       );
       setEditingAddressId(null);
     } else if (!savedAddresses.some((item) => item.address === cleanAddr)) {
       setSavedAddresses((prev) => [
-        { id: `addr-${Date.now()}`, tag: 'HOME', address: cleanAddr },
+        { id: `addr-${Date.now()}`, tag: 'HOME', address: cleanAddr, coords: currentCoords },
         ...prev,
       ]);
     }
     setMapPickerOpen(false);
-    applySelectedAddress(cleanAddr);
+    applySelectedAddress(cleanAddr, currentCoords);
   };
 
   const handleProceedBook = () => {
@@ -533,10 +893,21 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
         openAddressPicker('drop');
         return;
       }
+      const effDropKm = sameFlexiLocation ? pickupKm : (dropKm || pickupKm);
+      const effDropCharge = sameFlexiLocation ? pickupDeliveryCharge : (dropDeliveryCharge || pickupDeliveryCharge);
+      const totalCharge = pickupDeliveryCharge + effDropCharge;
+      const totalKm = pickupKm + effDropKm;
+
       onBook?.({
         flexiEnabled: true,
         flexiPickupAddress,
         flexiDropAddress: effectiveDrop,
+        pickupKm,
+        dropKm: effDropKm,
+        totalDeliveryKm: totalKm,
+        pickupDeliveryCharge,
+        dropDeliveryCharge: effDropCharge,
+        totalDeliveryCharge: totalCharge,
       });
       return;
     }
@@ -544,6 +915,8 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
       flexiEnabled: false,
       flexiPickupAddress: '',
       flexiDropAddress: '',
+      totalDeliveryCharge: 0,
+      totalDeliveryKm: 0,
     });
   };
 
@@ -559,24 +932,117 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
 
   const vehicleName = vehicle?.name || 'Evegah Mink';
   const vehicleImage = vehicle?.image || require('../assets/home/vehicle-mink.png');
+  const [modelDetails, setModelDetails] = useState(null);
+
+  // Fetch live specifications & features from backend vehicle models API
+  useEffect(() => {
+    let mounted = true;
+    apiGet('/vehicles/models')
+      .then((res) => {
+        if (!mounted) return;
+        const models = res?.data || (Array.isArray(res) ? res : []);
+        const matched = models.find(
+          (m) =>
+            (vehicle?.modelId && m.id === vehicle.modelId) ||
+            String(m.name || '').toLowerCase() === String(vehicleName).toLowerCase() ||
+            String(vehicleName).toLowerCase().includes(String(m.name || '').toLowerCase())
+        );
+        if (matched) {
+          setModelDetails(matched);
+        }
+      })
+      .catch((err) => console.warn('Vehicle details model fetch notice:', err.message));
+
+    return () => {
+      mounted = false;
+    };
+  }, [vehicleName, vehicle?.modelId]);
+
+  const extraFallback = EXTRA[vehicleName] || EXTRA['Evegah Mink'];
+  const effectiveBattery = vehicle?.battery || vehicle?.battery_capacity || modelDetails?.battery_capacity || extraFallback.battery;
+  const effectiveMotor = vehicle?.motor || vehicle?.motor_power || modelDetails?.motor_power || extraFallback.motor;
+  const effectiveCharge = vehicle?.charge || vehicle?.charging_time || modelDetails?.charging_time || extraFallback.charge;
+  const effectiveLoad = vehicle?.load || vehicle?.load_capacity || modelDetails?.load_capacity || extraFallback.load;
+  const effectiveWheels = vehicle?.wheels || vehicle?.wheel_size || modelDetails?.wheel_size || extraFallback.wheels;
+  let baseDaily =
+    vehicle?.dailyRate ||
+    vehicle?.priceNum ||
+    (parseFloat(String(vehicle?.price || '').replace(/\D/g, '')) || 0);
+  let baseMonthly =
+    vehicle?.monthlyRate ||
+    (modelDetails?.monthly_rate ? parseFloat(modelDetails.monthly_rate) : null);
+
+  const effectivePrice =
+    vehicle?.price || (baseDaily ? `₹${Math.round(baseDaily).toLocaleString('en-IN')}/day` : '');
+  const effectiveMonthly =
+    vehicle?.emi !== undefined
+      ? vehicle.emi
+      : baseMonthly
+      ? `₹${Math.round(baseMonthly).toLocaleString('en-IN')}/month`
+      : '';
+  const effectiveVariant = vehicle?.edition || vehicle?.tagline || modelDetails?.tagline || extraFallback.variant;
+  const effectiveDescription = vehicle?.description || modelDetails?.description;
+  const effectiveBrakes = vehicle?.brakes || modelDetails?.brakes || 'Combined CBS Disc Brakes';
+  const effectiveWarranty = vehicle?.warranty || modelDetails?.warranty || '1 Year Warranty';
+  const effectiveWater = vehicle?.water_resistance || modelDetails?.water_resistance || 'IP67 Certified';
+
   const extra = {
-    ...(EXTRA[vehicleName] || EXTRA['Evegah Mink']),
-    ...(vehicle?.battery ? { battery: vehicle.battery } : {}),
-    ...(vehicle?.motor ? { motor: vehicle.motor } : {}),
-    ...(vehicle?.charge ? { charge: vehicle.charge } : {}),
-    ...(vehicle?.load ? { load: vehicle.load } : {}),
-    ...(vehicle?.wheels ? { wheels: vehicle.wheels } : {}),
-    ...(vehicle?.price ? { price: vehicle.price } : {}),
+    ...extraFallback,
+    battery: effectiveBattery,
+    motor: effectiveMotor,
+    charge: effectiveCharge,
+    load: effectiveLoad,
+    wheels: effectiveWheels,
+    price: effectivePrice,
+    monthly: effectiveMonthly,
+    variant: effectiveVariant,
   };
 
   const specGridItems = [
-    { key: 'motor', label: `Motor Power\n${extra.motor}`, icon: 'speedometer-outline' },
-    { key: 'battery', label: `Battery Pack\n${extra.battery}`, icon: 'battery-full-outline' },
-    { key: 'charge', label: `Charge Time\n${extra.charge}`, icon: 'flash-outline' },
-    { key: 'wheels', label: `Wheel Size\n${extra.wheels}`, icon: 'disc-outline' },
-    { key: 'load', label: `Load Capacity\n${extra.load}`, icon: 'barbell-outline' },
-    { key: 'water', label: 'Water Rating\nIP67 Certified', icon: 'water-outline' },
+    { key: 'motor', label: `Motor Power\n${effectiveMotor}`, icon: 'speedometer-outline' },
+    { key: 'battery', label: `Battery Pack\n${effectiveBattery}`, icon: 'battery-full-outline' },
+    { key: 'charge', label: `Charge Time\n${effectiveCharge}`, icon: 'flash-outline' },
+    { key: 'wheels', label: `Wheel Size\n${effectiveWheels}`, icon: 'disc-outline' },
+    { key: 'load', label: `Load Capacity\n${effectiveLoad}`, icon: 'barbell-outline' },
+    { key: 'brakes', label: `Brakes\n${effectiveBrakes}`, icon: 'shield-checkmark-outline' },
+    { key: 'warranty', label: `Warranty\n${effectiveWarranty}`, icon: 'ribbon-outline' },
+    { key: 'water', label: `Water Rating\n${effectiveWater}`, icon: 'water-outline' },
   ];
+
+  // Backend uploaded media resolution
+  const resolvedBackendImages = [];
+  if (modelDetails?.main_image || vehicle?.image_url) {
+    const mainImgUrl = resolveMediaUrl(modelDetails?.main_image || vehicle?.image_url);
+    if (mainImgUrl) resolvedBackendImages.push(mainImgUrl);
+  }
+  const rawGallery = modelDetails?.gallery_images || vehicle?.gallery_images;
+  if (Array.isArray(rawGallery)) {
+    rawGallery.forEach((img) => {
+      const resolved = resolveMediaUrl(img);
+      if (resolved && !resolvedBackendImages.includes(resolved)) {
+        resolvedBackendImages.push(resolved);
+      }
+    });
+  }
+
+  const effectiveMediaList = resolvedBackendImages.length > 0
+    ? resolvedBackendImages.map((uri) => ({ uri }))
+    : [vehicleImage];
+
+  const galleryItems = effectiveMediaList.map((src, idx) => {
+    const tabFallback = GALLERY_TABS[idx % GALLERY_TABS.length];
+    return {
+      key: `gallery-item-${idx}`,
+      label: tabFallback ? tabFallback.label : `View ${idx + 1}`,
+      source: src,
+      scale: 1,
+      rotate: '0deg',
+      badge: idx === 0,
+    };
+  });
+
+  const resolvedVideoUrl = resolveMediaUrl(modelDetails?.video_url || vehicle?.video_url);
+  const videoSource = resolvedVideoUrl ? { uri: resolvedVideoUrl } : STORY_VIDEO;
 
   const selectCategory = (idx) => {
     setActiveTab(idx);
@@ -590,7 +1056,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
   };
 
   const handleMainScroll = (event) => {
-    const y = event.nativeEvent.contentOffset.y;
+    const y = event?.nativeEvent?.contentOffset?.y ?? 0;
     setScrolledPastHero(y > 240);
 
     const offsets = sectionOffsets.current;
@@ -608,7 +1074,33 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
   };
 
   const bentoConfig = BENTO_VIEWS[bentoTab] || BENTO_VIEWS.Exterior;
-  const featureList = extra.features || EXTRA['Evegah Mink'].features;
+
+  // Map features dynamically from the backend vehicle models API
+  const activeFeatures = modelDetails?.features || vehicle?.backendFeatures;
+  const dynamicFeatures = Array.isArray(activeFeatures) && activeFeatures.length > 0
+    ? activeFeatures.map((f, i) => {
+        let iconName = 'checkmark-circle-outline';
+        const rawIcon = String(f.icon || '').toLowerCase();
+        if (rawIcon.includes('eco') || rawIcon.includes('leaf')) iconName = 'leaf-outline';
+        else if (rawIcon.includes('rupee') || rawIcon.includes('cash') || rawIcon.includes('cost')) iconName = 'cash-outline';
+        else if (rawIcon.includes('bolt') || rawIcon.includes('charge') || rawIcon.includes('flash')) iconName = 'flash-outline';
+        else if (rawIcon.includes('display') || rawIcon.includes('speed') || rawIcon.includes('meter')) iconName = 'speedometer-outline';
+        else if (rawIcon.includes('seat')) iconName = 'layers-outline';
+        else if (rawIcon.includes('light')) iconName = 'sunny-outline';
+        else if (rawIcon.includes('tyre') || rawIcon.includes('wheel')) iconName = 'disc-outline';
+        else if (rawIcon.includes('shield') || rawIcon.includes('protect')) iconName = 'shield-checkmark-outline';
+        else if (rawIcon.includes('battery')) iconName = 'battery-charging-outline';
+        else if (rawIcon.includes('bluetooth')) iconName = 'bluetooth-outline';
+
+        return {
+          key: `bf-${i}`,
+          label: `${f.title}\n${f.subtitle || ''}`.trim(),
+          icon: iconName,
+        };
+      })
+    : null;
+
+  const featureList = dynamicFeatures || extra.features || EXTRA['Evegah Mink'].features;
   const visibleFeatures = showAllFeatures ? featureList : featureList.slice(0, 6);
   const diagram = extra.diagram || EXTRA['Evegah Mink'].diagram;
   const popularList = extra.popularFeatures || EXTRA['Evegah Mink'].popularFeatures;
@@ -626,7 +1118,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
           {scrolledPastHero ? (
             <View style={styles.compactHeaderTitleWrap}>
               <Text style={styles.compactHeaderTitle} numberOfLines={1}>
-                2026 {vehicleName}
+                {vehicleName}
               </Text>
               <Text style={styles.compactHeaderPrice}>{extra.price}</Text>
             </View>
@@ -645,7 +1137,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
             style={styles.roundBtn}
             onPress={() => {
               Share.share({
-                message: `Check out the 2026 ${vehicleName} (${extra.price}) on Evegah!`,
+                message: `Check out the  ${vehicleName} (${extra.price}) on Evegah!`,
               }).catch(() => {});
             }}
           >
@@ -697,15 +1189,16 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
               pagingEnabled
               showsHorizontalScrollIndicator={false}
               onMomentumScrollEnd={(event) => {
-                const page = Math.round(event.nativeEvent.contentOffset.x / SCREEN_W);
-                setActiveTab(Math.max(0, Math.min(GALLERY_TABS.length - 1, page)));
+                const offsetX = event?.nativeEvent?.contentOffset?.x ?? 0;
+                const page = Math.round(offsetX / SCREEN_W);
+                setActiveTab(Math.max(0, Math.min(galleryItems.length - 1, page)));
               }}
             >
-              {GALLERY_TABS.map((item) => (
+              {galleryItems.map((item) => (
                 <View key={item.key} style={styles.heroSlide}>
                   <Animated.View entering={FadeIn.duration(480)}>
                     <Image
-                      source={vehicleImage}
+                      source={item.source}
                       style={[
                         styles.heroImage,
                         { transform: [{ scale: item.scale }, { rotate: item.rotate }] },
@@ -723,7 +1216,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
               </View>
 
               <View style={styles.dotsRow}>
-                {GALLERY_TABS.map((item, idx) => (
+                {galleryItems.map((item, idx) => (
                   <View
                     key={item.key}
                     style={[styles.dot, idx === activeTab && styles.dotActive]}
@@ -734,7 +1227,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
               <Pressable style={styles.storyRingBtn} onPress={() => setStoryOpen(true)}>
                 <View style={styles.storyThumbInner}>
                   <Image
-                    source={require('../assets/home/slider2_front.png')}
+                    source={effectiveMediaList[0] || require('../assets/home/slider2_front.png')}
                     style={styles.storyThumbImg}
                     contentFit="cover"
                   />
@@ -750,7 +1243,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.thumbRow}
             >
-              {GALLERY_TABS.map((item, idx) => {
+              {galleryItems.map((item, idx) => {
                 const active = idx === activeTab;
                 return (
                   <Pressable
@@ -760,7 +1253,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                   >
                     <View style={styles.thumbImgBox}>
                       <Image
-                        source={vehicleImage}
+                        source={item.source}
                         style={[
                           styles.thumbImg,
                           { transform: [{ scale: item.scale }, { rotate: item.rotate }] },
@@ -785,7 +1278,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
           <Animated.View entering={cardEnter(0)} style={styles.mainSheet}>
             <View style={styles.titleRow}>
               <View style={styles.titleCopy}>
-                <Text style={styles.vehicleHeading}>2026 {vehicleName.toUpperCase()}</Text>
+                <Text style={styles.vehicleHeading}> {vehicleName.toUpperCase()}</Text>
                 <Text style={styles.vehicleVariant}>{extra.variant}</Text>
               </View>
               <Pressable
@@ -813,9 +1306,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
 
             <View style={styles.dashedDivider} />
 
-            <View style={styles.discountPill}>
-              <Text style={styles.discountPillText}>{extra.discount}</Text>
-            </View>
+           
 
             <View style={styles.priceMainRow}>
               <Text style={styles.priceMainText}>{extra.price}</Text>
@@ -825,86 +1316,21 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
               </View>
             </View>
 
-            <View style={styles.emiRow}>
-              <View style={styles.emiUnderline}>
-                <Text style={styles.emiPriceText}>{extra.monthly}</Text>
-              </View>
-              <Text style={styles.breadcrumbSep}>|</Text>
-              <Text style={styles.emiSubText}>Easy plans available</Text>
-            </View>
-
-            <View style={styles.assuranceBox}>
-              <View style={styles.assuranceLeft}>
-                <View style={styles.assuranceItem}>
-                  <Ionicons name="checkmark-circle" size={17} color="#179C48" />
-                  <Text style={styles.assuranceText}>With BMS, Geo-Fence & Many More </Text>
+            {extra.monthly ? (
+              <View style={styles.emiRow}>
+                <View style={styles.emiUnderline}>
+                  <Text style={styles.emiPriceText}>{extra.monthly}</Text>
                 </View>
-                <View style={styles.assuranceItem}>
-                  <Ionicons name="checkmark-circle" size={17} color="#179C48" />
-                  <Text style={styles.assuranceText}>Great savings vs petrol scooter</Text>
-                </View>
-                <View style={styles.assuranceItem}>
-                  <Ionicons name="checkmark-circle" size={17} color="#179C48" />
-                  <Text style={styles.assuranceText}>Best price vs</Text>
-                  <View style={styles.competitorDots}>
-                    <View style={[styles.compCircle, { backgroundColor: '#E11D48', marginLeft: 0 }]}>
-                      <Ionicons name="pricetag" size={8} color="#FFFFFF" />
-                    </View>
-                    <View style={[styles.compCircle, { backgroundColor: '#2563EB' }]}>
-                      <Ionicons name="checkmark" size={9} color="#FFFFFF" />
-                    </View>
-                    <View style={[styles.compCircle, { backgroundColor: '#F59E0B' }]}>
-                      <Ionicons name="flash" size={8} color="#11141C" />
-                    </View>
-                    <View style={[styles.compCircle, { backgroundColor: '#111827' }]}>
-                      <Ionicons name="star" size={8} color="#F59E0B" />
-                    </View>
-                  </View>
-                </View>
+                <Text style={styles.breadcrumbSep}>|</Text>
+                <Text style={styles.emiSubText}>{`${extra.price} • ${extra.monthly}`}</Text>
               </View>
+            ) : null}
 
-              <View style={styles.festBadge}>
-                <Text style={styles.festBadgeLine1}>Fest</Text>
-                <Text style={styles.festBadgeLine2}>Forward</Text>
-                <Text style={styles.festBadgeLine3}>Days</Text>
-              </View>
-            </View>
-
-            {/* Location Pill (Matches Screenshot 1) */}
-            <View style={styles.ZoneLocationPill}>
-              <Ionicons name="location-outline" size={16} color="#11141C" />
-              <Text style={styles.ZoneLocationText} numberOfLines={1}>
-                103, New Alkapuri, Laxmipura, Vad | 9.8 Kms Away
-              </Text>
-            </View>
-
-            {/* Guarantee / Professional Host Banner (Matches Screenshot 1) */}
-            <View style={styles.guaranteeHostCard}>
-              <View style={styles.guaranteeSealWrap}>
-                <View style={styles.guaranteeSealOuter}>
-                  <View style={styles.guaranteeSealInner}>
-                    <Text style={styles.guaranteeStarsTop}>★ ★ ★</Text>
-                    <View style={styles.guaranteeRibbon}>
-                      <Text style={styles.guaranteeRibbonText}>GUARANTEE</Text>
-                    </View>
-                    <Text style={styles.guaranteeStarsTop}>★ ★ ★</Text>
-                  </View>
-                </View>
-              </View>
-              <View style={styles.guaranteeHostCopy}>
-                <Text style={styles.guaranteeHostTitle}>Professional Host</Text>
-                <Text style={styles.guaranteeHostSub}>
-                  99% fulfillment with consistent 5-star ratings
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-            </View>
-
-            {/* Flexi EV Delivery & Pickup Card (Matches Screenshot 1) */}
+             {/* Flexi EV Delivery & Pickup Card (Matches Screenshot 1) */}
             <View style={styles.flexiSectionWrap}>
               {/* Top Dark Tab Ribbon */}
               <View style={styles.flexiTopTabRibbon}>
-                <Text style={styles.flexiTopTabText}>Scooter Drop & Pickup</Text>
+                <Text style={styles.flexiTopTabText}>Flexi Drop & Pickup</Text>
               </View>
 
               <View
@@ -917,7 +1343,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                 <View style={styles.flexiHeaderGrey}>
                   <View style={styles.flexiHeaderLeft}>
                     <Text style={styles.flexiRateText}>
-                      Base fare ₹800 + Additional ₹30/KM
+                      Additional ₹30/KM
                     </Text>
 
                     <View style={styles.flexiSwitchRow}>
@@ -1059,6 +1485,61 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                     </Pressable>
                   ) : null}
 
+                  {/* Real-time Distance & Delivery Fee Card */}
+                  {flexiEnabled && (pickupKm > 0 || dropKm > 0) ? (
+                    <View style={styles.flexiDistanceBreakdownCard}>
+                      <View style={styles.flexiDistHeaderRow}>
+                        <Ionicons name="speedometer-outline" size={16} color={FLEXI_PURPLE} />
+                        <Text style={styles.flexiDistHeaderTitle}>
+                          Doorstep Distance from {zoneCoords.name.replace(/Zone/i, '').trim()} Hub
+                        </Text>
+                      </View>
+
+                      {pickupKm > 0 ? (
+                        <View style={styles.flexiDistRow}>
+                          <View style={styles.flexiDistIconTag}>
+                            <Text style={styles.flexiDistTagText}>PICKUP</Text>
+                          </View>
+                          <Text style={styles.flexiDistLabel} numberOfLines={1}>
+                            {pickupKm} km from Hub (@ ₹30/km)
+                          </Text>
+                          <Text style={styles.flexiDistVal}>₹{pickupDeliveryCharge}</Text>
+                        </View>
+                      ) : null}
+
+                      {sameFlexiLocation && pickupKm > 0 ? (
+                        <View style={styles.flexiDistRow}>
+                          <View style={[styles.flexiDistIconTag, { backgroundColor: '#EDE9FE' }]}>
+                            <Text style={[styles.flexiDistTagText, { color: '#6D28D9' }]}>DROP</Text>
+                          </View>
+                          <Text style={styles.flexiDistLabel} numberOfLines={1}>
+                            {pickupKm} km to Hub (@ ₹30/km)
+                          </Text>
+                          <Text style={styles.flexiDistVal}>₹{pickupDeliveryCharge}</Text>
+                        </View>
+                      ) : dropKm > 0 ? (
+                        <View style={styles.flexiDistRow}>
+                          <View style={[styles.flexiDistIconTag, { backgroundColor: '#EDE9FE' }]}>
+                            <Text style={[styles.flexiDistTagText, { color: '#6D28D9' }]}>DROP</Text>
+                          </View>
+                          <Text style={styles.flexiDistLabel} numberOfLines={1}>
+                            {dropKm} km to Hub (@ ₹30/km)
+                          </Text>
+                          <Text style={styles.flexiDistVal}>₹{dropDeliveryCharge}</Text>
+                        </View>
+                      ) : null}
+
+                      <View style={styles.flexiDistDivider} />
+
+                      <View style={styles.flexiDistTotalRow}>
+                        <Text style={styles.flexiDistTotalLabel}>
+                          Total Flexi Delivery ({totalDeliveryKm} km)
+                        </Text>
+                        <Text style={styles.flexiDistTotalVal}>₹{totalDeliveryCharge}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+
                   <View style={styles.flexiBodyDivider} />
 
                   {/* Things to keep in mind -> */}
@@ -1074,6 +1555,86 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                 </View>
               </View>
             </View>
+
+            <View style={styles.assuranceBox}>
+              <View style={styles.assuranceLeft}>
+                <View style={styles.assuranceItem}>
+                  <Ionicons name="checkmark-circle" size={17} color="#4A168C" />
+                  <Text style={styles.assuranceText}>With BMS, Geo-Fence & Many More </Text>
+                </View>
+                <View style={styles.assuranceItem}>
+                  <Ionicons name="checkmark-circle" size={17} color="#4A168C" />
+                  <Text style={styles.assuranceText}>Great savings vs petrol scooter</Text>
+                </View>
+                <View style={styles.assuranceItem}>
+                  <Ionicons name="checkmark-circle" size={17} color="#4A168C" />
+                  <Text style={styles.assuranceText}>Best price vs</Text>
+                  <View style={styles.competitorDots}>
+                    <View style={[styles.compCircle, { backgroundColor: '#E11D48', marginLeft: 0 }]}>
+                      <Ionicons name="pricetag" size={8} color="#FFFFFF" />
+                    </View>
+                    <View style={[styles.compCircle, { backgroundColor: '#2563EB' }]}>
+                      <Ionicons name="checkmark" size={9} color="#FFFFFF" />
+                    </View>
+                    <View style={[styles.compCircle, { backgroundColor: '#F59E0B' }]}>
+                      <Ionicons name="flash" size={8} color="#11141C" />
+                    </View>
+                    <View style={[styles.compCircle, { backgroundColor: '#111827' }]}>
+                      <Ionicons name="star" size={8} color="#F59E0B" />
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.festBadge}>
+                <Text style={styles.festBadgeLine1}>Fest</Text>
+                <Text style={styles.festBadgeLine2}>Forward</Text>
+                <Text style={styles.festBadgeLine3}>Days</Text>
+              </View>
+            </View>
+
+            {/* Location Pill */}
+            <View style={styles.ZoneLocationPill}>
+              <Ionicons name="location-outline" size={16} color={PRIMARY_BLUE} />
+              <Text style={styles.ZoneLocationText} numberOfLines={1}>
+                {vehicle?.Zone || 'Zone · Gotri Charging Zone, Vadodara'}
+              </Text>
+            </View>
+
+            {/* Model Description from API */}
+            {effectiveDescription ? (
+              <View style={styles.modelDescriptionCard}>
+                <View style={styles.modelDescHeaderRow}>
+                  <Ionicons name="sparkles" size={15} color={PRIMARY_BLUE} />
+                  <Text style={styles.modelDescTitle}>About {vehicleName}</Text>
+                </View>
+                <Text style={styles.modelDescBody}>{effectiveDescription}</Text>
+              </View>
+            ) : null}
+
+            {/* Guarantee / Professional Host Banner (Matches Screenshot 1) */}
+            <View style={styles.guaranteeHostCard}>
+              <View style={styles.guaranteeSealWrap}>
+                <View style={styles.guaranteeSealOuter}>
+                  <View style={styles.guaranteeSealInner}>
+                    <Text style={styles.guaranteeStarsTop}>★ ★ ★</Text>
+                    <View style={styles.guaranteeRibbon}>
+                      <Text style={styles.guaranteeRibbonText}>GUARANTEE</Text>
+                    </View>
+                    <Text style={styles.guaranteeStarsTop}>★ ★ ★</Text>
+                  </View>
+                </View>
+              </View>
+              <View style={styles.guaranteeHostCopy}>
+                <Text style={styles.guaranteeHostTitle}>Professional Host</Text>
+                <Text style={styles.guaranteeHostSub}>
+                  99% fulfillment with consistent 5-star ratings
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+            </View>
+
+           
           </Animated.View>
         </View>
 
@@ -1086,29 +1647,16 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
         >
           <Text style={styles.cardSectionHeading}>Gallery</Text>
 
-          <View style={styles.segmentedBar4}>
-            {BENTO_CATEGORIES.map((tab) => {
-              const active = bentoTab === tab;
-              return (
-                <Pressable
-                  key={tab}
-                  onPress={() => setBentoTab(tab)}
-                  style={[styles.segmentPill4, active && styles.segmentPillActive]}
-                >
-                  <Text style={[styles.segmentPillText, active && styles.segmentPillTextActive]}>
-                    {tab}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
           <View style={styles.bentoContainer}>
             {/* Top full-width tile */}
-            <View style={styles.bentoTopTile}>
-              <View style={styles.bentoFloorRingLarge} />
+            <Pressable
+              onPress={() =>
+                setPreviewImage(effectiveMediaList[0] || vehicleImage)
+              }
+              style={styles.bentoTopTile}
+            >
               <Image
-                source={vehicleImage}
+                source={effectiveMediaList[0] || vehicleImage}
                 style={[
                   styles.bentoTopImg,
                   {
@@ -1120,18 +1668,24 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                 ]}
                 contentFit="contain"
               />
-              <View style={styles.bentoLabelPill}>
-                <Text style={styles.bentoLabelText}>{bentoConfig.top.label}</Text>
+              <View style={styles.bentoZoomPill}>
+                <Ionicons name="expand-outline" size={14} color="#64748B" />
               </View>
-            </View>
+            </Pressable>
 
             {/* Bottom 2-column grid */}
             <View style={styles.bentoBottomRow}>
               <View style={styles.bentoLeftCol}>
-                <View style={styles.bentoSmallTile}>
-                  <View style={styles.bentoFloorRingSmall} />
+                <Pressable
+                  onPress={() =>
+                    setPreviewImage(
+                      effectiveMediaList[1] || effectiveMediaList[0] || vehicleImage
+                    )
+                  }
+                  style={styles.bentoSmallTile}
+                >
                   <Image
-                    source={vehicleImage}
+                    source={effectiveMediaList[1] || effectiveMediaList[0] || vehicleImage}
                     style={[
                       styles.bentoSmallImg,
                       {
@@ -1143,15 +1697,21 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                     ]}
                     contentFit="contain"
                   />
-                  <View style={styles.bentoLabelPill}>
-                    <Text style={styles.bentoLabelText}>{bentoConfig.bottomLeftTop.label}</Text>
+                  <View style={styles.bentoZoomPill}>
+                    <Ionicons name="expand-outline" size={13} color="#64748B" />
                   </View>
-                </View>
+                </Pressable>
 
-                <View style={styles.bentoSmallTile}>
-                  <View style={styles.bentoFloorRingSmall} />
+                <Pressable
+                  onPress={() =>
+                    setPreviewImage(
+                      effectiveMediaList[2] || effectiveMediaList[0] || vehicleImage
+                    )
+                  }
+                  style={styles.bentoSmallTile}
+                >
                   <Image
-                    source={vehicleImage}
+                    source={effectiveMediaList[2] || effectiveMediaList[0] || vehicleImage}
                     style={[
                       styles.bentoSmallImg,
                       {
@@ -1163,16 +1723,25 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                     ]}
                     contentFit="contain"
                   />
-                  <View style={styles.bentoLabelPill}>
-                    <Text style={styles.bentoLabelText}>{bentoConfig.bottomLeftBottom.label}</Text>
+                  <View style={styles.bentoZoomPill}>
+                    <Ionicons name="expand-outline" size={13} color="#64748B" />
                   </View>
-                </View>
+                </Pressable>
               </View>
 
-              <View style={styles.bentoRightCol}>
-                <View style={styles.bentoFloorRingTall} />
+              <Pressable
+                onPress={() =>
+                  setPreviewImage(
+                    effectiveMediaList[3] ||
+                      effectiveMediaList[1] ||
+                      effectiveMediaList[0] ||
+                      vehicleImage
+                  )
+                }
+                style={styles.bentoRightCol}
+              >
                 <Image
-                  source={vehicleImage}
+                  source={effectiveMediaList[3] || effectiveMediaList[1] || effectiveMediaList[0] || vehicleImage}
                   style={[
                     styles.bentoTallImg,
                     {
@@ -1184,10 +1753,10 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                   ]}
                   contentFit="contain"
                 />
-                <View style={styles.bentoLabelPill}>
-                  <Text style={styles.bentoLabelText}>{bentoConfig.bottomRight.label}</Text>
+                <View style={styles.bentoZoomPill}>
+                  <Ionicons name="expand-outline" size={14} color="#64748B" />
                 </View>
-              </View>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -1210,15 +1779,15 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
 
               <View style={styles.inspectionCheckList}>
                 <View style={styles.inspectionCheckRow}>
-                  <Ionicons name="checkmark-circle" size={17} color="#179C48" />
+                  <Ionicons name="checkmark-circle" size={17} color="#4A168C" />
                   <Text style={styles.inspectionCheckText}>Ready to drive</Text>
                 </View>
                 <View style={styles.inspectionCheckRow}>
-                  <Ionicons name="checkmark-circle" size={17} color="#179C48" />
+                  <Ionicons name="checkmark-circle" size={17} color="#4A168C" />
                   <Text style={styles.inspectionCheckText}>Maintainance Checklist Passed</Text>
                 </View>
                 <View style={styles.inspectionCheckRow}>
-                  <Ionicons name="checkmark-circle" size={17} color="#179C48" />
+                  <Ionicons name="checkmark-circle" size={17} color="#4A168C" />
                   <Text style={styles.inspectionCheckText}>Get after-rent support</Text>
                 </View>
               </View>
@@ -1622,60 +2191,60 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
         <View style={[styles.mapModalRoot, StyleSheet.absoluteFill, { zIndex: 9999 }]}>
           <StatusBar style="dark" />
 
-          {/* Interactive Map Canvas */}
+          {/* Interactive Real Google Map Canvas via WebView */}
           <View style={styles.mapCanvas}>
-            {/* Green Park Zones */}
-            <View style={styles.mapParkTopLeft} />
-            <View style={styles.mapParkBottomRight} />
+            <WebView
+              ref={webMapRef}
+              originWhitelist={['*']}
+              source={{ html: googleMapHtml }}
+              style={StyleSheet.absoluteFillObject}
+              onMessage={handleWebMapMessage}
+              javaScriptEnabled
+              domStorageEnabled
+              startInLoadingState
+              scalesPageToFit={false}
+              scrollEnabled={false}
+              bounces={false}
+              overScrollMode="never"
+              renderLoading={() => (
+                <View style={[StyleSheet.absoluteFill, styles.mapLoaderCenter]}>
+                  <ActivityIndicator size="large" color={FLEXI_PURPLE} />
+                  <Text style={styles.mapLoaderText}>Loading Google Map...</Text>
+                </View>
+              )}
+            />
 
-            {/* Map Roads Network */}
-            <View style={styles.mapRoadH1} />
-            <View style={styles.mapRoadH2} />
-            <View style={styles.mapRoadH3} />
-            <View style={styles.mapRoadV1} />
-            <View style={styles.mapRoadV2} />
-            <View style={styles.mapRoadDiag} />
-
-            {/* Map Building Blocks */}
-            <View style={[styles.mapBuildingBlock, { top: '26%', left: '34%', width: 64, height: 36 }]} />
-            <View style={[styles.mapBuildingBlock, { top: '52%', left: '48%', width: 76, height: 42 }]} />
-            <View style={[styles.mapBuildingBlock, { top: '60%', left: '22%', width: 54, height: 32 }]} />
-
-            {/* Tappable Map Landmarks */}
-            {MAP_LANDMARKS.map((lm) => (
-              <Pressable
-                key={lm.id}
-                onPress={() => setMapAddressDraft(lm.address)}
+            {/* Center Selected Location Pin with Target Badge */}
+            <View pointerEvents="none" style={styles.mapCenterPinContainer}>
+              <View
                 style={[
-                  styles.mapLandmarkWrap,
-                  lm.top ? { top: lm.top } : null,
-                  lm.bottom ? { bottom: lm.bottom } : null,
-                  lm.left ? { left: lm.left } : null,
-                  lm.right ? { right: lm.right } : null,
+                  styles.mapTargetTypeBadge,
+                  addressTarget === 'drop' && styles.mapTargetTypeBadgeDrop,
                 ]}
               >
-                <View style={styles.mapLandmarkTextCol}>
-                  <Text style={[styles.mapLandmarkTitle, { color: lm.color }]}>
-                    {lm.name}
-                  </Text>
-                  {lm.sub ? (
-                    <Text style={styles.mapLandmarkSub}>{lm.sub}</Text>
-                  ) : null}
-                </View>
-                <View
-                  style={[styles.mapLandmarkPinCircle, { backgroundColor: lm.color }]}
-                >
-                  <Ionicons name={lm.icon} size={13} color="#FFFFFF" />
-                </View>
-              </Pressable>
-            ))}
-
-            {/* Center Selected Location Pin */}
-            <View pointerEvents="none" style={styles.mapCenterPinContainer}>
-              <View style={styles.mapCenterPinHead}>
+                <Ionicons
+                  name={addressTarget === 'pickup' ? 'navigate-circle' : 'flag'}
+                  size={13}
+                  color="#FFFFFF"
+                />
+                <Text style={styles.mapTargetTypeBadgeText}>
+                  {addressTarget === 'pickup' ? 'Pickup Location' : 'Drop Location'}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.mapCenterPinHead,
+                  addressTarget === 'drop' && { backgroundColor: '#10B981' },
+                ]}
+              >
                 <View style={styles.mapCenterPinInnerDot} />
               </View>
-              <View style={styles.mapCenterPinTip} />
+              <View
+                style={[
+                  styles.mapCenterPinTip,
+                  addressTarget === 'drop' && { borderTopColor: '#10B981' },
+                ]}
+              />
               <View style={styles.mapCenterGroundDot} />
             </View>
 
@@ -1701,7 +2270,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                 style={styles.mapSearchPill}
               >
                 <Text style={styles.mapSearchPillText} numberOfLines={1}>
-                  {mapAddressDraft || '746R+56R, Vadodara, Gujarat 391410, India'}
+                  {mapAddressDraft || 'Detecting address on map...'}
                 </Text>
                 <Pressable
                   hitSlop={8}
@@ -1716,19 +2285,27 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
               </Pressable>
             </View>
 
-            {/* Bottom-Left Google Maps Watermark */}
-            <View style={styles.googleWatermarkWrap}>
-              <Text style={styles.googleWatermarkText}>Google Maps</Text>
+            {/* Distance from Hub Floating Pill */}
+            <View style={[styles.mapDistanceFloatingPill, { top: insets.top + 62 }]}>
+              <Ionicons name="navigate-outline" size={14} color="#4A168C" />
+              <Text style={styles.mapDistanceFloatingText}>
+                {zoneCoords.name.replace(/Zone/i, '').trim()} Hub ➔{' '}
+                <Text style={styles.mapDistanceFloatingBold}>
+                  {addressTarget === 'pickup' ? 'Pickup' : 'Drop'}: {liveDistanceKm} km
+                </Text>
+                {'  '}•{'  '}
+                <Text style={styles.mapDistanceFloatingCost}>
+                  ₹{Math.round(liveDistanceKm * 30)} (@ ₹30/km)
+                </Text>
+              </Text>
             </View>
 
             {/* Bottom-Right GPS Target Button */}
             <Pressable
-              onPress={() =>
-                setMapAddressDraft('746R+56R, Vadodara, Gujarat 391410, India')
-              }
+              onPress={getMapUserLocation}
               style={styles.mapGpsTargetBtn}
             >
-              <Ionicons name="locate" size={22} color="#374151" />
+              <Ionicons name="locate" size={22} color={FLEXI_PURPLE} />
             </Pressable>
           </View>
 
@@ -1753,12 +2330,19 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
             </Pressable>
           </View>
 
-          {/* Search Address Popup Overlay View */}
+          {/* Search Address Popup Overlay View with Keyboard Avoiding */}
           {searchAddressPopupOpen ? (
-            <View style={[styles.modalBackdropDark, StyleSheet.absoluteFill, { zIndex: 10001 }]}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
+              style={[styles.modalBackdropDark, StyleSheet.absoluteFill, { zIndex: 10001 }]}
+            >
               <Pressable
                 style={styles.modalBackdropTouch}
-                onPress={() => setSearchAddressPopupOpen(false)}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setSearchAddressPopupOpen(false);
+                }}
               />
               <View
                 style={[
@@ -1771,7 +2355,10 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                   <Text style={styles.searchAddressTitle}>Search Address</Text>
                   <Pressable
                     hitSlop={10}
-                    onPress={() => setSearchAddressPopupOpen(false)}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setSearchAddressPopupOpen(false);
+                    }}
                     style={styles.modalRoundCloseBtn}
                   >
                     <Ionicons name="close" size={20} color="#111827" />
@@ -1783,7 +2370,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                   <TextInput
                     value={searchAddressQuery}
                     onChangeText={setSearchAddressQuery}
-                    placeholder="Search Address"
+                    placeholder="Search address or landmark on Google Maps"
                     placeholderTextColor="#9CA3AF"
                     style={styles.searchAddressTextInput}
                     autoFocus
@@ -1799,9 +2386,54 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                 </View>
 
                 <ScrollView
+                  keyboardShouldPersistTaps="handled"
                   showsVerticalScrollIndicator={false}
-                  style={{ maxHeight: 420 }}
+                  style={{ maxHeight: 360 }}
                 >
+                  {isSearchingPlaces && (
+                    <View style={styles.placesLoadingRow}>
+                      <ActivityIndicator size="small" color={FLEXI_PURPLE} />
+                      <Text style={styles.placesLoadingText}>Searching Google Maps...</Text>
+                    </View>
+                  )}
+
+                  {/* Google Places live predictions */}
+                  {googlePlacesPredictions.length > 0 ? (
+                    <View>
+                      <View style={styles.searchSectionBanner}>
+                        <Text style={styles.searchSectionBannerText}>
+                          Google Maps Suggestions
+                        </Text>
+                      </View>
+                      {googlePlacesPredictions.map((pred) => (
+                        <Pressable
+                          key={pred.place_id}
+                          onPress={() => selectGooglePlace(pred.place_id, pred.description)}
+                          style={styles.searchLocationItemRow}
+                        >
+                          <View style={styles.locationPinCircle}>
+                            <Ionicons
+                              name="location-outline"
+                              size={18}
+                              color={FLEXI_PURPLE}
+                            />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.searchLocationItemTitle}>
+                              {pred.structured_formatting?.main_text || pred.description}
+                            </Text>
+                            <Text
+                              style={styles.searchLocationItemSub}
+                              numberOfLines={1}
+                            >
+                              {pred.structured_formatting?.secondary_text || pred.description}
+                            </Text>
+                          </View>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
+
                   {/* Recently Searched Locations */}
                   <View style={styles.searchSectionBanner}>
                     <Text style={styles.searchSectionBannerText}>
@@ -1813,6 +2445,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                     <Pressable
                       key={item.id}
                       onPress={() => {
+                        Keyboard.dismiss();
                         setMapAddressDraft(item.address || item.title);
                         setCompleteAddressDraft(item.title);
                         setLocalityDraft(item.locality || 'vadodara');
@@ -1854,6 +2487,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                     <Pressable
                       key={item.id}
                       onPress={() => {
+                        Keyboard.dismiss();
                         setMapAddressDraft(item.title);
                         setCompleteAddressDraft(item.title);
                         setLocalityDraft(item.locality || 'vadodara');
@@ -1885,15 +2519,22 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                   ))}
                 </ScrollView>
               </View>
-            </View>
+            </KeyboardAvoidingView>
           ) : null}
 
-          {/* Add A New Delivery Address Overlay View */}
+          {/* Add A New Delivery Address Overlay View with Keyboard Avoiding */}
           {addAddressSheetOpen ? (
-            <View style={[styles.modalBackdropDark, StyleSheet.absoluteFill, { zIndex: 10002 }]}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
+              style={[styles.modalBackdropDark, StyleSheet.absoluteFill, { zIndex: 10002 }]}
+            >
               <Pressable
                 style={styles.modalBackdropTouch}
-                onPress={() => setAddAddressSheetOpen(false)}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setAddAddressSheetOpen(false);
+                }}
               />
               <View
                 style={[
@@ -1901,105 +2542,154 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
                   { paddingBottom: Math.max(insets.bottom, 20) },
                 ]}
               >
-                <View style={styles.addAddressTopRow}>
-                  <Text style={styles.addAddressSheetTitle}>
-                    Add A New Delivery Address
-                  </Text>
-                  <Pressable
-                    hitSlop={10}
-                    onPress={() => setAddAddressSheetOpen(false)}
-                    style={styles.modalRoundCloseBtn}
-                  >
-                    <Ionicons name="close" size={20} color="#111827" />
-                  </Pressable>
-                </View>
-
-                {/* Fieldset 1: Complete Address */}
-                <View style={styles.floatingFieldsetBox}>
-                  <Text style={styles.floatingFieldsetLabel}>Complete Address</Text>
-                  <TextInput
-                    value={completeAddressDraft}
-                    onChangeText={setCompleteAddressDraft}
-                    placeholder="Complete Address"
-                    placeholderTextColor="#9CA3AF"
-                    style={styles.floatingFieldsetInput}
-                    multiline
-                  />
-                </View>
-
-                {/* Fieldset 2: Locality */}
-                <View style={styles.floatingFieldsetBox}>
-                  <Text style={styles.floatingFieldsetLabel}>Locality</Text>
-                  <TextInput
-                    value={localityDraft}
-                    onChangeText={setLocalityDraft}
-                    placeholder="Locality"
-                    placeholderTextColor="#9CA3AF"
-                    style={styles.floatingFieldsetInput}
-                  />
-                </View>
-
-                {/* Category Tag Tabs: HOME | WORK | OTHERS */}
-                <View style={styles.addrCategoryTabsRow}>
-                  {['HOME', 'WORK', 'OTHERS'].map((cat) => {
-                    const active = addressCategoryTag === cat;
-                    return (
-                      <Pressable
-                        key={cat}
-                        onPress={() => setAddressCategoryTag(cat)}
-                        style={styles.addrCategoryTabItem}
-                      >
-                        <Text
-                          style={[
-                            styles.addrCategoryTabText,
-                            active && styles.addrCategoryTabTextActive,
-                          ]}
-                        >
-                          {cat}
-                        </Text>
-                        <View
-                          style={[
-                            styles.addrCategoryUnderline,
-                            active && styles.addrCategoryUnderlineActive,
-                          ]}
-                        />
-                      </Pressable>
-                    );
-                  })}
-                </View>
-
-                {/* Save Address Button */}
-                <Pressable
-                  onPress={() => {
-                    const finalAddr = completeAddressDraft.trim() || mapAddressDraft;
-                    if (editingAddressId) {
-                      setSavedAddresses((prev) =>
-                        prev.map((item) =>
-                          item.id === editingAddressId
-                            ? { ...item, address: finalAddr, tag: addressCategoryTag }
-                            : item
-                        )
-                      );
-                      setEditingAddressId(null);
-                    } else {
-                      setSavedAddresses((prev) => [
-                        { id: `addr-${Date.now()}`, tag: addressCategoryTag, address: finalAddr },
-                        ...prev,
-                      ]);
-                    }
-                    setAddAddressSheetOpen(false);
-                    setMapPickerOpen(false);
-                    applySelectedAddress(finalAddr);
-                  }}
-                  style={styles.saveAddressGreenBtn}
+                <ScrollView
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                  bounces={false}
                 >
-                  <Text style={styles.saveAddressGreenBtnText}>Save Address</Text>
-                </Pressable>
+                  <View style={styles.addAddressTopRow}>
+                    <Text style={styles.addAddressSheetTitle}>
+                      Add A New Delivery Address
+                    </Text>
+                    <Pressable
+                      hitSlop={10}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        setAddAddressSheetOpen(false);
+                      }}
+                      style={styles.modalRoundCloseBtn}
+                    >
+                      <Ionicons name="close" size={20} color="#111827" />
+                    </Pressable>
+                  </View>
+
+                  {/* Fieldset 1: Complete Address */}
+                  <View style={styles.floatingFieldsetBox}>
+                    <Text style={styles.floatingFieldsetLabel}>Complete Address</Text>
+                    <TextInput
+                      value={completeAddressDraft}
+                      onChangeText={setCompleteAddressDraft}
+                      placeholder="Complete Address"
+                      placeholderTextColor="#9CA3AF"
+                      style={styles.floatingFieldsetInput}
+                      multiline
+                    />
+                  </View>
+
+                  {/* Fieldset 2: Locality */}
+                  <View style={styles.floatingFieldsetBox}>
+                    <Text style={styles.floatingFieldsetLabel}>Locality</Text>
+                    <TextInput
+                      value={localityDraft}
+                      onChangeText={setLocalityDraft}
+                      placeholder="Locality"
+                      placeholderTextColor="#9CA3AF"
+                      style={styles.floatingFieldsetInput}
+                    />
+                  </View>
+
+                  {/* Category Tag Tabs: HOME | WORK | OTHERS */}
+                  <View style={styles.addrCategoryTabsRow}>
+                    {['HOME', 'WORK', 'OTHERS'].map((cat) => {
+                      const active = addressCategoryTag === cat;
+                      return (
+                        <Pressable
+                          key={cat}
+                          onPress={() => setAddressCategoryTag(cat)}
+                          style={styles.addrCategoryTabItem}
+                        >
+                          <Text
+                            style={[
+                              styles.addrCategoryTabText,
+                              active && styles.addrCategoryTabTextActive,
+                            ]}
+                          >
+                            {cat}
+                          </Text>
+                          <View
+                            style={[
+                              styles.addrCategoryUnderline,
+                              active && styles.addrCategoryUnderlineActive,
+                            ]}
+                          />
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  {/* Save Address Button */}
+                  <Pressable
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      const finalAddr = completeAddressDraft.trim() || mapAddressDraft;
+                      if (editingAddressId) {
+                        setSavedAddresses((prev) =>
+                          prev.map((item) =>
+                            item.id === editingAddressId
+                              ? { ...item, address: finalAddr, tag: addressCategoryTag }
+                              : item
+                          )
+                        );
+                        setEditingAddressId(null);
+                      } else {
+                        setSavedAddresses((prev) => [
+                          { id: `addr-${Date.now()}`, tag: addressCategoryTag, address: finalAddr },
+                          ...prev,
+                        ]);
+                      }
+                      setAddAddressSheetOpen(false);
+                      setMapPickerOpen(false);
+                      applySelectedAddress(finalAddr);
+                    }}
+                    style={styles.saveAddressGreenBtn}
+                  >
+                    <Text style={styles.saveAddressGreenBtnText}>Save Address</Text>
+                  </Pressable>
+                </ScrollView>
               </View>
-            </View>
+            </KeyboardAvoidingView>
           ) : null}
         </View>
       ) : null}
+
+      {/* ── Full-Screen Image Popup Modal ── */}
+      <Modal
+        visible={Boolean(previewImage)}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setPreviewImage(null)}
+      >
+        <View style={styles.imagePopupBackdrop}>
+          <Pressable
+            style={styles.imagePopupBackdropDismiss}
+            onPress={() => setPreviewImage(null)}
+          />
+          <View style={[styles.imagePopupHeader, { top: insets.top + 10 }]}>
+            <View style={styles.imagePopupPill}>
+              <Ionicons name="images-outline" size={16} color="#FFFFFF" />
+              <Text style={styles.imagePopupTitle}>{vehicle?.name || 'EV Gallery'}</Text>
+            </View>
+            <Pressable
+              hitSlop={12}
+              onPress={() => setPreviewImage(null)}
+              style={styles.imagePopupCloseBtn}
+            >
+              <Ionicons name="close" size={22} color="#FFFFFF" />
+            </Pressable>
+          </View>
+
+          <View style={styles.imagePopupImgContainer}>
+            {previewImage && (
+              <Image
+                source={previewImage}
+                style={styles.imagePopupFull}
+                contentFit="contain"
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* Things to keep in mind Modal (Screenshot 1 / Video Frame 0) */}
       <Modal
@@ -2097,7 +2787,7 @@ export default function VehicleDetailsScreen({ vehicle, onBack, onBook }) {
         statusBarTranslucent
         onRequestClose={() => setStoryOpen(false)}
       >
-        {storyOpen ? <VehicleStoryModal onClose={() => setStoryOpen(false)} /> : null}
+        {storyOpen ? <VehicleStoryModal videoSource={videoSource} onClose={() => setStoryOpen(false)} /> : null}
       </Modal>
     </View>
   );
@@ -2411,19 +3101,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     borderColor: '#E5E7EF',
   },
-  discountPill: {
-    marginTop: 16,
-    alignSelf: 'flex-start',
-    backgroundColor: '#129A43',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-  },
-  discountPillText: {
-    color: '#FFFFFF',
-    fontSize: 11.5,
-    fontWeight: '700',
-  },
+ 
   priceMainRow: {
     marginTop: 10,
     flexDirection: 'row',
@@ -2599,11 +3277,15 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
     backgroundColor: '#FFFFFF',
+    gap: 8,
   },
   bentoTopTile: {
     width: '100%',
     height: 215,
-    backgroundColor: '#ECEEF2',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#ECECF2',
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -2615,27 +3297,29 @@ const styles = StyleSheet.create({
     width: '92%',
     height: 110,
     borderRadius: 200,
-    backgroundColor: '#DDE0E6',
+    backgroundColor: '#F3EEF8',
     borderWidth: 1.5,
-    borderColor: '#C5C9D2',
+    borderColor: '#E7DFEE',
   },
   bentoTopImg: {
     width: '78%',
     height: 180,
   },
   bentoBottomRow: {
-    marginTop: 4,
     flexDirection: 'row',
     height: 248,
-    gap: 4,
+    gap: 8,
   },
   bentoLeftCol: {
     flex: 1,
-    gap: 4,
+    gap: 8,
   },
   bentoSmallTile: {
     flex: 1,
-    backgroundColor: '#ECEEF2',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#ECECF2',
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -2647,9 +3331,9 @@ const styles = StyleSheet.create({
     width: '94%',
     height: 60,
     borderRadius: 100,
-    backgroundColor: '#DDE0E6',
+    backgroundColor: '#F3EEF8',
     borderWidth: 1,
-    borderColor: '#C5C9D2',
+    borderColor: '#E7DFEE',
   },
   bentoSmallImg: {
     width: '82%',
@@ -2657,7 +3341,10 @@ const styles = StyleSheet.create({
   },
   bentoRightCol: {
     flex: 1,
-    backgroundColor: '#ECEEF2',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#ECECF2',
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -2669,9 +3356,9 @@ const styles = StyleSheet.create({
     width: '96%',
     height: 96,
     borderRadius: 120,
-    backgroundColor: '#DDE0E6',
+    backgroundColor: '#F3EEF8',
     borderWidth: 1,
-    borderColor: '#C5C9D2',
+    borderColor: '#E7DFEE',
   },
   bentoTallImg: {
     width: '88%',
@@ -3189,6 +3876,30 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
   },
+  modelDescriptionCard: {
+    marginTop: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    padding: 14,
+  },
+  modelDescHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  modelDescTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  modelDescBody: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#475569',
+  },
   guaranteeHostCard: {
     marginTop: 14,
     borderRadius: 16,
@@ -3517,7 +4228,7 @@ const styles = StyleSheet.create({
   flexiKeepInMindText: {
     fontSize: 13.5,
     fontWeight: '800',
-    color: '#12804A',
+    color: '#2a195c',
   },
   /* Select Delivery / Drop Address Bottom Sheet Styles */
   addrSheetBackdrop: {
@@ -3694,9 +4405,21 @@ const styles = StyleSheet.create({
   },
   mapCanvas: {
     flex: 1,
-    backgroundColor: '#EEF1EC',
+    backgroundColor: '#E5E3DF',
     position: 'relative',
     overflow: 'hidden',
+  },
+  mapLoaderCenter: {
+    backgroundColor: '#E5E3DF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    zIndex: 10,
+  },
+  mapLoaderText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#4A168C',
   },
   mapParkTopLeft: {
     position: 'absolute',
@@ -3802,21 +4525,193 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 3,
   },
+  zoneMarkerWrap: {
+    alignItems: 'center',
+  },
+  zoneMarkerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#4A168C',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+  },
+  zoneMarkerBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  zoneMarkerArrow: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderTopWidth: 6,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#4A168C',
+    alignSelf: 'center',
+  },
+  mapTargetTypeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#4A168C',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 4,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+  },
+  mapTargetTypeBadgeDrop: {
+    backgroundColor: '#10B981',
+  },
+  mapTargetTypeBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  mapDistanceFloatingPill: {
+    position: 'absolute',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    zIndex: 10,
+  },
+  mapDistanceFloatingText: {
+    fontSize: 12,
+    color: '#374151',
+    fontWeight: '500',
+  },
+  mapDistanceFloatingBold: {
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  mapDistanceFloatingCost: {
+    fontWeight: '800',
+    color: '#4A168C',
+  },
+  placesLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  placesLoadingText: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  flexiDistanceBreakdownCard: {
+    backgroundColor: '#FAF5FF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+    padding: 12,
+    marginTop: 10,
+    gap: 6,
+  },
+  flexiDistHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  flexiDistHeaderTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4A168C',
+  },
+  flexiDistRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 2,
+  },
+  flexiDistIconTag: {
+    backgroundColor: '#F3EEF8',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginRight: 6,
+  },
+  flexiDistTagText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#4A168C',
+  },
+  flexiDistLabel: {
+    flex: 1,
+    fontSize: 12,
+    color: '#4B5563',
+    fontWeight: '500',
+  },
+  flexiDistVal: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  flexiDistDivider: {
+    height: 1,
+    backgroundColor: '#E9D5FF',
+    marginVertical: 4,
+  },
+  flexiDistTotalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  flexiDistTotalLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#4A168C',
+  },
+  flexiDistTotalVal: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#4A168C',
+  },
   mapCenterPinContainer: {
     position: 'absolute',
-    top: '44%',
+    top: '42%',
     left: '50%',
-    marginLeft: -20,
+    marginLeft: -65,
+    width: 130,
     alignItems: 'center',
   },
   mapCenterPinHead: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#4F46E5',
+    backgroundColor: '#4A168C',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#312E81',
+    shadowColor: '#4A168C',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
     shadowRadius: 6,
@@ -3831,7 +4726,7 @@ const styles = StyleSheet.create({
   mapCenterPinTip: {
     width: 4,
     height: 12,
-    backgroundColor: '#4F46E5',
+    backgroundColor: '#4A168C',
     marginTop: -2,
   },
   mapCenterGroundDot: {
@@ -4210,5 +5105,68 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     lineHeight: 19,
     color: '#374151',
+  },
+  bentoZoomPill: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  imagePopupBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imagePopupBackdropDismiss: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  imagePopupHeader: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    zIndex: 10,
+  },
+  imagePopupPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  imagePopupTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  imagePopupCloseBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imagePopupImgContainer: {
+    width: SCREEN_W,
+    height: SCREEN_W * 0.9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  imagePopupFull: {
+    width: '92%',
+    height: '92%',
   },
 });

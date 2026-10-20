@@ -14,7 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
-import { apiGet, last10, shortDate } from '../services/api';
+import { apiGet, getStoredRider, last10, shortDate } from '../services/api';
 
 const BRAND_PURPLE = '#240B4C';
 const BRAND_PURPLE_ACCENT = '#5B21B6';
@@ -39,21 +39,59 @@ function artFor(name) {
   return { image: IMAGES.city, tint: '#F5F3FF', line: 'Quiet across town' };
 }
 
-function rideStatus(value) {
-  const status = String(value || '').toLowerCase();
-  if (status.includes('ongoing') || status.includes('active') || status.includes('start')) return ['ongoing', 'Ongoing'];
-  if (status.includes('upcoming') || status.includes('confirm')) return ['upcoming', 'Upcoming'];
+function rideStatus(item) {
+  const status = String(item?.status || item || '').toLowerCase();
+  const hasAssignedVehicle = Boolean(
+    item?.vehicle_number &&
+    item.vehicle_number !== '—' &&
+    item.vehicle_number !== 'EV-DEFAULT' &&
+    String(item.vehicle_number).trim() !== ''
+  );
+  const isCompleted = status.includes('complet') || status.includes('end') || status.includes('return') || status.includes('clos');
+  const isCancelled = status.includes('cancel');
+
+  if (isCompleted) return ['completed', 'Completed'];
+  if (isCancelled) return ['completed', 'Cancelled'];
+
+  // When admin assigns vehicle or marks status active/ongoing -> ONGOING
+  if (
+    status.includes('ongoing') ||
+    status.includes('active') ||
+    status.includes('start') ||
+    status.includes('in ride') ||
+    status.includes('allocated') ||
+    (hasAssignedVehicle && (status.includes('confirm') || status.includes('paid') || status.includes('upcom')))
+  ) {
+    return ['ongoing', 'Active Ride'];
+  }
+
+  // Initial booking before vehicle/battery allocation -> UPCOMING
+  if (
+    status.includes('upcoming') ||
+    status.includes('confirm') ||
+    status.includes('reserved') ||
+    status.includes('paid') ||
+    status.includes('pending')
+  ) {
+    return ['upcoming', 'Reserved'];
+  }
+
   return ['completed', 'Completed'];
 }
 
 function mapRide(item) {
-  const [status, statusLabel] = rideStatus(item.status);
+  const [status, statusLabel] = rideStatus(item);
   const art = artFor(item.vehicle_model || item.evegah_model_name);
+  const rawDep = item.deposit != null ? item.deposit : (item.deposit_amount != null ? item.deposit_amount : (item.security_deposit != null ? item.security_deposit : 0));
   return {
     id: item.reservation_id || item.id,
     status,
     statusLabel,
     vehicle: item.vehicle_model || item.evegah_model_name || 'Evegah City',
+    vehicleNumber: item.vehicle_number || item.vehicle_id || null,
+    batteryId: item.battery_id || null,
+    batteryPct: item.battery_pct ? Math.round(item.battery_pct) : 88,
+    isAssigned: Boolean(item.vehicle_number && item.vehicle_number !== '—' && item.vehicle_number !== 'EV-DEFAULT'),
     line: art.line,
     tint: art.tint,
     image: art.image,
@@ -63,12 +101,14 @@ function mapRide(item) {
     dropWhen: shortDate(item.end_date || item.drop_date || item.created_at),
     span: item.package_type || 'Daily',
     distance: item.distance_km ? `${item.distance_km} km` : '14.2 km',
+    range: item.range_km ? `${item.range_km} km` : (item.range || '80-90 km'),
+    topSpeed: item.top_speed ? `${item.top_speed} km/h` : (item.topSpeed || '45 km/h'),
     battery: item.battery_pct ? `${Math.round(item.battery_pct)}%` : '92%',
     plan: item.package_type || 'Daily',
-    fare: Number(item.fare || item.total_amount || 199),
-    deposit: Number(item.deposit_amount || item.security_deposit || 250),
+    fare: Number(item.fare != null ? item.fare : (item.total_amount != null ? item.total_amount : 199)),
+    deposit: Number(rawDep),
     depositBack: String(item.deposit_status || '').toLowerCase().includes('return'),
-    method: item.payment_method || 'UPI',
+    method: item.payment_mode || item.payment_method || 'UPI',
   };
 }
 
@@ -156,18 +196,51 @@ export default function MyRidesScreen({
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
-  const [rides, setRides] = useState(DEFAULT_RIDES);
+  const [rides, setRides] = useState([]);
 
   useEffect(() => {
-    const mobile = last10(phone);
-    if (!mobile) return;
-    apiGet(`/reservations?mobile=${mobile}&limit=20`)
-      .then((body) => {
-        const list = body?.data || [];
-        if (!list.length) return;
-        setRides(list.map(mapRide));
-      })
-      .catch(() => {});
+    let active = true;
+    async function loadRides() {
+      let mobile = last10(phone);
+      if (!mobile) {
+        try {
+          const stored = await getStoredRider();
+          mobile = last10(stored?.mobile || stored?.phone);
+        } catch (_) {}
+      }
+      if (!mobile) return;
+      try {
+        const body = await apiGet(`/reservations?mobile=${mobile}&limit=50`);
+        let list = body?.data || [];
+        // Also check if there is an active ride in /rides/active
+        try {
+          const actRes = await apiGet(`/rides/active/${mobile}`);
+          if (actRes?.data?.active_ride) {
+            const ar = actRes.data.active_ride;
+            const alreadyInList = list.some((r) => (r.reservation_id === ar.reservation_id || r.id === ar.id));
+            if (!alreadyInList) {
+              list = [{
+                ...ar,
+                reservation_id: ar.reservation_id || `RIDE_${ar.id}`,
+                status: 'Active Ride',
+                vehicle_number: ar.vehicle_id || ar.registration_number,
+                battery_id: ar.battery_id,
+                fare: ar.rent,
+                deposit: ar.deposit,
+                package_type: ar.package_name,
+              }, ...list];
+            }
+          }
+        } catch (_) {}
+        if (active && list.length > 0) {
+          setRides(list.map(mapRide));
+        }
+      } catch (_) {}
+    }
+    loadRides();
+    return () => {
+      active = false;
+    };
   }, [phone]);
 
   const reset = () => {
@@ -489,6 +562,34 @@ export default function MyRidesScreen({
                           </View>
                         </View>
                       </View>
+
+                      {ride.status === 'upcoming' && (
+                        <View style={styles.kycPendingBanner}>
+                          <Ionicons name="shield-checkmark" size={13} color="#6D28D9" />
+                          <Text style={styles.kycPendingBannerText}>
+                            Physical KYC & Vehicle Handover Pending at Station
+                          </Text>
+                        </View>
+                      )}
+
+                      {ride.status === 'ongoing' && (
+                        <View style={styles.activeRideOngoingBanner}>
+                          <View style={styles.activeRideOngoingLeft}>
+                            <View style={styles.livePulsePill}>
+                              <View style={styles.livePulseDot} />
+                              <Text style={styles.livePulseText}>LIVE RIDE</Text>
+                            </View>
+                            <Text style={styles.activeRidePlateText} numberOfLines={1}>
+                              {ride.vehicleNumber ? `Plate: ${ride.vehicleNumber}` : 'Assigned Scooter'}
+                              {ride.batteryId ? ` · Batt: ${ride.batteryId}` : ''}
+                            </Text>
+                          </View>
+                          <View style={styles.activeRideOpenBtn}>
+                            <Text style={styles.activeRideOpenBtnText}>Resume Ride</Text>
+                            <Ionicons name="arrow-forward" size={13} color="#FFFFFF" />
+                          </View>
+                        </View>
+                      )}
 
                       {/* Dashed Ticket Divider */}
                       <View style={styles.ticketDividerRow}>
@@ -1060,10 +1161,23 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#64748B',
   },
-  routeZoneName: {
-    fontSize: 13.5,
-    fontWeight: '800',
-    color: '#1E293B',
+  kycPendingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F5F3FF',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginTop: 10,
+  },
+  kycPendingBannerText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#6D28D9',
+    flex: 1,
   },
 
   /* Ticket Cutout Divider */
@@ -1292,5 +1406,60 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#475569',
     marginTop: 3,
+  },
+
+  /* Active Ongoing Ride Banner in Card */
+  activeRideOngoingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#ECFDF5',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 10,
+  },
+  activeRideOngoingLeft: {
+    flex: 1,
+    marginRight: 8,
+  },
+  livePulsePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 3,
+  },
+  livePulseDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: '#10B981',
+  },
+  livePulseText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#059669',
+    letterSpacing: 0.5,
+  },
+  activeRidePlateText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#065F46',
+  },
+  activeRideOpenBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#059669',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  activeRideOpenBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

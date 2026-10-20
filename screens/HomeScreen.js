@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,12 +15,19 @@ import Animated, {
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withRepeat,
+  withSequence,
+  withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
 import { apiGet } from '../services/api';
+import AnalogClockModal, {
+  formatClockString,
+  parseOperatingHours,
+} from '../components/AnalogClockPicker';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const H_PAD = 16;
@@ -36,9 +43,9 @@ const SLIDER3_FRONT_H = Math.round(SLIDER3_FRONT_W * 1.12);
 const SOCIAL_CARD_W = Math.round(SCREEN_W * 0.405);
 const SOCIAL_CARD_H = Math.round(SOCIAL_CARD_W * 1.59);
 const SOCIAL_GAP = 14;
-const REVIEW_CARD_W = Math.round(SCREEN_W * 0.64);
-const REVIEW_CARD_H = 318;
-const REVIEW_GAP = 12;
+const REVIEW_CARD_W = Math.round(SCREEN_W * 0.70);
+const REVIEW_CARD_H = Math.round(REVIEW_CARD_W * 1.50);
+const REVIEW_GAP = 14;
 const REVIEW_SNAP = REVIEW_CARD_W + REVIEW_GAP;
 const REVIEW_PILLS = [
   'Fastest Growing',
@@ -78,7 +85,7 @@ const CUSTOMER_REVIEWS = [
     name: 'Sanjeev Gupta',
     city: 'Daman',
     quote:
-      "We didn't think selling our car could be so fast and easy. We received the best amount and it was same as the online estimate.",
+      "We didn't think Renting  Scooter could be so fast and easy. We received the best amount and it was same as the online estimate.",
     readMore: false,
     badge: 'Rent Evegah Fly',
     image:
@@ -89,7 +96,7 @@ const CUSTOMER_REVIEWS = [
     name: 'Tejashree Kale',
     city: 'Vadodara',
     quote:
-      'I love my car and with EVegah I got the confidence that the car will be in safe custody till it gets transferred to the new owner.',
+      'I love my Vehicle and with EVegah I got the confidence that the vehicle will be in safe custody.',
     readMore: false,
     badge: 'Rent Evegah Pro',
     image:
@@ -100,9 +107,9 @@ const CUSTOMER_REVIEWS = [
     name: 'Vikrant Jadhav',
     city: 'Aatapi',
     quote:
-      "EVegah valued our car with the best price for our car and I don't think anyone can compete with the prices offered",
+      "EVegah valued  Vehicle with the best price for Vehicle and I don't think anyone can compete with the prices offered",
     readMore: false,
-    
+    badge: 'Rent Evegah Max',
     image:
       'https://www.evegah.com/images/partner-blinkit.jpg',
   },
@@ -370,7 +377,7 @@ function RideCard({ vehicle, index, totalCount, scrollX, active, onOpenVehicle, 
               </Text>
             </View>
             <View style={styles.rideYearTag}>
-              <Text style={styles.rideYearTagText}>2026 EV</Text>
+              <Text style={styles.rideYearTagText}>EV</Text>
             </View>
           </View>
 
@@ -670,11 +677,13 @@ function MergeSlide({ index, slide, scrollX }) {
       ],
     };
   });
+  const bgSource = typeof slide.bg === 'string' ? { uri: resolveMediaUrl(slide.bg) } : slide.bg;
+  const frontSource = typeof slide.front === 'string' ? { uri: resolveMediaUrl(slide.front) } : slide.front;
 
   return (
     <View pointerEvents="none" style={styles.slide}>
       <Animated.View style={[styles.slideBgWrap, bgStyle]}>
-        <Image source={slide.bg} style={styles.slideImage} contentFit="cover" />
+        <Image source={bgSource} style={styles.slideImage} contentFit="cover" />
         {slide.kind !== 'navratri' ? (
           <LinearGradient
             colors={['rgba(10, 12, 18, 0.62)', 'rgba(10, 12, 18, 0.24)', 'transparent']}
@@ -745,7 +754,7 @@ function MergeSlide({ index, slide, scrollX }) {
             frontStyle,
           ]}
         >
-          <Image source={slide.front} style={styles.slideFrontImage} contentFit="contain" />
+          <Image source={frontSource} style={styles.slideFrontImage} contentFit="contain" />
         </Animated.View>
       ) : null}
     </View>
@@ -785,6 +794,211 @@ function ReviewPillTicker() {
       </Animated.View>
     </View>
   );
+}
+
+function AnimatedCounter({ target, duration = 1800, format = 'int', suffix = '', style }) {
+  const [displayValue, setDisplayValue] = useState(0);
+
+  useEffect(() => {
+    let startTimestamp = null;
+    let frameId;
+
+    const step = (timestamp) => {
+      if (!startTimestamp) startTimestamp = timestamp;
+      const elapsed = timestamp - startTimestamp;
+      const progress = Math.min(elapsed / duration, 1);
+      const ease = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+      const current = ease * target;
+
+      setDisplayValue(current);
+
+      if (progress < 1) {
+        frameId = requestAnimationFrame(step);
+      } else {
+        setDisplayValue(target);
+      }
+    };
+
+    frameId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frameId);
+  }, [target, duration]);
+
+  const formatted = useMemo(() => {
+    if (format === 'indian') {
+      const rounded = Math.floor(displayValue);
+      return rounded.toLocaleString('en-IN') + suffix;
+    }
+    if (format === 'decimal1') {
+      return displayValue.toFixed(1) + suffix;
+    }
+    return Math.floor(displayValue) + suffix;
+  }, [displayValue, format, suffix]);
+
+  return <Text style={style}>{formatted}</Text>;
+}
+
+function CustomerReviewCard({ item, index }) {
+  const stampScale = useSharedValue(1.6);
+  const stampOpacity = useSharedValue(0);
+  const stampPulse = useSharedValue(1);
+
+  const badgeTranslateY = useSharedValue(12);
+  const badgeOpacity = useSharedValue(0);
+  const badgeScale = useSharedValue(1);
+
+  useEffect(() => {
+    const baseDelay = (index % 5) * 100 + 150;
+
+    // Stamp slam-down impact animation
+    stampScale.value = withDelay(
+      baseDelay,
+      withSpring(1, { damping: 11, stiffness: 220 })
+    );
+    stampOpacity.value = withDelay(
+      baseDelay,
+      withTiming(1, { duration: 180 })
+    );
+
+    // Continuous breathing pulse on the stamp
+    stampPulse.value = withDelay(
+      baseDelay + 400,
+      withRepeat(
+        withSequence(
+          withTiming(1.06, { duration: 1600, easing: Easing.inOut(Easing.ease) }),
+          withTiming(1.0, { duration: 1600, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        true
+      )
+    );
+
+    // Bottom badge entrance & continuous pulse
+    badgeTranslateY.value = withDelay(
+      baseDelay + 180,
+      withSpring(0, { damping: 12, stiffness: 180 })
+    );
+    badgeOpacity.value = withDelay(
+      baseDelay + 180,
+      withTiming(1, { duration: 220 })
+    );
+
+    badgeScale.value = withDelay(
+      baseDelay + 550,
+      withRepeat(
+        withSequence(
+          withTiming(1.06, { duration: 1400, easing: Easing.inOut(Easing.ease) }),
+          withTiming(1.0, { duration: 1400, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        true
+      )
+    );
+  }, [index, stampScale, stampOpacity, stampPulse, badgeTranslateY, badgeOpacity, badgeScale]);
+
+  const stampAnimStyle = useAnimatedStyle(() => ({
+    opacity: stampOpacity.value,
+    transform: [
+      { rotate: '-18deg' },
+      { scale: stampScale.value * stampPulse.value },
+    ],
+  }));
+
+  const badgeAnimStyle = useAnimatedStyle(() => ({
+    opacity: badgeOpacity.value,
+    transform: [
+      { translateY: badgeTranslateY.value },
+      { scale: badgeScale.value },
+    ],
+  }));
+
+  return (
+    <View style={styles.customerReviewCard}>
+      <Image
+        source={{ uri: item.image }}
+        style={styles.customerReviewImage}
+        contentFit="cover"
+      />
+
+      <LinearGradient
+        colors={[
+          'rgba(0, 0, 0, 0)',
+          'rgba(0, 0, 0, 0.05)',
+          'rgba(14, 10, 24, 0.70)',
+          'rgba(10, 7, 18, 0.95)',
+        ]}
+        locations={[0, 0.35, 0.66, 0.96]}
+        style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
+      />
+
+      {/* Animated Stamp Badge */}
+      <Animated.View style={[styles.soldStampOuter, stampAnimStyle]} pointerEvents="none">
+        <View style={styles.soldStampInner}>
+          <Text style={styles.soldStampStars}>★ ★ ★</Text>
+          <View style={styles.soldStampBand}>
+            <Text style={styles.soldStampText}>RENT</Text>
+          </View>
+          <Text style={styles.soldStampStars}>★ ★ ★</Text>
+        </View>
+      </Animated.View>
+
+      <View style={styles.customerReviewBottomContent}>
+        <Text style={styles.customerReviewName} numberOfLines={1}>
+          {item.name}
+        </Text>
+        <Text style={styles.customerReviewCity} numberOfLines={1}>
+          {item.city}
+        </Text>
+        <Text style={styles.customerReviewQuote} numberOfLines={4}>
+          {item.quote}
+        </Text>
+        {item.badge ? (
+          <Animated.View style={[styles.customerSoldBadge, badgeAnimStyle]}>
+            <Text style={styles.customerSoldBadgeText}>{item.badge}</Text>
+          </Animated.View>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function extractZonePackages(zoneObj) {
+  if (!zoneObj?.pricing) return [];
+  const pricing = zoneObj.pricing;
+  const model = (pricing.pricingModel || '').toLowerCase();
+  const hasHourly =
+    (Array.isArray(pricing.hourlyPricing) && pricing.hourlyPricing.length > 0) ||
+    (pricing.basePrice !== null && pricing.basePrice !== undefined && pricing.basePrice > 0);
+  const hasPackages = Array.isArray(pricing.packages) && pricing.packages.length > 0;
+  if (model.includes('hour') || model.includes('minute') || (hasHourly && !hasPackages)) {
+    return [];
+  }
+
+  const rawPackages = Array.isArray(pricing.packages) ? pricing.packages : [];
+  if (rawPackages.length === 0 && pricing.modelPackages) {
+    rawPackages.push(...Object.values(pricing.modelPackages).flat());
+  }
+
+  const map = new Map();
+  rawPackages.forEach((pkg) => {
+    if (!pkg) return;
+    const name = (pkg.name || 'Daily').trim();
+    const dur = parseInt(pkg.duration, 10) || 1;
+    const key = dur === 1 ? 'daily' : dur === 7 ? 'weekly' : dur === 30 ? 'monthly' : (name.toLowerCase() + '_' + dur);
+    if (!map.has(key)) {
+      map.set(key, {
+        id: key,
+        label: name,
+        sub: dur + ' day' + (dur > 1 ? 's' : ''),
+        days: dur,
+        price: pkg.price,
+        deposit: pkg.deposit,
+        model: pkg.model,
+      });
+    }
+  });
+
+  return Array.from(map.values());
 }
 
 const PACKAGE_OPTIONS = [
@@ -828,32 +1042,38 @@ function addDaysToDate(d, days) {
   return next;
 }
 
-function combineDateAndHour(day, hour24) {
+function combineDateAndHour(day, hour24, minute = '00') {
   const next = cleanDay(day);
-  next.setHours(hour24, 0, 0, 0);
+  next.setHours(hour24, parseInt(minute, 10) || 0, 0, 0);
   return next.getTime();
 }
 
-function formatBoxDateTime(day, hour24) {
+function formatHourToDisplay(hour24, minute = '00') {
+  const h12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  const ampm = hour24 >= 12 ? 'PM' : 'AM';
+  const m = String(minute).padStart(2, '0');
+  return `${String(h12).padStart(2, '0')}:${m} ${ampm}`;
+}
+
+function formatBoxDateTime(day, hour24, minute = '00') {
   if (!day) return 'Select';
   const monthShort = day.toLocaleDateString('en-US', { month: 'short' });
   const dNum = day.getDate();
-  const h12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
-  const ampm = hour24 >= 12 ? 'PM' : 'AM';
-  return `${monthShort} ${dNum}, ${h12}${ampm}`;
+  const timeStr = formatHourToDisplay(hour24, minute);
+  return `${monthShort} ${dNum}, ${timeStr}`;
 }
 
-function formatPopupRangeLine(startDay, startHour, endDay, endHour) {
-  const fmtOne = (d, h) => {
+function formatPopupRangeLine(startDay, startHour, startMin, endDay, endHour, endMin) {
+  const fmtOne = (d, h, m) => {
     if (!d) return 'Select';
     const wk = d.toLocaleDateString('en-US', { weekday: 'short' });
     const dayNum = d.getDate();
     const mon = d.toLocaleDateString('en-US', { month: 'short' });
     const yr = String(d.getFullYear()).slice(-2);
-    const slot = HOUR_SLOTS.find((s) => s.hour24 === h) || HOUR_SLOTS[2];
-    return `${wk}, ${dayNum} ${mon} '${yr}, ${slot.full}`;
+    const timeStr = formatHourToDisplay(h, m);
+    return `${wk}, ${dayNum} ${mon} '${yr}, ${timeStr}`;
   };
-  return `${fmtOne(startDay, startHour)} → ${fmtOne(endDay, endHour)}`;
+  return `${fmtOne(startDay, startHour, startMin)} → ${fmtOne(endDay, endHour, endMin)}`;
 }
 
 function buildMonthCellsMondayFirst(year, month) {
@@ -893,7 +1113,7 @@ function TimeWheelColumn({ title, hour24, onChangeHour }) {
   }, [idx]);
 
   const handleMomentumEnd = (e) => {
-    const offsetY = e.nativeEvent.contentOffset.y;
+    const offsetY = e?.nativeEvent?.contentOffset?.y ?? 0;
     const nextIdx = Math.min(
       HOUR_SLOTS.length - 1,
       Math.max(0, Math.round(offsetY / TIME_WHEEL_ITEM_H))
@@ -961,7 +1181,12 @@ function BookingCalendarModal({
   startDay,
   endDay,
   pickupHour,
+  pickupMinute = '00',
   dropHour,
+  dropMinute = '00',
+  operatingHours,
+  packageOptions = [],
+  isHourlyZone = false,
   onSelectPackage,
   onChangeDates,
   onChangeHours,
@@ -971,7 +1196,9 @@ function BookingCalendarModal({
   onClose,
 }) {
   const insets = useSafeAreaInsets();
-  const baseDate = startDay || cleanDay(new Date(2026, 9, 14));
+  const [clockModalTarget, setClockModalTarget] = useState(null);
+  const activeOptions = (packageOptions && packageOptions.length > 0) ? packageOptions : PACKAGE_OPTIONS;
+  const baseDate = startDay || cleanDay(new Date());
   const monthsToShow = [
     new Date(baseDate.getFullYear(), baseDate.getMonth(), 1),
     new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 1),
@@ -980,11 +1207,11 @@ function BookingCalendarModal({
 
   const handleDayPress = (day) => {
     const clicked = cleanDay(day);
-    const pkg = PACKAGE_OPTIONS.find((p) => p.id === packageId);
+    const pkg = activeOptions.find((p) => p.id === packageId);
     if (pkg && pkg.days) {
       const autoEnd = addDaysToDate(clicked, pkg.days);
       onChangeDates(clicked, autoEnd);
-      onChangeHours(pickupHour, pickupHour);
+      onChangeHours(pickupHour, pickupHour, pickupMinute, pickupMinute);
       return;
     }
     if (!startDay || (startDay && endDay && endDay.getTime() !== startDay.getTime())) {
@@ -1022,7 +1249,7 @@ function BookingCalendarModal({
           <View style={styles.calWhereRight}>
             <View style={styles.calZoneDot} />
             <Text style={styles.calWhereValue} numberOfLines={1}>
-              {zoneName || zoneShortName || 'Bill, Vadodara-391410'}
+              {zoneName || zoneShortName || 'Find Zones near to you'}
             </Text>
             <Ionicons name="chevron-down" size={14} color={TAB_PURPLE} />
           </View>
@@ -1045,12 +1272,18 @@ function BookingCalendarModal({
           </View>
 
           <Text style={styles.calRangeSubText} numberOfLines={1}>
-            {formatPopupRangeLine(startDay, pickupHour, endDay, dropHour)}
+            {formatPopupRangeLine(startDay, pickupHour, pickupMinute, endDay, dropHour, dropMinute)}
           </Text>
 
           {/* Package Pills inside Popup (Auto-selects End Date & Time) */}
-          <View style={styles.calPackageRow}>
-            {PACKAGE_OPTIONS.map((pkg) => {
+          {isHourlyZone ? (
+            <View style={styles.calHourlyNoticeWrap}>
+              <Ionicons name="time" size={15} color={TAB_PURPLE} />
+              <Text style={styles.calHourlyNoticeText}>Hourly / Minute Rental Zone</Text>
+            </View>
+          ) : (
+            <View style={styles.calPackageRow}>
+              {activeOptions.map((pkg) => {
               const isSelected = packageId === pkg.id;
               return (
                 <Pressable
@@ -1080,7 +1313,8 @@ function BookingCalendarModal({
                 </Pressable>
               );
             })}
-          </View>
+            </View>
+          )}
 
           {/* Weekday Header Row (M T W T F S S) */}
           <View style={styles.calWeekdayBar}>
@@ -1160,26 +1394,41 @@ function BookingCalendarModal({
 
           <View style={styles.calTimeDivider} />
 
-          {/* Scrollable Pickup Time & Drop Off Time Wheels */}
-          <View style={styles.calTimeColumnsRow}>
-            <TimeWheelColumn
-              title="Pickup Time"
-              hour24={pickupHour}
-              onChangeHour={(nextH) => {
-                const pkg = PACKAGE_OPTIONS.find((p) => p.id === packageId);
-                if (pkg && pkg.days) {
-                  onChangeHours(nextH, nextH);
-                } else {
-                  onChangeHours(nextH, dropHour);
-                }
-              }}
-            />
+          {/* Interactive Pickup Time & Drop Off Time Cards (Trigger Analog Clock) */}
+          <View style={styles.calTimeCardsRow}>
+            <Pressable
+              onPress={() => setClockModalTarget('pickup')}
+              style={styles.calTimeCard}
+            >
+              <View style={styles.calTimeCardHeader}>
+                <Ionicons name="time-outline" size={14} color={TAB_PURPLE} />
+                <Text style={styles.calTimeCardTitle}>Pickup Time</Text>
+              </View>
+              <Text style={styles.calTimeCardValue}>
+                {formatHourToDisplay(pickupHour, pickupMinute)}
+              </Text>
+              <View style={styles.calTimeCardBadge}>
+                <Ionicons name="alarm-outline" size={12} color={TAB_PURPLE} />
+                <Text style={styles.calTimeCardBadgeText}>Tap for Analog Clock</Text>
+              </View>
+            </Pressable>
 
-            <TimeWheelColumn
-              title="Drop Off Time"
-              hour24={dropHour}
-              onChangeHour={(nextH) => onChangeHours(pickupHour, nextH)}
-            />
+            <Pressable
+              onPress={() => setClockModalTarget('drop')}
+              style={styles.calTimeCard}
+            >
+              <View style={styles.calTimeCardHeader}>
+                <Ionicons name="time-outline" size={14} color={TAB_PURPLE} />
+                <Text style={styles.calTimeCardTitle}>Drop Off Time</Text>
+              </View>
+              <Text style={styles.calTimeCardValue}>
+                {formatHourToDisplay(dropHour, dropMinute)}
+              </Text>
+              <View style={styles.calTimeCardBadge}>
+                <Ionicons name="alarm-outline" size={12} color={TAB_PURPLE} />
+                <Text style={styles.calTimeCardBadgeText}>Tap for Analog Clock</Text>
+              </View>
+            </Pressable>
           </View>
 
           <Pressable
@@ -1192,6 +1441,32 @@ function BookingCalendarModal({
             <Text style={styles.calContinueBtnText}>Confirm Date &amp; Time</Text>
           </Pressable>
         </View>
+
+        {/* Analog Clock Modal for Hours & Minute Selection */}
+        <AnalogClockModal
+          visible={clockModalTarget !== null}
+          title={clockModalTarget === 'pickup' ? 'Select Pickup Time' : 'Select Return Time'}
+          operatingHours={operatingHours}
+          initialTime={
+            clockModalTarget === 'pickup'
+              ? formatHourToDisplay(pickupHour, pickupMinute)
+              : formatHourToDisplay(dropHour, dropMinute)
+          }
+          onClose={() => setClockModalTarget(null)}
+          onConfirm={({ hour24, minute }) => {
+            if (clockModalTarget === 'pickup') {
+              const pkg = activeOptions.find((p) => p.id === packageId);
+              if (pkg && pkg.days) {
+                onChangeHours?.(hour24, hour24, minute, minute);
+              } else {
+                onChangeHours?.(hour24, dropHour, minute, dropMinute);
+              }
+            } else {
+              onChangeHours?.(pickupHour, hour24, pickupMinute, minute);
+            }
+            setClockModalTarget(null);
+          }}
+        />
       </View>
     </Modal>
   );
@@ -1217,17 +1492,51 @@ export default function HomeScreen({
   const insets = useSafeAreaInsets();
   const [vehicles, setVehicles] = useState(VEHICLES);
   const [packageId, setPackageId] = useState('daily');
-  const [startDay, setStartDay] = useState(() => cleanDay(new Date(2026, 9, 14)));
-  const [endDay, setEndDay] = useState(() => cleanDay(new Date(2026, 9, 15)));
-  const [pickupHour, setPickupHour] = useState(8);
-  const [dropHour, setDropHour] = useState(8);
+  const [startDay, setStartDay] = useState(() => cleanDay(new Date()));
+  const [endDay, setEndDay] = useState(() => addDaysToDate(cleanDay(new Date()), 1));
+  const [pickupHour, setPickupHour] = useState(() => new Date().getHours());
+  const [pickupMinute, setPickupMinute] = useState(() => String(new Date().getMinutes()).padStart(2, '0'));
+  const [dropHour, setDropHour] = useState(() => new Date().getHours());
+  const [dropMinute, setDropMinute] = useState(() => String(new Date().getMinutes()).padStart(2, '0'));
   const [deliveryAnywhere, setDeliveryAnywhere] = useState(false);
-  const [calendarModalOpen, setCalendarModalOpen] = useState(false);
-  const [localZone, setLocalZone] = useState(null);
+
+  // Active Ride live polling from backend
+  const [activeRideData, setActiveRideData] = useState(null);
 
   useEffect(() => {
-    if (calendarTriggerTick && calendarTriggerTick > 0) {
-      setLocalZone(selectedZone || AVAILABLE_ZONES_QUICK[0]);
+    let mounted = true;
+    async function checkActive() {
+      try {
+        const stored = await getStoredRider();
+        const mobile = last10(stored?.mobile || stored?.phone);
+        if (!mobile) return;
+        const res = await apiGet(`/reservations/active-ride?mobile=${mobile}`);
+        if (mounted) {
+          if (res?.has_active_ride && res?.data) {
+            setActiveRideData(res.data);
+          } else {
+            setActiveRideData(null);
+          }
+        }
+      } catch (_) {}
+    }
+    checkActive();
+    const interval = setInterval(checkActive, 10000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const [calendarModalOpen, setCalendarModalOpen] = useState(false);
+  const [dateTimeConfirmed, setDateTimeConfirmed] = useState(false);
+  const [localZone, setLocalZone] = useState(null);
+  const prevTickRef = useRef(calendarTriggerTick);
+
+  useEffect(() => {
+    if (calendarTriggerTick > 0 && calendarTriggerTick !== prevTickRef.current) {
+      prevTickRef.current = calendarTriggerTick;
+      if (selectedZone) setLocalZone(selectedZone);
       const timer = setTimeout(() => {
         setCalendarModalOpen(true);
       }, 350);
@@ -1235,39 +1544,186 @@ export default function HomeScreen({
     }
   }, [calendarTriggerTick]);
 
+  const [zoneFullData, setZoneFullData] = useState(null);
+
+  useEffect(() => {
+    if (effectiveZone) {
+      if (effectiveZone.pricing) {
+        setZoneFullData(effectiveZone);
+      } else {
+        apiGet('/zones')
+          .then((res) => {
+            const list = res?.data || (Array.isArray(res) ? res : []);
+            const targetName = (effectiveZone.name || effectiveZone.shortName || '').toLowerCase();
+            const found = list.find((z) => {
+              const zn = (z.name || '').toLowerCase();
+              const zl = (z.locality || '').toLowerCase();
+              return zn.includes(targetName) || targetName.includes(zn) || zl.includes(targetName) || targetName.includes(zl);
+            });
+            if (found) {
+              setZoneFullData(found);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, [effectiveZone]);
+
+  const zonePricingTarget = zoneFullData || effectiveZone;
+  const zonePackageOptions = useMemo(() => {
+    return extractZonePackages(zonePricingTarget);
+  }, [zonePricingTarget]);
+
+  const isHourlyZone = useMemo(() => {
+    if (!zonePricingTarget?.pricing) return false;
+    const pricing = zonePricingTarget.pricing;
+    const model = (pricing.pricingModel || '').toLowerCase();
+    const hasHourly =
+      (Array.isArray(pricing.hourlyPricing) && pricing.hourlyPricing.length > 0) ||
+      (pricing.basePrice !== null && pricing.basePrice !== undefined && pricing.basePrice > 0);
+    const hasPackages = Array.isArray(pricing.packages) && pricing.packages.length > 0;
+    return model.includes('hour') || model.includes('minute') || (hasHourly && !hasPackages);
+  }, [zonePricingTarget]);
+
+  useEffect(() => {
+    if (isHourlyZone) {
+      setPackageId('hourly');
+    } else if (zonePackageOptions.length > 0) {
+      const exists = zonePackageOptions.some((p) => p.id === packageId);
+      if (!exists) {
+        setPackageId(zonePackageOptions[0].id);
+      }
+    }
+  }, [isHourlyZone, zonePackageOptions]);
+
   const handleSelectPackage = (nextPkgId) => {
     setPackageId(nextPkgId);
-    const pkg = PACKAGE_OPTIONS.find((p) => p.id === nextPkgId);
+    const currentOptions = zonePackageOptions.length > 0 ? zonePackageOptions : PACKAGE_OPTIONS;
+    const pkg = currentOptions.find((p) => p.id === nextPkgId);
     if (pkg && pkg.days) {
-      const base = startDay || cleanDay(new Date(2026, 9, 14));
+      const base = startDay || cleanDay(new Date());
       setStartDay(base);
       setEndDay(addDaysToDate(base, pkg.days));
       setDropHour(pickupHour);
+      setDropMinute(pickupMinute);
     }
   };
 
-  const effectiveZone = localZone || selectedZone || AVAILABLE_ZONES_QUICK[0];
-  const activeZoneLabel = effectiveZone?.name || 'Bill, Vadodara-391410';
-  const activeZoneShort = effectiveZone?.shortName || 'Bill';
+  const effectiveZone = localZone || selectedZone;
+  const isZoneSelected = Boolean(effectiveZone);
+  const activeZoneLabel = isZoneSelected
+    ? effectiveZone.name
+    : 'Select Zone';
+  const activeZoneShort = isZoneSelected
+    ? effectiveZone.shortName
+    : 'Select Zone';
+
+  // Automatically select nearest available zone on mount instead of static placeholder
+  useEffect(() => {
+    if (!effectiveZone) {
+      apiGet('/zones')
+        .then((res) => {
+          const list = res?.data || (Array.isArray(res) ? res : []);
+          if (list.length > 0) {
+            const first = list[0];
+            const cityName = first.city ? String(first.city).trim() : 'Vadodara';
+            setLocalZone({
+              id: String(first.code || first.id || 'gotri').toLowerCase(),
+              name: first.name ? `${first.name}, ${cityName}` : 'Gotri Zone, Vadodara',
+              shortName: first.locality || first.name?.replace(/ Zone.*$/i, '') || 'Gotri',
+              address: first.address || '',
+              city: cityName,
+              pricing: first.pricing,
+            });
+          }
+        })
+        .catch(() => {
+          apiGet('/v1/getzoneDetailWithBikeCountList')
+            .then((data) => {
+              const list = Array.isArray(data) ? data : (data?.data || []);
+              if (list.length > 0) {
+                const first = list[0];
+                const cityName = first.city ? String(first.city).trim() : 'Vadodara';
+                setLocalZone({
+                  id: String(first.code || first.id || 'gotri').toLowerCase(),
+                  name: first.name ? `${first.name}, ${cityName}` : 'Gotri Zone, Vadodara',
+                  shortName: first.locality || first.name?.replace(/ Zone.*$/i, '') || 'Gotri',
+                  address: first.address || '',
+                  city: cityName,
+                });
+              }
+            })
+            .catch(() => {});
+        });
+    }
+  }, [effectiveZone]);
+
+  // Rent button is disabled until both zone AND date/time are selected & confirmed
+  const isRentButtonDisabled = !isZoneSelected || !dateTimeConfirmed;
+
+  // Enforce zone operating hours constraint on initial mount / zone change
+  useEffect(() => {
+    const zoneHoursStr =
+      effectiveZone?.hours ||
+      (effectiveZone?.open_time && `${effectiveZone.open_time} - ${effectiveZone.close_time}`) ||
+      '06:00 – 23:00';
+    const op = parseOperatingHours(zoneHoursStr);
+    if (!op.is24Hours) {
+      if (pickupHour < op.openHour || pickupHour > op.closeHour) {
+        const clampedH = Math.min(Math.max(pickupHour, op.openHour), op.closeHour);
+        setPickupHour(clampedH);
+      }
+      if (dropHour < op.openHour || dropHour > op.closeHour) {
+        const clampedH = Math.min(Math.max(dropHour, op.openHour), op.closeHour);
+        setDropHour(clampedH);
+      }
+    }
+  }, [effectiveZone]);
 
   const handleSearchPress = () => {
-    const pAt = combineDateAndHour(startDay, pickupHour);
-    const dAt = combineDateAndHour(endDay, dropHour);
+    if (isRentButtonDisabled) {
+      if (!isZoneSelected) {
+        onOpenLocation?.();
+      } else if (!dateTimeConfirmed) {
+        setCalendarModalOpen(true);
+      }
+      return;
+    }
+
+    const pAt = combineDateAndHour(startDay, pickupHour, pickupMinute);
+    const dAt = combineDateAndHour(endDay, dropHour, dropMinute);
+    const currentOptions = zonePackageOptions.length > 0 ? zonePackageOptions : PACKAGE_OPTIONS;
+    const chosenPkg = currentOptions.find((p) => p.id === packageId) || currentOptions[0];
+    const isHourly = Boolean(isHourlyZone);
     const tripPayload = {
       pickupName: activeZoneShort,
       pickupFullAddress: effectiveZone?.address || activeZoneLabel,
+      pickupZone: zonePricingTarget || effectiveZone,
       dropName: activeZoneShort,
+      dropZone: zonePricingTarget || effectiveZone,
       pickupAt: pAt,
       dropAt: dAt,
-      packageId,
+      pickupDate: startDay,
+      dropDate: endDay,
+      pickupHour,
+      pickupMinute,
+      dropHour,
+      dropMinute,
+      packageId: isHourly ? 'hourly' : (chosenPkg?.id || packageId),
+      packageName: isHourly ? 'Hourly / Minute Rental' : (chosenPkg?.label || 'Daily'),
+      packageDays: isHourly ? 0 : (chosenPkg?.days || 1),
+      isHourlyZone: isHourly,
+      pricingModel: isHourly ? 'Hourly Based' : 'Package Based',
+      selectedPackage: chosenPkg || null,
       flexiEnabled: deliveryAnywhere,
     };
-    if (onOpenRent) {
-      onOpenRent(null, tripPayload);
-    } else if (onSearchVehicles) {
+    // Route directly to vehicle list page as zone, date and time are already selected
+    if (onSearchVehicles) {
       onSearchVehicles(tripPayload);
-    } else {
-      onOpenVehicleList?.();
+    } else if (onOpenVehicleList) {
+      onOpenVehicleList();
+    } else if (onOpenRent) {
+      onOpenRent(null, tripPayload);
     }
   };
 
@@ -1368,8 +1824,50 @@ export default function HomeScreen({
     return () => clearInterval(reviewTimer);
   }, []);
 
+  const [homeSliderList, setHomeSliderList] = useState(SLIDES);
+  const homeSliderLoop = useMemo(() => [...homeSliderList, homeSliderList[0]], [homeSliderList]);
+
+  // Dynamic Slider Fetch from Backend
+  useEffect(() => {
+    let mounted = true;
+    apiGet('/app-sliders')
+      .then((res) => {
+        if (!mounted) return;
+        const raw = res?.data?.home_sliders || res?.data?.home || [];
+        const active = raw.filter((s) => s.active !== false);
+        if (active.length > 0) {
+          const mapped = active.map((s, idx) => {
+            const fallback = SLIDES[idx % SLIDES.length];
+            return {
+              id: s.id || `home-${idx}`,
+              kind: s.kind || fallback.kind,
+              bg: s.bg ? resolveMediaUrl(s.bg) : fallback.bg,
+              front: s.front ? resolveMediaUrl(s.front) : fallback.front,
+              frontWidth: s.frontWidth || fallback.frontWidth,
+              frontHeight: s.frontHeight || fallback.frontHeight,
+              frontRight: s.frontRight ?? fallback.frontRight,
+              frontBottom: s.frontBottom ?? fallback.frontBottom,
+              tag: s.tag || fallback.tag,
+              lines: Array.isArray(s.lines)
+                ? s.lines
+                : (s.title ? s.title.split('\n') : fallback.lines),
+              subLines: Array.isArray(s.subLines)
+                ? s.subLines
+                : (s.sub ? [s.sub] : fallback.subLines),
+              cta: s.cta || fallback.cta,
+            };
+          });
+          setHomeSliderList(mapped);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const syncNativeSlideScroll = (targetPage) => {
-    if (targetPage >= SLIDES.length) {
+    if (targetPage >= homeSliderList.length) {
       pageRef.current = 0;
       scrollX.value = 0;
       scrollRef.current?.scrollTo({ x: 0, animated: false });
@@ -1419,7 +1917,7 @@ export default function HomeScreen({
         bounces={false}
       >
         <View style={styles.slider}>
-          {LOOP.map((slide, index) => (
+          {homeSliderLoop.map((slide, index) => (
             <MergeSlide key={index} index={index} slide={slide} scrollX={scrollX} />
           ))}
           <Animated.ScrollView
@@ -1435,8 +1933,9 @@ export default function HomeScreen({
               stopAuto();
             }}
             onMomentumScrollEnd={(event) => {
-              const page = Math.round(event.nativeEvent.contentOffset.x / SLIDE_WIDTH);
-              if (page >= SLIDES.length) {
+              const offsetX = event?.nativeEvent?.contentOffset?.x ?? 0;
+              const page = Math.round(offsetX / SLIDE_WIDTH);
+              if (page >= homeSliderList.length) {
                 pageRef.current = 0;
                 scrollX.value = 0;
                 scrollRef.current?.scrollTo({ x: 0, animated: false });
@@ -1449,25 +1948,27 @@ export default function HomeScreen({
             }}
             style={styles.sliderTouch}
           >
-            {LOOP.map((_, index) => (
-              <Pressable
-                key={index}
-                style={styles.slideSpacer}
-                onPress={handleSearchPress}
-              />
+            {homeSliderLoop.map((_, index) => (
+              <View key={index} style={styles.slideSpacer}>
+                <Pressable
+                  style={styles.slideSpacerCta}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 16 }}
+                  onPress={() => onOpenRent?.()}
+                />
+              </View>
             ))}
           </Animated.ScrollView>
 
           <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
             <View style={styles.headerTopRow}>
               <View style={styles.headerLeft}>
-                <Pressable hitSlop={8} onPress={onOpenBms} style={styles.hamburger}>
-                  <View style={styles.hamShort} />
-                  <View style={styles.hamLong} />
-                  <View style={styles.hamShort} />
-                </Pressable>
                 <Pressable hitSlop={12} onPress={() => onOpenLocation?.()} style={styles.location}>
-                  <Text style={styles.locationText}>{activeZoneShort}, Vadodara</Text>
+                  <Ionicons name="location-sharp" size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
+                  <Text style={styles.locationText}>
+                    {isZoneSelected
+                      ? `${activeZoneShort}${effectiveZone?.city ? `, ${effectiveZone.city}` : ''}`
+                      : 'Select Zone'}
+                  </Text>
                   <Ionicons name="chevron-down" size={16} color="#FFFFFF" />
                 </Pressable>
               </View>
@@ -1514,7 +2015,7 @@ export default function HomeScreen({
                   <Text style={styles.bookingDateLabel}>Ride Start</Text>
                 </View>
                 <Text style={styles.bookingDateValue} numberOfLines={1}>
-                  {formatBoxDateTime(startDay, pickupHour)}
+                  {formatBoxDateTime(startDay, pickupHour, pickupMinute)}
                 </Text>
               </Pressable>
 
@@ -1532,7 +2033,7 @@ export default function HomeScreen({
                   style={[styles.bookingDateValue, styles.textRight]}
                   numberOfLines={1}
                 >
-                  {formatBoxDateTime(endDay, dropHour)}
+                  {formatBoxDateTime(endDay, dropHour, dropMinute)}
                 </Text>
               </Pressable>
             </View>
@@ -1557,17 +2058,28 @@ export default function HomeScreen({
               </Text>
             </Pressable>
 
-            {/* Primary Search Button */}
+            {/* Primary Search Button (Disabled until Zone and Date/Time are selected) */}
             <Pressable
               onPress={handleSearchPress}
               style={({ pressed }) => [
                 styles.bookingSearchBtn,
-                pressed && { opacity: 0.92, transform: [{ scale: 0.99 }] },
+                isRentButtonDisabled && styles.bookingSearchBtnDisabled,
+                pressed && !isRentButtonDisabled && { opacity: 0.92, transform: [{ scale: 0.99 }] },
               ]}
             >
-              
-              <Text style={styles.bookingSearchBtnText}>Rent Your EV</Text>
-              <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+              <Text
+                style={[
+                  styles.bookingSearchBtnText,
+                  isRentButtonDisabled && styles.bookingSearchBtnTextDisabled,
+                ]}
+              >
+                Rent Your EV
+              </Text>
+              <Ionicons
+                name="arrow-forward"
+                size={16}
+                color={isRentButtonDisabled ? '#8A819C' : '#FFFFFF'}
+              />
             </Pressable>
           </Animated.View>
 
@@ -1601,8 +2113,9 @@ export default function HomeScreen({
             contentContainerStyle={styles.rideTrack}
             onScroll={onRideScroll}
             onMomentumScrollEnd={(event) => {
+              const offsetX = event?.nativeEvent?.contentOffset?.x ?? 0;
               const count = vehicles.length;
-              const rawIdx = Math.round(event.nativeEvent.contentOffset.x / RIDE_SNAP);
+              const rawIdx = Math.round(offsetX / RIDE_SNAP);
               const mod = ((rawIdx % count) + count) % count;
               const centeredIdx = count + mod;
               if (rawIdx < count || rawIdx >= count * 2) {
@@ -1649,8 +2162,9 @@ export default function HomeScreen({
               reviewDraggingRef.current = true;
             }}
             onMomentumScrollEnd={(event) => {
+              const offsetX = event?.nativeEvent?.contentOffset?.x ?? 0;
               const count = CUSTOMER_REVIEWS.length;
-              const rawIdx = Math.round(event.nativeEvent.contentOffset.x / REVIEW_SNAP);
+              const rawIdx = Math.round(offsetX / REVIEW_SNAP);
               const mod = ((rawIdx % count) + count) % count;
               const centeredIdx = count + mod;
               reviewIdxRef.current = centeredIdx;
@@ -1663,53 +2177,10 @@ export default function HomeScreen({
               reviewDraggingRef.current = false;
             }}
           >
-            {REVIEW_LOOP.map((item, idx) => (
-              <View key={`${item.id}-${idx}`} style={styles.customerReviewCard}>
-                <View style={styles.customerReviewImageWrap}>
-                  <Image
-                    source={{ uri: item.image }}
-                    style={styles.customerReviewImage}
-                    contentFit="cover"
-                  />
-                  <LinearGradient
-                    colors={['transparent', 'rgba(20, 19, 26, 0.55)', '#14131A']}
-                    locations={[0.45, 0.78, 1]}
-                    style={styles.customerReviewImageFade}
-                  />
-
-                  <View style={styles.soldStampOuter}>
-                    <View style={styles.soldStampInner}>
-                      <Text style={styles.soldStampStars}>★ ★ ★</Text>
-                      <View style={styles.soldStampBand}>
-                        <Text style={styles.soldStampText}>RENT</Text>
-                      </View>
-                      <Text style={styles.soldStampStars}>★ ★ ★</Text>
-                    </View>
-                  </View>
-                </View>
-
-                <View style={styles.customerReviewBody}>
-                  <Text style={styles.customerReviewName} numberOfLines={1}>
-                    {item.name}
-                  </Text>
-                  <Text style={styles.customerReviewCity} numberOfLines={1}>
-                    {item.city}
-                  </Text>
-
-                  <Text style={styles.customerReviewQuote} numberOfLines={3}>
-                    {item.quote}
-                  </Text>
-                  <Text style={styles.customerReviewReadMore}>read more.</Text>
-
-                  <View style={styles.customerSoldBadge}>
-                    <Text style={styles.customerSoldBadgeText} numberOfLines={1}>
-                      {item.badge}
-                    </Text>
-                  </View>
-                </View>
-              </View>
+           {REVIEW_LOOP.map((item, idx) => (
+              <CustomerReviewCard key={`${item.id}-${idx}`} item={item} index={idx} />
             ))}
-          </ScrollView>
+                              </ScrollView>
         </Animated.View>
 
         <Animated.View entering={cardEnter(10)} style={styles.socialSection}>
@@ -1752,7 +2223,7 @@ export default function HomeScreen({
             <View style={styles.trustedWave3} />
 
             <View style={styles.trustedHeroCopy}>
-              <Text style={styles.trustedHeroNumber}>2,63,923+</Text>
+              <AnimatedCounter target={263923} format="indian" suffix="+" style={styles.trustedHeroNumber} duration={2000} />
               <Text style={styles.trustedHeroSub}>
                 riders trusted Evegah in EV 
               </Text>
@@ -1782,7 +2253,7 @@ export default function HomeScreen({
               <View style={styles.trustedCitiesGrid} />
               <View style={styles.trustedCitiesCopy}>
                 <Text style={styles.trustedSmallLabel}>Spread across</Text>
-                <Text style={styles.trustedCitiesNum}>25+</Text>
+                <AnimatedCounter target={25} format="int" suffix="+" style={styles.trustedCitiesNum} duration={1600} />
                 <Text style={styles.trustedCitiesSub}>Zones in India</Text>
               </View>
               <View style={styles.trustedMapGraphic}>
@@ -1803,7 +2274,7 @@ export default function HomeScreen({
             >
               <View style={styles.trustedRatingChevron} />
               <Text style={styles.trustedSmallLabel}>Ratings</Text>
-              <Text style={styles.trustedRatingNum}>4.9</Text>
+              <AnimatedCounter target={4.9} format="decimal1" style={styles.trustedRatingNum} duration={1600} />
               <View style={styles.trustedStarsRow}>
                 <Ionicons name="star" size={18} color="#FFD21E" />
                 <Ionicons name="star" size={18} color="#FFD21E" />
@@ -1840,30 +2311,53 @@ export default function HomeScreen({
         startDay={startDay}
         endDay={endDay}
         pickupHour={pickupHour}
+        pickupMinute={pickupMinute}
         dropHour={dropHour}
+        dropMinute={dropMinute}
+        packageOptions={zonePackageOptions}
+        isHourlyZone={isHourlyZone}
+        operatingHours={
+          effectiveZone?.hours ||
+          (effectiveZone?.open_time && `${effectiveZone.open_time} - ${effectiveZone.close_time}`) ||
+          '06:00 – 23:00'
+        }
         onSelectPackage={handleSelectPackage}
         onChangeDates={(nextStart, nextEnd) => {
           setStartDay(nextStart);
           setEndDay(nextEnd);
         }}
-        onChangeHours={(nextPickupH, nextDropH) => {
+        onChangeHours={(nextPickupH, nextDropH, nextPickupM = '00', nextDropM = '00') => {
           setPickupHour(nextPickupH);
-          setDropHour(nextDropH);
+          setPickupMinute(nextPickupM);
+          const pkg = PACKAGE_OPTIONS.find((p) => p.id === packageId);
+          if (pkg && pkg.days) {
+            setDropHour(nextPickupH);
+            setDropMinute(nextPickupM);
+          } else {
+            setDropHour(nextDropH);
+            setDropMinute(nextDropM);
+          }
         }}
         onClear={() => {
-          const defStart = cleanDay(new Date(2026, 9, 14));
+          const now = new Date();
+          const defStart = cleanDay(now);
           setStartDay(defStart);
           setEndDay(addDaysToDate(defStart, 1));
           setPackageId('daily');
-          setPickupHour(8);
-          setDropHour(8);
+          setPickupHour(now.getHours());
+          setPickupMinute(String(now.getMinutes()).padStart(2, '0'));
+          setDropHour(now.getHours());
+          setDropMinute(String(now.getMinutes()).padStart(2, '0'));
           setDateTimeConfirmed(false);
         }}
         onChangeZone={() => {
           setCalendarModalOpen(false);
           onOpenLocation?.();
         }}
-        onConfirm={() => setDateTimeConfirmed(true)}
+        onConfirm={() => {
+          setDateTimeConfirmed(true);
+          setCalendarModalOpen(false);
+        }}
         onClose={() => setCalendarModalOpen(false)}
       />
 
@@ -1999,6 +2493,14 @@ const styles = StyleSheet.create({
     width: SLIDE_WIDTH,
     height: SLIDE_HEIGHT,
   },
+  slideSpacerCta: {
+    position: 'absolute',
+    left: 16,
+    bottom: 44,
+    width: 140,
+    height: 44,
+    borderRadius: 999,
+  },
   slide: {
     position: 'absolute',
     width: SLIDE_WIDTH,
@@ -2107,7 +2609,7 @@ const styles = StyleSheet.create({
   slideSubText: {
     fontSize: 13,
     lineHeight: 17,
-    fontWeight: '600',
+    fontWeight: '500',
     color: 'rgba(255, 255, 255, 0.92)',
   },
   slideCtaBtn: {
@@ -2305,7 +2807,7 @@ const styles = StyleSheet.create({
   bookingQuickZoneName: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#280D42',
+    color: '#1E293B',
   },
   bookingQuickZoneNameActive: {
     color: '#FFFFFF',
@@ -2386,8 +2888,8 @@ const styles = StyleSheet.create({
   },
   bookingDeliveryCheckLabel: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#280D42',
+    fontWeight: '500',
+    color: '#1E293B',
   },
   bookingSearchBtn: {
     marginTop: 14,
@@ -2503,6 +3005,57 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#280D42',
   },
+  hourlyRentalBanner: {
+    backgroundColor: '#F5F3FF',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    alignItems: 'center',
+    gap: 4,
+  },
+  hourlyRentalBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#6D28D9',
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  hourlyRentalBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  hourlyRentalDescText: {
+    color: '#4B5563',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  calHourlyNoticeWrap: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FAF5FF',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+  },
+  calHourlyNoticeText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: TAB_PURPLE,
+  },
   calPackageRow: {
     marginTop: 12,
     flexDirection: 'row',
@@ -2616,6 +3169,55 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#ECE9F2',
     marginVertical: 8,
+  },
+  calTimeCardsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginVertical: 6,
+  },
+  calTimeCard: {
+    flex: 1,
+    backgroundColor: '#FAF7FD',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#EDE9FE',
+    alignItems: 'center',
+  },
+  calTimeCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 4,
+  },
+  calTimeCardTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4B5563',
+  },
+  calTimeCardValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: TAB_PURPLE,
+    letterSpacing: -0.2,
+    marginVertical: 2,
+  },
+  calTimeCardBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F3EEF8',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    marginTop: 4,
+  },
+  calTimeCardBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: TAB_PURPLE,
   },
   calTimeColumnsRow: {
     flexDirection: 'row',
@@ -3294,8 +3896,8 @@ const styles = StyleSheet.create({
   reviewTickerPill: {
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#DED4EB',
-    backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F3F4F6',
     paddingHorizontal: 16,
     paddingVertical: 8.5,
   },
@@ -3306,105 +3908,101 @@ const styles = StyleSheet.create({
   },
   customerReviewTrack: {
     paddingTop: 18,
+    paddingBottom: 8,
     paddingHorizontal: Math.round((SCREEN_W - REVIEW_CARD_W) / 2),
     gap: REVIEW_GAP,
   },
   customerReviewCard: {
     width: REVIEW_CARD_W,
     height: REVIEW_CARD_H,
-    borderRadius: 18,
+    borderRadius: 24,
     overflow: 'hidden',
-    backgroundColor: '#14131A',
+    backgroundColor: '#1E172B',
     position: 'relative',
-  },
-  customerReviewImageWrap: {
-    width: '100%',
-    height: Math.round(REVIEW_CARD_H * 0.54),
-    position: 'relative',
-    backgroundColor: '#1E1C26',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    elevation: 6,
   },
   customerReviewImage: {
+    ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
   },
-  customerReviewImageFade: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 68,
-  },
   soldStampOuter: {
     position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.42)',
+    top: 14,
+    right: 14,
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    borderWidth: 1.8,
+    borderColor: 'rgba(255, 255, 255, 0.44)',
     alignItems: 'center',
     justifyContent: 'center',
     transform: [{ rotate: '-18deg' }],
-    zIndex: 2,
+    zIndex: 3,
   },
   soldStampInner: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 63,
+    height: 63,
+    borderRadius: 31.5,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.34)',
+    borderColor: 'rgba(255, 255, 255, 0.35)',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 1,
+    gap: 1.5,
   },
   soldStampStars: {
-    color: 'rgba(255, 255, 255, 0.48)',
+    color: 'rgba(255, 255, 255, 0.50)',
     fontSize: 6.5,
-    letterSpacing: 1.5,
+    letterSpacing: 2,
   },
   soldStampBand: {
-    width: 62,
+    width: 68,
     paddingVertical: 1.5,
     borderTopWidth: 1.2,
     borderBottomWidth: 1.2,
     borderColor: 'rgba(255, 255, 255, 0.48)',
-    backgroundColor: 'rgba(20, 19, 26, 0.28)',
+    backgroundColor: 'rgba(20, 16, 28, 0.24)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   soldStampText: {
-    color: 'rgba(255, 255, 255, 0.62)',
-    fontSize: 13.5,
+    color: 'rgba(255, 255, 255, 0.70)',
+    fontSize: 14,
     fontWeight: '900',
-    letterSpacing: 1.6,
+    letterSpacing: 1.8,
   },
-  customerReviewBody: {
-    flex: 1,
-    backgroundColor: '#14131A',
-    paddingHorizontal: 14,
-    paddingTop: 2,
-    paddingBottom: 14,
-    justifyContent: 'space-between',
+  customerReviewBottomContent: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+    paddingTop: 12,
+    zIndex: 4,
   },
   customerReviewName: {
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#FFFFFF',
-    letterSpacing: -0.3,
+    letterSpacing: -0.2,
   },
   customerReviewCity: {
-    marginTop: 1,
+    marginTop: 2,
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '500',
     color: 'rgba(255, 255, 255, 0.78)',
   },
   customerReviewQuote: {
-    marginTop: 6,
-    fontSize: 12.5,
-    lineHeight: 16.5,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.92)',
+    marginTop: 10,
+    fontSize: 13,
+    lineHeight: 18.5,
+    fontWeight: '400',
+    color: 'rgba(255, 255, 255, 0.94)',
   },
   customerReviewReadMore: {
     marginTop: 1,
@@ -3413,19 +4011,25 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   customerSoldBadge: {
-    marginTop: 8,
+    marginTop: 14,
     alignSelf: 'flex-start',
     backgroundColor: '#FFFFFF',
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.14,
+    shadowRadius: 4,
+    elevation: 3,
   },
   customerSoldBadgeText: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '700',
-    color: '#24083C',
+    color: '#1B1726',
+    letterSpacing: -0.1,
   },
-  socialSection: {
+    socialSection: {
     marginTop: 10,
     marginHorizontal: -16,
     backgroundColor: '#FFFFFF',
@@ -3557,6 +4161,7 @@ const styles = StyleSheet.create({
   footerArt: {
     width: SCREEN_W * 0.94,
     height: FOOTER_ART_HEIGHT * 0.94,
+    opacity: 0.35,
   },
   footerCreditWrap: {
     marginTop: 6,
@@ -3619,5 +4224,70 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 15,
     left: 15,
+  },
+
+  /* Home Active Ride Banner */
+  homeActiveRideBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#0F172A',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  homeActiveRideLeft: {
+    flex: 1,
+    marginRight: 10,
+  },
+  homeActiveRideLiveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  homeActiveRideLiveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#10B981',
+  },
+  homeActiveRideLiveText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#34D399',
+    letterSpacing: 0.5,
+  },
+  homeActiveRideVehicleTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginBottom: 2,
+  },
+  homeActiveRideSubText: {
+    fontSize: 12,
+    color: '#94A3B8',
+    fontWeight: '500',
+  },
+  homeActiveRideResumeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#7C3AED',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  homeActiveRideResumeBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

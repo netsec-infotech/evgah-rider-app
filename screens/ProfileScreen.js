@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
@@ -8,13 +8,11 @@ import * as ImagePicker from 'expo-image-picker';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
+import { apiGet, apiPost, getStoredRider, setStoredRider, last10 } from '../services/api';
 
 const PURPLE = '#4A168C';
 const INDIGO = '#3D2CE0';
 const PROFILE_HERO = require('../assets/profile/profile-hero.png');
-
-const DEFAULT_AVATAR =
-  'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=300&auto=format&fit=crop&q=80';
 
 const PERIODS = [
   {
@@ -52,14 +50,79 @@ export default function ProfileScreen({
   onPreferences,
   onAbout,
   onSecurity,
+  onLogout,
   onOpenHome,
   onOpenMyRide,
   onOpenScan,
   onOpenWallet,
+  onUpdateAvatar,
 }) {
   const insets = useSafeAreaInsets();
-  const [avatarUri, setAvatarUri] = useState(profile?.avatar || DEFAULT_AVATAR);
+  const [avatarUri, setAvatarUri] = useState(profile?.avatar || '');
   const [periodIdx, setPeriodIdx] = useState(0);
+  const [metrics, setMetrics] = useState({
+    totalRides: 0,
+    distanceKm: 0,
+    co2SavedKg: 0,
+  });
+
+  useEffect(() => {
+    let active = true;
+    async function loadMetrics() {
+      let mobile = last10(profile?.phone);
+      if (!mobile) {
+        try {
+          const stored = await getStoredRider();
+          mobile = last10(stored?.mobile || stored?.phone);
+        } catch (_) {}
+      }
+      if (!mobile) return;
+      try {
+        const res = await apiGet(`/renters/metrics/${mobile}`);
+        if (active && res?.data) {
+          setMetrics({
+            totalRides: res.data.totalRides || 0,
+            distanceKm: res.data.distanceKm || 0,
+            co2SavedKg: res.data.co2SavedKg || 0,
+          });
+        }
+      } catch (_) {}
+
+      try {
+        const profRes = await apiGet(`/renters/profile?mobile=${mobile}`);
+        if (active && profRes?.data) {
+          const rData = profRes.data.renter || profRes.data;
+          if (rData?.avatar_url) {
+            setAvatarUri(rData.avatar_url);
+            onUpdateAvatar?.(rData.avatar_url);
+          }
+          const ps = profRes?.data?.performance_summary;
+          if (ps) {
+            setMetrics({
+              totalRides: ps.total_rides || 0,
+              distanceKm: parseFloat(ps.distance_km) || 0,
+              co2SavedKg: parseFloat(ps.co2_saved_kg) || 0,
+            });
+          }
+        }
+      } catch (_) {}
+    }
+    loadMetrics();
+    return () => {
+      active = false;
+    };
+  }, [profile?.phone]);
+
+  const handleLogoutPrompt = () => {
+    Alert.alert(
+      'Log Out',
+      'Are you sure you want to log out from Evegah?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Log Out', style: 'destructive', onPress: () => onLogout?.() },
+      ]
+    );
+  };
 
   const rawName = profile?.name || '';
   const displayName =
@@ -78,9 +141,36 @@ export default function ProfileScreen({
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.85,
+        base64: true,
       });
-      if (!result.canceled && result.assets && result.assets[0]?.uri) {
-        setAvatarUri(result.assets[0].uri);
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const asset = result.assets[0];
+        let photoUri = asset.uri;
+        if (asset.base64) {
+          photoUri = `data:image/jpeg;base64,${asset.base64}`;
+        }
+        setAvatarUri(photoUri);
+        onUpdateAvatar?.(photoUri);
+
+        // Persist to backend and SecureStore
+        try {
+          if (profile?.phone) {
+            apiPost('/renters', {
+              rider_name: displayName,
+              mobile: profile.phone,
+              avatar: photoUri,
+            }).catch(() => {});
+            apiPost('/renters/kyc', {
+              rider_name: displayName,
+              mobile: profile.phone,
+              live_photo: photoUri,
+            }).catch(() => {});
+          }
+          const stored = await getStoredRider();
+          if (stored) {
+            await setStoredRider({ ...stored, avatar: photoUri, avatar_url: photoUri });
+          }
+        } catch (_) {}
       }
     } catch (e) {
       console.warn('Image picker error:', e);
@@ -178,7 +268,7 @@ export default function ProfileScreen({
           id: 'logout',
           icon: 'log-out-outline',
           title: 'Account & Log Out',
-          onPress: onSecurity,
+          onPress: handleLogoutPrompt,
         },
       ],
     },
@@ -222,11 +312,17 @@ export default function ProfileScreen({
           {/* Avatar */}
           <View style={styles.avatarRow}>
             <Pressable onPress={handlePickAvatar} style={styles.avatarOuter}>
-              <Image
-                source={{ uri: avatarUri }}
-                style={styles.avatarImage}
-                contentFit="cover"
-              />
+              {avatarUri ? (
+                <Image
+                  source={{ uri: avatarUri }}
+                  style={styles.avatarImage}
+                  contentFit="cover"
+                />
+              ) : (
+                <View style={[styles.avatarImage, styles.avatarPlaceholder]}>
+                  <Ionicons name="person" size={38} color="#FFFFFF" />
+                </View>
+              )}
               <View style={styles.cameraBadge}>
                 <Ionicons name="camera" size={13} color="#FFFFFF" />
               </View>
@@ -238,15 +334,21 @@ export default function ProfileScreen({
 
           {/* Rider Info + Silver Member Card */}
           <View style={styles.identityRow}>
-            <View style={styles.identityLeft}>
-              <Text style={styles.riderName} numberOfLines={1}>
-                {displayName}
-              </Text>
+            <Pressable onPress={onEdit} style={styles.identityLeft}>
+              <View style={styles.riderNameRow}>
+                <Text style={styles.riderName} numberOfLines={1}>
+                  {displayName}
+                </Text>
+                <View style={styles.editProfileBtn}>
+                  <Ionicons name="pencil" size={11} color="#FFFFFF" />
+                  <Text style={styles.editProfileBtnText}>Edit</Text>
+                </View>
+              </View>
               <Text style={styles.riderIdText}>
                 Rider ID{'  '}
                 <Text style={styles.riderIdCode}>#EVG45892</Text>
               </Text>
-            </View>
+            </Pressable>
 
             <Pressable onPress={onRefer} style={styles.memberBadge}>
               <View style={styles.crownWrap}>
@@ -266,7 +368,7 @@ export default function ProfileScreen({
             <View style={styles.statIconWrap}>
               <Ionicons name="bicycle" size={22} color={INDIGO} />
             </View>
-            <Text style={styles.statVal}>128</Text>
+            <Text style={styles.statVal}>{metrics.totalRides}</Text>
             <Text style={styles.statLbl}>Total Rides</Text>
           </View>
 
@@ -276,7 +378,9 @@ export default function ProfileScreen({
             <View style={styles.statIconWrap}>
               <Ionicons name="location-outline" size={21} color={INDIGO} />
             </View>
-            <Text style={styles.statVal}>3,420 km</Text>
+            <Text style={styles.statVal}>
+              {metrics.distanceKm ? `${metrics.distanceKm} km` : '0 km'}
+            </Text>
             <Text style={styles.statLbl}>Distance</Text>
           </View>
 
@@ -286,7 +390,9 @@ export default function ProfileScreen({
             <View style={styles.statIconWrap}>
               <Ionicons name="leaf" size={20} color="#34A853" />
             </View>
-            <Text style={styles.statVal}>12,450 kg</Text>
+            <Text style={styles.statVal}>
+              {metrics.co2SavedKg ? `${metrics.co2SavedKg} kg` : '0 kg'}
+            </Text>
             <Text style={styles.statLbl}>CO₂ Saved</Text>
           </View>
         </Animated.View>
@@ -397,6 +503,12 @@ export default function ProfileScreen({
             </View>
           ))}
         </Animated.View>
+
+        {/* Dedicated Prominent Log Out Button */}
+        <Pressable onPress={handleLogoutPrompt} style={styles.logoutButton}>
+          <Ionicons name="log-out-outline" size={19} color="#DC2626" />
+          <Text style={styles.logoutButtonText}>Log Out</Text>
+        </Pressable>
       </ScrollView>
 
       {/* Bottom Tab Bar */}
@@ -526,6 +638,11 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 38,
   },
+  avatarPlaceholder: {
+    backgroundColor: '#371B58',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   cameraBadge: {
     position: 'absolute',
     right: -2,
@@ -566,6 +683,27 @@ const styles = StyleSheet.create({
   },
   identityLeft: {
     flex: 1,
+  },
+  riderNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  editProfileBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+  },
+  editProfileBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   riderName: {
     fontSize: 19,
@@ -929,5 +1067,24 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 15,
     left: 15,
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 18,
+    marginBottom: 28,
+    marginHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#FEE2E2',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+  logoutButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#DC2626',
   },
 });

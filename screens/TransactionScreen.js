@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -38,9 +39,12 @@ export default function TransactionScreen({ tx, onBack }) {
 
   const handleDownloadReceipt = () => {
     setReceiptSaved(true);
+    const invoiceId = tx.booking || tx.transaction_id || tx.id || 'transaction';
+    const receiptUrl = `https://evegah.cloud/api/receipts/${invoiceId}`;
+    Linking.openURL(receiptUrl).catch(() => {});
     Alert.alert(
       'Receipt Downloaded',
-      `Official payment invoice for ${tx.id || 'transaction'} saved to downloads.`
+      `Official payment invoice #${invoiceId} has been opened for download and printing.`
     );
   };
 

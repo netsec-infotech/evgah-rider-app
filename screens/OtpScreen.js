@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import {
+  BackHandler,
   Dimensions,
   Keyboard,
   Platform,
@@ -25,6 +26,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { verifyRiderOtp, sendRiderOtp } from '../services/api';
 
 const PURPLE = '#4A168C';
 const BUTTON = '#C5B4E6';
@@ -127,8 +129,24 @@ const OtpBox = forwardRef(function OtpBox({ value, onChangeText, onKeyPress, inp
   );
 });
 
-export default function OtpScreen({ phone, onEdit, onSuccess }) {
+export default function OtpScreen({ phone, onEdit, onSuccess, onBack }) {
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    const handleBack = () => {
+      if (onBack) {
+        onBack();
+        return true;
+      }
+      if (onEdit) {
+        onEdit();
+        return true;
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', handleBack);
+    return () => sub.remove();
+  }, [onBack, onEdit]);
   const [code, setCode] = useState(Array(DIGITS).fill(''));
   const [toastMessage, setToastMessage] = useState(null);
   const [toastTick, setToastTick] = useState(0);
@@ -148,7 +166,12 @@ export default function OtpScreen({ phone, onEdit, onSuccess }) {
 
   useEffect(() => {
     riderX.value = withTiming(0, { duration: 900, easing: Easing.out(Easing.cubic) });
-  }, [riderX]);
+    if (phone) {
+      sendRiderOtp(phone).catch((err) => {
+        console.warn('Initial OTP send notice:', err.message);
+      });
+    }
+  }, [riderX, phone]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -249,24 +272,32 @@ export default function OtpScreen({ phone, onEdit, onSuccess }) {
     transform: [{ translateY: toastTranslateY.value }, { scale: toastScale.value }],
   }));
 
-  const judge = (digits) => {
+  const [verifying, setVerifying] = useState(false);
+
+  const judge = async (digits) => {
     const entered = digits.join('');
-    if (entered.length < DIGITS) return;
-    if (entered === INVALID_OTP) {
+    if (entered.length < DIGITS || verifying) return;
+    setVerifying(true);
+
+    try {
+      const res = await verifyRiderOtp(phone, entered);
+      boxes.current.forEach((box, index) => box?.success(index));
+      if (successTimer.current) clearTimeout(successTimer.current);
+      successTimer.current = setTimeout(() => {
+        setVerifying(false);
+        onSuccess?.(res);
+      }, 780);
+    } catch (err) {
+      setVerifying(false);
       boxes.current.forEach((box) => box?.fail());
-      showToast('Invalid OTP');
+      showToast(err?.message || 'Invalid OTP');
       if (clearTimer.current) clearTimeout(clearTimer.current);
       clearTimer.current = setTimeout(() => {
         setCode((current) => (current.join('') === entered ? Array(DIGITS).fill('') : current));
         boxes.current.forEach((box) => box?.reset());
         inputs.current[0]?.focus();
       }, 720);
-      return;
     }
-
-    boxes.current.forEach((box, index) => box?.success(index));
-    if (successTimer.current) clearTimeout(successTimer.current);
-    successTimer.current = setTimeout(() => onSuccess?.(), 780);
   };
 
   const setDigit = (index, value) => {
@@ -300,6 +331,16 @@ export default function OtpScreen({ phone, onEdit, onSuccess }) {
           <Ionicons name="close-circle" size={18} color="#FFFFFF" />
           <Text style={styles.toastText}>{toastMessage}</Text>
         </Animated.View>
+      ) : null}
+
+      {onBack || onEdit ? (
+        <Pressable
+          onPress={onBack || onEdit}
+          hitSlop={12}
+          style={[styles.backBtn, { top: Math.max(insets.top + 6, 16) }]}
+        >
+          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+        </Pressable>
       ) : null}
 
       <Animated.View style={[styles.body, sheetLiftStyle]}>
@@ -355,11 +396,17 @@ export default function OtpScreen({ phone, onEdit, onSuccess }) {
             Didn't receive the code?{' '}
             <Text
               style={styles.resendLink}
-              onPress={() => {
+              onPress={async () => {
                 if (clearTimer.current) clearTimeout(clearTimer.current);
                 setCode(Array(DIGITS).fill(''));
                 boxes.current.forEach((box) => box?.reset());
                 inputs.current[0]?.focus();
+                try {
+                  await sendRiderOtp(phone);
+                  showToast('New OTP sent successfully');
+                } catch (err) {
+                  showToast(err?.message || 'Could not resend OTP');
+                }
               }}
             >
               Resend OTP
@@ -529,15 +576,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: '#DC2626',
+    backgroundColor: '#26dc26',
     paddingHorizontal: 16,
     paddingVertical: 14,
-    borderRadius: 16,
+    borderRadius: 16, 
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.22,
     shadowRadius: 14,
     elevation: 12,
+  },
+  backBtn: {
+    position: 'absolute',
+    left: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 20,
   },
   toastText: {
     flex: 1,
