@@ -761,8 +761,22 @@ export default function RideScreen({
           rotateEnabled={false}
           pitchEnabled={false}
           showsCompass={false}
-          loadingEnabled
-          loadingBackgroundColor="#E2E8F0"
+          onMapReady={() => {
+            if (activeScooterCoord?.latitude && activeScooterCoord?.longitude) {
+              mapRef.current?.animateToRegion(
+                {
+                  latitude: activeScooterCoord.latitude,
+                  longitude: activeScooterCoord.longitude,
+                  latitudeDelta: 0.014,
+                  longitudeDelta: 0.014,
+                },
+                500
+              );
+            }
+          }}
+          onError={(err) => {
+            console.warn('Native Google Maps error:', err?.nativeEvent || err);
+          }}
         >
 
           {/* Origin Zone Zone Halo */}
@@ -991,7 +1005,7 @@ export default function RideScreen({
       <View
         style={[
           styles.deckSheet,
-          { paddingBottom: Math.max(insets.bottom, 14) },
+          { paddingBottom: Math.max(insets.bottom + 8, 20) },
         ]}
       >
         <View style={styles.sheetGrabber} />
@@ -1680,12 +1694,12 @@ export default function RideScreen({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
   },
   mapContainer: {
+    flex: 1,
     width: '100%',
-    height: Math.round(SCREEN_H * 0.40),
-    minHeight: 280,
+    minHeight: 240,
     position: 'relative',
     backgroundColor: '#E2E8F0',
     overflow: 'hidden',
@@ -2014,7 +2028,7 @@ const styles = StyleSheet.create({
 
   /* Bottom Cockpit Deck Sheet */
   deckSheet: {
-    marginTop: -18,
+    marginTop: -20,
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
@@ -2032,7 +2046,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: '#CBD5E1',
     alignSelf: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
 
   /* Row 1: Vehicle & Mode Switcher */

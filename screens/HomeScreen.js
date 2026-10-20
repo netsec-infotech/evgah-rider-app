@@ -4,7 +4,6 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { StatusBar } from 'expo-status-bar';
-import { Accelerometer } from 'expo-sensors';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   Easing,
@@ -121,8 +120,6 @@ const SOCIAL_VIDEOS = [
   require('../assets/home/vid3.mp4'),
   require('../assets/home/vid4.mp4'),
 ];
-const FOOTER_ART = require('../assets/home/footer-evegah.png');
-const FOOTER_ART_HEIGHT = Math.round(SCREEN_W * (673 / 861));
 
 const SLIDES = [
   {
@@ -216,64 +213,6 @@ const VEHICLES = [
     image: require('../assets/home/vehicle-pro.png'),
   },
 ];
-
-function GyroFooterArt() {
-  const rotateZ = useSharedValue(0);
-  const shiftX = useSharedValue(0);
-  const shiftY = useSharedValue(0);
-
-  useEffect(() => {
-    const samples = [];
-    const smooth = { x: 0, y: 0 };
-    Accelerometer.setUpdateInterval(32);
-    const subscription = Accelerometer.addListener(({ x, y }) => {
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-
-      smooth.x += (x - smooth.x) * 0.22;
-      smooth.y += (y - smooth.y) * 0.22;
-
-      if (samples.length < 6) {
-        samples.push({ x: smooth.x, y: smooth.y });
-        return;
-      }
-      if (samples.base == null) {
-        const count = samples.length;
-        samples.base = samples.reduce(
-          (acc, sample) => ({
-            x: acc.x + sample.x / count,
-            y: acc.y + sample.y / count,
-          }),
-          { x: 0, y: 0 },
-        );
-      }
-
-      const roll = Math.max(-0.7, Math.min(0.7, smooth.x - samples.base.x));
-      const pitch = Math.max(-0.7, Math.min(0.7, smooth.y - samples.base.y));
-      const blend = 0.12;
-      rotateZ.value += ((roll / 0.7) * -4 - rotateZ.value) * blend;
-      shiftX.value += (roll * -36 - shiftX.value) * blend;
-      shiftY.value += (pitch * 22 - shiftY.value) * blend;
-    });
-
-    return () => subscription.remove();
-  }, [rotateZ, shiftX, shiftY]);
-
-  const style = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: shiftX.value },
-      { translateY: shiftY.value },
-      { rotateZ: `${rotateZ.value}deg` },
-    ],
-  }));
-
-  return (
-    <View style={styles.footerPerspective} collapsable={false}>
-      <Animated.View collapsable={false} style={[styles.footerStage, style]}>
-        <Image source={FOOTER_ART} style={styles.footerArt} contentFit="contain" />
-      </Animated.View>
-    </View>
-  );
-}
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -2299,7 +2238,6 @@ export default function HomeScreen({
             locations={[0, 0.42, 1]}
             style={styles.footer}
           >
-            <GyroFooterArt />
             <View style={styles.footerCreditWrap}>
               <Text style={styles.footerCreditText}>
                 App Designed by <Text style={styles.footerCreditHandle}>@netsecinfotech</Text>
@@ -4153,23 +4091,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     overflow: 'visible',
   },
-  footerPerspective: {
-    width: SCREEN_W,
-    height: FOOTER_ART_HEIGHT,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  footerStage: {
-    width: SCREEN_W,
-    height: FOOTER_ART_HEIGHT,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  footerArt: {
-    width: SCREEN_W * 0.94,
-    height: FOOTER_ART_HEIGHT * 0.94,
-    opacity: 0.35,
-  },
+  
+  
+  
   footerCreditWrap: {
     marginTop: 6,
     paddingVertical: 8,
