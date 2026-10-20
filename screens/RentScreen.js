@@ -975,8 +975,8 @@ export default function RentScreen({
   // Booking Parameters
   const availableZones = EVEGAH_ZONES?.length ? EVEGAH_ZONES : ZONES;
   const [sameDrop, setSameDrop] = useState(true);
-  const [pickupZone, setPickupZone] = useState(() => selectedZone || null);
-  const [dropZone, setDropZone] = useState(() => selectedZone || null);
+  const [pickupZone, setPickupZone] = useState(() => selectedZone || availableZones[0]);
+  const [dropZone, setDropZone] = useState(() => selectedZone || availableZones[0]);
   const [pickupDay, setPickupDay] = useState(() => startOfDay(0));
   const [dropDay, setDropDay] = useState(() => startOfDay(1));
   const [pickupTime, setPickupTime] = useState(nowTimeStr);
@@ -995,6 +995,8 @@ export default function RentScreen({
         const list = res?.data || (Array.isArray(res) ? res : []);
         if (Array.isArray(list) && list.length > 0) {
           setBackendZones(list);
+          setPickupZone((prev) => prev || list[0]);
+          setDropZone((prev) => prev || list[0]);
         }
       })
       .catch(() => {});
@@ -1135,10 +1137,11 @@ export default function RentScreen({
   // Dynamic Slider Fetch from Backend
   useEffect(() => {
     let mounted = true;
-    apiGet('/app-sliders')
+    apiGet('/settings/app_slider')
+      .catch(() => apiGet('/app-sliders'))
       .then((res) => {
         if (!mounted) return;
-        const raw = res?.data?.rent_sliders || res?.data?.rent || [];
+        const raw = res?.data?.rent_sliders || res?.data?.value?.rent_sliders || res?.data?.rent || [];
         const active = raw.filter((s) => s.active !== false);
         if (active.length > 0) {
           const mapped = active.map((s, idx) => {

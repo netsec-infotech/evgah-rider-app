@@ -390,6 +390,30 @@ export default function LocationScreen({ onBack, onSelectZone, selectedZone }) {
   const [userLocation, setUserLocation] = useState(null);
   const [currentAddress, setCurrentAddress] = useState('Detecting current GPS location...');
   const [isLocating, setIsLocating] = useState(false);
+  const [selectedCity, setSelectedCity] = useState('All');
+
+  const availableCities = useMemo(() => {
+    const raw = zonesList.map((z) => (z.city ? String(z.city).trim() : '')).filter(Boolean);
+    const unique = Array.from(new Set(raw));
+    unique.sort((a, b) => {
+      if (a.toLowerCase() === 'vadodara') return -1;
+      if (b.toLowerCase() === 'vadodara') return 1;
+      return a.localeCompare(b);
+    });
+    return ['All', ...unique];
+  }, [zonesList]);
+
+  const filteredZones = useMemo(() => {
+    if (selectedCity === 'All') return zonesList;
+    return zonesList.filter(
+      (z) => String(z.city || '').toLowerCase().trim() === selectedCity.toLowerCase().trim()
+    );
+  }, [zonesList, selectedCity]);
+
+  const nearestZone = useMemo(() => {
+    if (!zonesList || zonesList.length === 0) return null;
+    return zonesList[0];
+  }, [zonesList]);
 
   // Accurate GPS acquisition and reverse geocoding
   const getPreciseLocation = async () => {
@@ -593,17 +617,74 @@ export default function LocationScreen({ onBack, onSelectZone, selectedZone }) {
           </Pressable>
         </Animated.View>
 
+        {/* Auto-Selected Nearest Available Zone Banner */}
+        {nearestZone && (
+          <Pressable
+            style={styles.nearestDetectedBanner}
+            onPress={() => handleChooseZone(nearestZone)}
+          >
+            <View style={styles.nearestIconBox}>
+              <Ionicons name="sparkles" size={15} color="#10B981" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={styles.nearestTitleRow}>
+                <Text style={styles.nearestKicker}>NEAREST AVAILABLE ZONE</Text>
+                <View style={styles.autoSelectPill}>
+                  <Text style={styles.autoSelectText}>Auto-Selected</Text>
+                </View>
+              </View>
+              <Text style={styles.nearestZoneTitle} numberOfLines={1}>
+                {nearestZone.name} · {nearestZone.distance} away
+              </Text>
+              <Text style={styles.nearestSubAddress} numberOfLines={1}>
+                {nearestZone.address} ({nearestZone.city || 'Vadodara'})
+              </Text>
+            </View>
+            <View style={styles.nearestPickArrow}>
+              <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
+            </View>
+          </Pressable>
+        )}
+
+        {/* City Filter Tabs */}
+        <View style={styles.cityPillWrap}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cityPillScroll}>
+            {availableCities.map((city) => (
+              <Pressable
+                key={city}
+                onPress={() => setSelectedCity(city)}
+                style={[styles.cityChip, selectedCity === city && styles.cityChipActive]}
+              >
+                <Ionicons
+                  name={city === 'All' ? 'globe-outline' : 'business-outline'}
+                  size={12}
+                  color={selectedCity === city ? '#FFFFFF' : '#64748B'}
+                />
+                <Text style={[styles.cityChipText, selectedCity === city && styles.cityChipTextActive]}>
+                  {city}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+
         {/* Nearest Zones Section Header */}
         <View style={styles.sectionHead}>
           <Ionicons name="navigate" size={14} color={PURPLE} />
           <View>
-            <Text style={styles.sectionTitle}>Nearest Zones</Text>
-            <Text style={styles.sectionSub}>Based on your current location</Text>
+            <Text style={styles.sectionTitle}>
+              {selectedCity === 'All' ? 'Nearest Zones' : `${selectedCity} Zones`}
+            </Text>
+            <Text style={styles.sectionSub}>
+              {filteredZones.length} {filteredZones.length === 1 ? 'hub' : 'hubs'} available
+            </Text>
           </View>
         </View>
 
         {/* Clean Zone List */}
-        {zonesList.map((zone, index) => (
+        {filteredZones.map((zone, index) => {
+          const isNearest = index === 0 && selectedCity === 'All';
+          return (
           <PressScale
             key={zone.id || `${zone.name}-${index}`}
             entering={cardEnter(index + 1)}
@@ -619,6 +700,12 @@ export default function LocationScreen({ onBack, onSelectZone, selectedZone }) {
                   <Text style={styles.zoneName} numberOfLines={1}>
                     {zone.name}
                   </Text>
+                  {isNearest && (
+                    <View style={styles.nearestMiniTag}>
+                      <Ionicons name="sparkles" size={10} color="#059669" />
+                      <Text style={styles.nearestMiniTagText}>Nearest</Text>
+                    </View>
+                  )}
                   <View
                     style={[
                       styles.livePill,
@@ -650,7 +737,7 @@ export default function LocationScreen({ onBack, onSelectZone, selectedZone }) {
                   </View>
                 </View>
                 <Text style={styles.zoneAddress} numberOfLines={1}>
-                  {zone.address}
+                  {zone.address} {zone.city ? `· ${zone.city}` : ''}
                 </Text>
               </View>
               <View style={styles.distanceWrap}>
@@ -683,7 +770,8 @@ export default function LocationScreen({ onBack, onSelectZone, selectedZone }) {
               </Pressable>
             </View>
           </PressScale>
-        ))}
+          );
+        })}
       </ScrollView>
     </View>
   );
@@ -866,6 +954,121 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: PURPLE,
   },
+
+  /* Auto-Selected Nearest Zone Banner */
+  nearestDetectedBanner: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#0F172A',
+    borderRadius: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  nearestIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: 'rgba(16, 185, 129, 0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nearestTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  nearestKicker: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#34D399',
+    letterSpacing: 0.6,
+  },
+  autoSelectPill: {
+    backgroundColor: 'rgba(52, 211, 153, 0.2)',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  autoSelectText: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    color: '#6EE7B7',
+  },
+  nearestZoneTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginTop: 2,
+  },
+  nearestSubAddress: {
+    fontSize: 11,
+    color: '#94A3B8',
+    marginTop: 1,
+  },
+  nearestPickArrow: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: PURPLE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  /* City Filter Tabs */
+  cityPillWrap: {
+    marginTop: 14,
+    marginBottom: 4,
+  },
+  cityPillScroll: {
+    gap: 8,
+  },
+  cityChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  cityChipActive: {
+    backgroundColor: PURPLE,
+    borderColor: PURPLE,
+  },
+  cityChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  cityChipTextActive: {
+    color: '#FFFFFF',
+  },
+  nearestMiniTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  nearestMiniTagText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#059669',
+  },
+
   sectionHead: {
     marginTop: 18,
     marginBottom: 12,

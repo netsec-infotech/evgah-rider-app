@@ -1,6 +1,8 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
+  Modal,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -79,10 +81,45 @@ function rideStatus(item) {
   return ['completed', 'Completed'];
 }
 
+function formatRentalTime(timeStr, dateStr) {
+  if (timeStr && typeof timeStr === 'string' && timeStr.trim().length > 0) {
+    const clean = timeStr.trim();
+    if (clean.includes(':')) {
+      const parts = clean.split(':');
+      const h = parseInt(parts[0], 10);
+      const m = (parts[1] || '00').slice(0, 2);
+      if (!isNaN(h)) {
+        const isPM = h >= 12;
+        const h12 = h % 12 || 12;
+        return `${h12}:${m} ${isPM ? 'PM' : 'AM'}`;
+      }
+    }
+    return clean;
+  }
+  if (dateStr) {
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
+    }
+  }
+  return '10:00 AM';
+}
+
 function mapRide(item) {
   const [status, statusLabel] = rideStatus(item);
   const art = artFor(item.vehicle_model || item.evegah_model_name);
   const rawDep = item.deposit != null ? item.deposit : (item.deposit_amount != null ? item.deposit_amount : (item.security_deposit != null ? item.security_deposit : 0));
+  const pDate = shortDate(item.start_date || item.pickup_date || item.rental_start_date || item.created_at);
+  const pTime = formatRentalTime(
+    item.reservation_time || item.pickup_time || item.rental_time || item.start_time,
+    item.pickup_datetime || item.rental_start_date || item.start_date || item.created_at
+  );
+  const dDate = shortDate(item.end_date || item.drop_date || item.return_date || item.created_at);
+  const dTime = formatRentalTime(
+    item.drop_time || item.return_time || item.end_time,
+    item.drop_datetime || item.return_date || item.end_date || item.drop_date || item.created_at
+  );
+
   return {
     id: item.reservation_id || item.id,
     status,
@@ -97,8 +134,14 @@ function mapRide(item) {
     image: art.image,
     pickup: item.pickup_zone || item.pickup_location || 'Gotri',
     drop: item.drop_zone || item.drop_location || item.pickup_zone || 'Manjalpur',
-    pickupWhen: shortDate(item.start_date || item.pickup_date || item.created_at),
-    dropWhen: shortDate(item.end_date || item.drop_date || item.created_at),
+    pickupDate: pDate,
+    pickupTime: pTime,
+    pickupWhen: `${pDate} · ${pTime}`,
+    dropDate: dDate,
+    dropTime: dTime,
+    dropWhen: `${dDate} · ${dTime}`,
+    rawDate: item.start_date || item.pickup_date || item.rental_start_date || item.created_at,
+    rawCreatedAt: item.created_at || item.start_date || item.pickup_date || new Date().toISOString(),
     span: item.package_type || 'Daily',
     distance: item.distance_km ? `${item.distance_km} km` : '14.2 km',
     range: item.range_km ? `${item.range_km} km` : (item.range || '80-90 km'),
@@ -197,65 +240,113 @@ export default function MyRidesScreen({
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [rides, setRides] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    async function loadRides() {
-      let mobile = last10(phone);
-      if (!mobile) {
-        try {
-          const stored = await getStoredRider();
-          mobile = last10(stored?.mobile || stored?.phone);
-        } catch (_) {}
-      }
-      if (!mobile) return;
+  const fetchRides = useCallback(async () => {
+    let mobile = last10(phone);
+    if (!mobile) {
       try {
-        const body = await apiGet(`/reservations?mobile=${mobile}&limit=50`);
-        let list = body?.data || [];
-        // Also check if there is an active ride in /rides/active
-        try {
-          const actRes = await apiGet(`/rides/active/${mobile}`);
-          if (actRes?.data?.active_ride) {
-            const ar = actRes.data.active_ride;
-            const alreadyInList = list.some((r) => (r.reservation_id === ar.reservation_id || r.id === ar.id));
-            if (!alreadyInList) {
-              list = [{
-                ...ar,
-                reservation_id: ar.reservation_id || `RIDE_${ar.id}`,
-                status: 'Active Ride',
-                vehicle_number: ar.vehicle_id || ar.registration_number,
-                battery_id: ar.battery_id,
-                fare: ar.rent,
-                deposit: ar.deposit,
-                package_type: ar.package_name,
-              }, ...list];
-            }
-          }
-        } catch (_) {}
-        if (active && list.length > 0) {
-          setRides(list.map(mapRide));
-        }
+        const stored = await getStoredRider();
+        mobile = last10(stored?.mobile || stored?.phone);
       } catch (_) {}
     }
-    loadRides();
-    return () => {
-      active = false;
-    };
+    if (!mobile) return;
+    try {
+      const body = await apiGet(`/reservations?mobile=${mobile}&limit=50`);
+      let list = body?.data || [];
+      // Also check if there is an active ride in /rides/active
+      try {
+        const actRes = await apiGet(`/rides/active/${mobile}`);
+        if (actRes?.data?.active_ride) {
+          const ar = actRes.data.active_ride;
+          const alreadyInList = list.some((r) => (r.reservation_id === ar.reservation_id || r.id === ar.id));
+          if (!alreadyInList) {
+            list = [{
+              ...ar,
+              reservation_id: ar.reservation_id || `RIDE_${ar.id}`,
+              status: 'Active Ride',
+              vehicle_number: ar.vehicle_id || ar.registration_number,
+              battery_id: ar.battery_id,
+              fare: ar.rent,
+              deposit: ar.deposit,
+              package_type: ar.package_name,
+            }, ...list];
+          }
+        }
+      } catch (_) {}
+      if (list.length > 0) {
+        setRides(list.map(mapRide));
+      }
+    } catch (_) {}
   }, [phone]);
+
+  useEffect(() => {
+    fetchRides();
+  }, [fetchRides]);
+
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
+  const [sortBy, setSortBy] = useState('newest'); // 'newest' | 'oldest' | 'fare_high' | 'fare_low'
+  const [dateFilter, setDateFilter] = useState('all'); // 'all' | 'today' | '7days' | '30days'
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchRides();
+    setRefreshing(false);
+  }, [fetchRides]);
 
   const reset = () => {
     setFilter('all');
     setQuery('');
+    setSortBy('newest');
+    setDateFilter('all');
   };
+
+  const hasActiveCustomFilter = sortBy !== 'newest' || dateFilter !== 'all';
+  const activeFilterCount = (sortBy !== 'newest' ? 1 : 0) + (dateFilter !== 'all' ? 1 : 0);
 
   const needle = query.trim().toLowerCase();
   const visible = useMemo(() => {
-    return rides.filter((ride) => {
+    let list = rides.filter((ride) => {
       const statusOk = filter === 'all' || ride.status === filter;
       const text = `${ride.vehicle} ${ride.id} ${ride.pickup} ${ride.drop}`.toLowerCase();
-      return statusOk && (!needle || text.includes(needle));
+      const textOk = !needle || text.includes(needle);
+      if (!statusOk || !textOk) return false;
+
+      if (dateFilter !== 'all') {
+        const rideTime = new Date(ride.rawCreatedAt || ride.rawDate || Date.now()).getTime();
+        const now = Date.now();
+        if (dateFilter === 'today') {
+          const oneDay = 24 * 60 * 60 * 1000;
+          if (now - rideTime > oneDay) return false;
+        } else if (dateFilter === '7days') {
+          const sevenDays = 7 * 24 * 60 * 60 * 1000;
+          if (now - rideTime > sevenDays) return false;
+        } else if (dateFilter === '30days') {
+          const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+          if (now - rideTime > thirtyDays) return false;
+        }
+      }
+      return true;
     });
-  }, [rides, filter, needle]);
+
+    list.sort((a, b) => {
+      if (sortBy === 'newest') {
+        return (new Date(b.rawCreatedAt || 0).getTime()) - (new Date(a.rawCreatedAt || 0).getTime());
+      }
+      if (sortBy === 'oldest') {
+        return (new Date(a.rawCreatedAt || 0).getTime()) - (new Date(b.rawCreatedAt || 0).getTime());
+      }
+      if (sortBy === 'fare_high') {
+        return (b.fare || 0) - (a.fare || 0);
+      }
+      if (sortBy === 'fare_low') {
+        return (a.fare || 0) - (b.fare || 0);
+      }
+      return 0;
+    });
+
+    return list;
+  }, [rides, filter, needle, dateFilter, sortBy]);
 
   const countFor = (id) =>
     id === 'all' ? rides.length : rides.filter((ride) => ride.status === id).length;
@@ -273,18 +364,13 @@ export default function MyRidesScreen({
     <View style={styles.root}>
       <StatusBar style="light" />
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Hero Header */}
+      {/* Pinned Hero Header Banner & Search/Filter Bar */}
+      <View style={styles.fixedHeaderArea}>
         <LinearGradient
           colors={['#120529', '#250952', '#3B0F7A']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={[styles.heroHeader, { paddingTop: insets.top + 14 }]}
+          style={[styles.heroHeader, { paddingTop: insets.top + 10 }]}
         >
           {/* Ambient Background Glows */}
           <View style={styles.glowOrbTop} pointerEvents="none" />
@@ -363,29 +449,68 @@ export default function MyRidesScreen({
           </View>
         </LinearGradient>
 
-        {/* Floating Search Bar overlapping the header bottom */}
+        {/* Floating Search Bar + Custom Filter Button */}
         <View style={styles.floatingSearchWrap}>
-          <View style={styles.searchBar}>
-            <Ionicons name="search" size={19} color="#64748B" />
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search by vehicle, zone or ID (e.g. EVG14)..."
-              placeholderTextColor="#94A3B8"
-              style={styles.searchInput}
-            />
-            {query.length > 0 ? (
-              <Pressable hitSlop={10} onPress={() => setQuery('')}>
-                <Ionicons name="close-circle" size={19} color="#94A3B8" />
-              </Pressable>
-            ) : (
-              <View style={styles.searchShortcutBadge}>
-                <Ionicons name="sparkles-outline" size={13} color={BRAND_VIOLET} />
-              </View>
-            )}
+          <View style={styles.searchRow}>
+            <View style={styles.searchBar}>
+              <Ionicons name="search" size={19} color="#64748B" />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search by vehicle, zone or ID..."
+                placeholderTextColor="#94A3B8"
+                style={styles.searchInput}
+              />
+              {query.length > 0 ? (
+                <Pressable hitSlop={10} onPress={() => setQuery('')}>
+                  <Ionicons name="close-circle" size={19} color="#94A3B8" />
+                </Pressable>
+              ) : (
+                <View style={styles.searchShortcutBadge}>
+                  <Ionicons name="sparkles-outline" size={13} color={BRAND_VIOLET} />
+                </View>
+              )}
+            </View>
+
+            {/* Filter & Sort Button Beside Search Bar */}
+            <Pressable
+              style={[
+                styles.filterBtn,
+                hasActiveCustomFilter && styles.filterBtnActive,
+              ]}
+              onPress={() => setFilterModalOpen(true)}
+            >
+              <Ionicons
+                name={hasActiveCustomFilter ? 'funnel' : 'funnel-outline'}
+                size={19}
+                color={hasActiveCustomFilter ? '#FFFFFF' : BRAND_PURPLE_ACCENT}
+              />
+              {hasActiveCustomFilter && (
+                <View style={styles.filterActiveBadge}>
+                  <Text style={styles.filterActiveBadgeText}>{activeFilterCount}</Text>
+                </View>
+              )}
+            </Pressable>
           </View>
         </View>
+      </View>
 
+      {/* Scrollable Rides List - Pull to refresh happens directly below the fixed search bar */}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: 8 }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={BRAND_VIOLET}
+            colors={[BRAND_VIOLET, BRAND_PURPLE]}
+            progressBackgroundColor="#FFFFFF"
+          />
+        }
+      >
         <View style={styles.bodyContainer}>
           {/* Filter Segmented Pills */}
           <ScrollView
@@ -666,6 +791,95 @@ export default function MyRidesScreen({
         </View>
       </ScrollView>
 
+      {/* Custom Filter & Sort Modal */}
+      <Modal
+        visible={filterModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFilterModalOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setFilterModalOpen(false)} />
+          <View style={[styles.filterSheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+            <View style={styles.filterSheetHeader}>
+              <View>
+                <Text style={styles.filterSheetTitle}>Filter & Sort Rides</Text>
+                <Text style={styles.filterSheetSub}>Order by date, price, or recency</Text>
+              </View>
+              <Pressable hitSlop={8} onPress={() => setFilterModalOpen(false)}>
+                <Ionicons name="close-circle" size={24} color="#94A3B8" />
+              </Pressable>
+            </View>
+
+            <Text style={styles.filterSectionTitle}>SORT ORDER</Text>
+            <View style={styles.filterOptionGroup}>
+              {[
+                { id: 'newest', label: 'Newest First (Default)', icon: 'time-outline' },
+                { id: 'oldest', label: 'Oldest First', icon: 'arrow-up-outline' },
+                { id: 'fare_high', label: 'Fare: High to Low', icon: 'trending-down-outline' },
+                { id: 'fare_low', label: 'Fare: Low to High', icon: 'trending-up-outline' },
+              ].map((opt) => (
+                <Pressable
+                  key={opt.id}
+                  style={[styles.filterOptionRow, sortBy === opt.id && styles.filterOptionRowActive]}
+                  onPress={() => setSortBy(opt.id)}
+                >
+                  <Ionicons
+                    name={opt.icon}
+                    size={16}
+                    color={sortBy === opt.id ? BRAND_VIOLET : '#64748B'}
+                  />
+                  <Text style={[styles.filterOptionText, sortBy === opt.id && styles.filterOptionTextActive]}>
+                    {opt.label}
+                  </Text>
+                  {sortBy === opt.id && (
+                    <Ionicons name="checkmark-circle" size={18} color={BRAND_VIOLET} />
+                  )}
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={styles.filterSectionTitle}>DATE RANGE</Text>
+            <View style={styles.filterOptionGrid}>
+              {[
+                { id: 'all', label: 'All Time' },
+                { id: 'today', label: 'Today' },
+                { id: '7days', label: 'Past 7 Days' },
+                { id: '30days', label: 'Past 30 Days' },
+              ].map((opt) => (
+                <Pressable
+                  key={opt.id}
+                  style={[styles.filterGridItem, dateFilter === opt.id && styles.filterGridItemActive]}
+                  onPress={() => setDateFilter(opt.id)}
+                >
+                  <Text style={[styles.filterGridText, dateFilter === opt.id && styles.filterGridTextActive]}>
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={styles.filterActionsRow}>
+              <Pressable
+                style={styles.filterResetBtn}
+                onPress={() => {
+                  setSortBy('newest');
+                  setDateFilter('all');
+                }}
+              >
+                <Text style={styles.filterResetBtnText}>Reset</Text>
+              </Pressable>
+              <Pressable
+                style={styles.filterApplyBtn}
+                onPress={() => setFilterModalOpen(false)}
+              >
+                <Text style={styles.filterApplyBtnText}>Apply Filters</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Modern Docked Bottom Navigation */}
       <View style={[styles.tabBarWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
         <View style={styles.tabBar}>
@@ -715,6 +929,15 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 115,
+  },
+
+  topOverscrollAnchor: {
+    position: 'absolute',
+    top: -600,
+    left: 0,
+    right: 0,
+    height: 600,
+    backgroundColor: '#120529',
   },
 
   /* Hero Header */
@@ -859,13 +1082,25 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.16)',
   },
 
-  /* Floating Search Bar */
+  /* Pinned Fixed Header Area */
+  fixedHeaderArea: {
+    zIndex: 20,
+    backgroundColor: '#F8FAFC',
+  },
+
+  /* Floating Search Bar + Filter Button */
   floatingSearchWrap: {
     paddingHorizontal: 16,
     marginTop: -24,
     zIndex: 20,
   },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   searchBar: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
@@ -879,6 +1114,45 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.07,
     shadowRadius: 16,
     elevation: 5,
+  },
+  filterBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.07,
+    shadowRadius: 16,
+    elevation: 5,
+    position: 'relative',
+  },
+  filterBtnActive: {
+    backgroundColor: BRAND_VIOLET,
+    borderColor: BRAND_VIOLET,
+  },
+  filterActiveBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#EF4444',
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  filterActiveBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9.5,
+    fontWeight: '900',
   },
   searchInput: {
     flex: 1,
@@ -894,6 +1168,137 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F3FF',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  /* Custom Filter Modal */
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    justifyContent: 'flex-end',
+  },
+  filterSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  filterSheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  filterSheetTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  filterSheetSub: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  filterSectionTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.8,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  filterOptionGroup: {
+    gap: 6,
+  },
+  filterOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 10,
+  },
+  filterOptionRowActive: {
+    backgroundColor: '#F5F3FF',
+    borderColor: '#DDD6FE',
+  },
+  filterOptionText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  filterOptionTextActive: {
+    fontWeight: '800',
+    color: BRAND_VIOLET,
+  },
+  filterOptionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterGridItem: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  filterGridItemActive: {
+    backgroundColor: BRAND_VIOLET,
+    borderColor: BRAND_VIOLET,
+  },
+  filterGridText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  filterGridTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+  },
+  filterActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 20,
+  },
+  filterResetBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterResetBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  filterApplyBtn: {
+    flex: 2,
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: BRAND_VIOLET,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterApplyBtnText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
 
   /* Body Container */

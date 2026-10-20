@@ -3,6 +3,7 @@ import {
   Alert,
   Linking,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -169,6 +170,12 @@ export default function EndRideScreen({
   const co2SavedKg = ((parseFloat(distanceKm) || 5.4) * 0.18).toFixed(2);
   const totalPaid = receipt?.total ?? 150;
   const depositRefund = receipt?.depositWhen === 'now' ? 250 : 0;
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 800);
+  };
 
   return (
     <View style={styles.root}>
@@ -178,11 +185,23 @@ export default function EndRideScreen({
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#D8B4FE"
+            colors={['#7C3AED', '#250952']}
+            progressBackgroundColor="#FFFFFF"
+          />
+        }
         contentContainerStyle={[
           styles.scrollBody,
           { paddingBottom: insets.bottom + 110 },
         ]}
       >
+        {/* Seamless Top Overscroll Anchor */}
+        <View style={styles.topOverscrollAnchor} pointerEvents="none" />
+
         {/* Top Deep Purple Celebration Header (Logo Removed) */}
         <LinearGradient
           colors={['#120529', '#250952', '#3B0F7A']}
@@ -590,6 +609,15 @@ const styles = StyleSheet.create({
   },
   scrollBody: {
     paddingBottom: 120,
+  },
+
+  topOverscrollAnchor: {
+    position: 'absolute',
+    top: -600,
+    left: 0,
+    right: 0,
+    height: 600,
+    backgroundColor: '#120529',
   },
 
   /* Hero Header */

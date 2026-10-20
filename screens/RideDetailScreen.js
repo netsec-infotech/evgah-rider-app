@@ -3,6 +3,7 @@ import {
   Alert,
   Linking,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -53,6 +54,12 @@ export default function RideDetailScreen({ ride, onBack }) {
   const insets = useSafeAreaInsets();
   const [copiedTx, setCopiedTx] = useState(false);
   const [invoiceDownloaded, setInvoiceDownloaded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 800);
+  };
 
   if (!ride) return null;
 
@@ -67,7 +74,7 @@ export default function RideDetailScreen({ ride, onBack }) {
 
   const handleDownloadInvoice = () => {
     setInvoiceDownloaded(true);
-    const invoiceId = ride.id || ride.reservation_id || 'EVG89421';
+    const invoiceId = ride.reservation_id || ride.booking_id || ride.id || 'EVG89421';
     const receiptUrl = `https://evegah.cloud/api/receipts/${invoiceId}`;
     Linking.openURL(receiptUrl).catch(() => {});
     Alert.alert(
@@ -92,11 +99,23 @@ export default function RideDetailScreen({ ride, onBack }) {
       <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#D8B4FE"
+            colors={['#7C3AED', '#250952']}
+            progressBackgroundColor="#FFFFFF"
+          />
+        }
         contentContainerStyle={[
           styles.scrollContent,
           { paddingBottom: insets.bottom + 100 },
         ]}
       >
+        {/* Seamless Top Overscroll Anchor */}
+        <View style={styles.topOverscrollAnchor} pointerEvents="none" />
+
         {/* Deep Purple Hero Header */}
         <LinearGradient
           colors={['#120529', '#250952', '#3B0F7A']}
@@ -596,6 +615,15 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 110,
+  },
+
+  topOverscrollAnchor: {
+    position: 'absolute',
+    top: -600,
+    left: 0,
+    right: 0,
+    height: 600,
+    backgroundColor: '#120529',
   },
 
   /* Hero Header */

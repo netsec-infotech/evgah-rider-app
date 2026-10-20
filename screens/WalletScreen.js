@@ -180,6 +180,14 @@ export default function WalletScreen({
   }, [rows, txFilter]);
 
   const openSheet = (mode) => {
+    if (mode === 'out') {
+      Alert.alert(
+        'Withdrawals Temporarily Paused',
+        'Wallet withdrawals to external bank accounts are temporarily paused for scheduled banking gateway maintenance. Your complete balance remains 100% secure and available for all EV rides and battery swaps.',
+        [{ text: 'Understood', style: 'default' }]
+      );
+      return;
+    }
     setPicked(250);
     setCustom('');
     setSheet(mode);
@@ -282,8 +290,8 @@ export default function WalletScreen({
     try {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.type === 'PAYU_PAYMENT_RESPONSE') {
-        if (data.status === 'success' || data.status === 'Success') {
-          handlePayuSuccess(data.txnid);
+        if (String(data.status || '').toLowerCase() === 'success') {
+          handlePayuSuccess(data.txnid || payuTxnId);
         } else {
           handlePayuFailure(data.message || 'Payment was cancelled or failed.');
         }
@@ -546,19 +554,20 @@ export default function WalletScreen({
               onPress={() => openSheet('out')}
               style={({ pressed }) => [
                 styles.actionItem,
-                pressed && { opacity: 0.75, transform: [{ scale: 0.96 }] },
+                { opacity: 0.72 },
+                pressed && { opacity: 0.5, transform: [{ scale: 0.96 }] },
               ]}
             >
               <View
-                style={[styles.actionIconBox, { backgroundColor: '#EFF6FF' }]}
+                style={[styles.actionIconBox, { backgroundColor: '#F1F5F9' }]}
               >
                 <Ionicons
                   name="arrow-up-circle-outline"
                   size={22}
-                  color="#2563EB"
+                  color="#64748B"
                 />
               </View>
-              <Text style={styles.actionLabel}>Withdraw</Text>
+              <Text style={[styles.actionLabel, { color: '#64748B' }]}>Withdraw</Text>
             </Pressable>
 
             <View style={styles.actionDockDivider} />

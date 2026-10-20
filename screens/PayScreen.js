@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -81,6 +81,13 @@ export default function PayScreen({ vehicle, trip, riderProfile, onBack, onPay }
   const [payuCheckoutUrl, setPayuCheckoutUrl] = useState(null);
   const [payuTxnId, setPayuTxnId] = useState(null);
   const [payuLoading, setPayuLoading] = useState(true);
+  const payuPollRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (payuPollRef.current) clearInterval(payuPollRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -185,6 +192,7 @@ export default function PayScreen({ vehicle, trip, riderProfile, onBack, onPay }
   const cleanPhone = customPhone || initialPhone;
 
   const handlePayuSuccess = (confirmedTxnId, payuId) => {
+    if (payuPollRef.current) clearInterval(payuPollRef.current);
     setPayuModalVisible(false);
     setIsProcessing(false);
     onPay?.({
@@ -202,7 +210,22 @@ export default function PayScreen({ vehicle, trip, riderProfile, onBack, onPay }
     });
   };
 
-  const handlePayuFailure = (errMsg) => {
+  const handlePayuFailure = async (errMsg) => {
+    if (payuPollRef.current) clearInterval(payuPollRef.current);
+
+    // Safeguard: Check authoritative status once more before surfacing failure
+    try {
+      const activeId = payuTxnId;
+      if (activeId) {
+        const verifyRes = await apiGet(`/payments/payu/status/${activeId}`).catch(() => null);
+        const pStatus = String(verifyRes?.data?.status || verifyRes?.data?.payment_status || '').toLowerCase();
+        if (pStatus === 'success') {
+          handlePayuSuccess(activeId, verifyRes?.data?.payu_payment_id || verifyRes?.data?.payu_id);
+          return;
+        }
+      }
+    } catch (_) {}
+
     setPayuModalVisible(false);
     setIsProcessing(false);
     Alert.alert(
@@ -220,7 +243,22 @@ export default function PayScreen({ vehicle, trip, riderProfile, onBack, onPay }
         {
           text: 'Cancel',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
+            if (payuPollRef.current) clearInterval(payuPollRef.current);
+
+            // Double check if payment actually went through before terminating
+            try {
+              const activeId = payuTxnId;
+              if (activeId) {
+                const verifyRes = await apiGet(`/payments/payu/status/${activeId}`).catch(() => null);
+                const pStatus = String(verifyRes?.data?.status || verifyRes?.data?.payment_status || '').toLowerCase();
+                if (pStatus === 'success') {
+                  handlePayuSuccess(activeId, verifyRes?.data?.payu_payment_id || verifyRes?.data?.payu_id);
+                  return;
+                }
+              }
+            } catch (_) {}
+
             setPayuModalVisible(false);
             setIsProcessing(false);
           },
@@ -233,8 +271,9 @@ export default function PayScreen({ vehicle, trip, riderProfile, onBack, onPay }
     try {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.type === 'PAYU_PAYMENT_RESPONSE') {
-        if (data.status === 'SUCCESS') {
-          handlePayuSuccess(data.txnid, data.payu_id);
+        const s = String(data.status || '').toLowerCase();
+        if (s === 'success') {
+          handlePayuSuccess(data.txnid || payuTxnId, data.payu_id);
         } else {
           handlePayuFailure(data.message || 'Payment was cancelled or failed.');
         }
@@ -244,11 +283,14 @@ export default function PayScreen({ vehicle, trip, riderProfile, onBack, onPay }
 
   const onWebViewNavigationStateChange = (navState) => {
     const { url } = navState;
-    if (url && (url.includes('/payments/payu/response') || url.includes('/response'))) {
-      if (url.includes('status=failed')) {
-        handlePayuFailure('Payment was cancelled or failed.');
-      } else if (url.includes('status=success')) {
-        handlePayuSuccess(payuTxnId);
+    if (url) {
+      const lowerUrl = url.toLowerCase();
+      if (lowerUrl.includes('/payments/payu/response') || lowerUrl.includes('/response')) {
+        if (lowerUrl.includes('status=failed') || lowerUrl.includes('status=failure')) {
+          handlePayuFailure('Payment was cancelled or failed.');
+        } else if (lowerUrl.includes('status=success')) {
+          handlePayuSuccess(payuTxnId);
+        }
       }
     }
   };
@@ -266,6 +308,7 @@ export default function PayScreen({ vehicle, trip, riderProfile, onBack, onPay }
         amount: total,
         rider_name: riderName,
         phone: riderPhone,
+        mobile: riderPhone,
         email: riderEmail,
         purpose: 'ride',
       });
@@ -279,33 +322,37 @@ export default function PayScreen({ vehicle, trip, riderProfile, onBack, onPay }
         return;
       }
 
-      const { checkout_url, txn_id } = initRes.data;
-      setPayuTxnId(txn_id);
-      setPayuCheckoutUrl(checkout_url);
+      const finalTxnId = initRes.data.txnid || initRes.data.tx_id || initRes.data.txn_id;
+      const finalCheckoutUrl = initRes.data.checkout_url || `https://evegah.cloud/api/payments/payu/checkout/${finalTxnId}`;
+
+      setPayuTxnId(finalTxnId);
+      setPayuCheckoutUrl(finalCheckoutUrl);
       setPayuLoading(true);
       setPayuModalVisible(true);
 
+      if (payuPollRef.current) clearInterval(payuPollRef.current);
       let attempts = 0;
-      const maxAttempts = 50;
-      const pollTimer = setInterval(async () => {
+      const maxAttempts = 60;
+      payuPollRef.current = setInterval(async () => {
         attempts++;
         try {
-          const stRes = await apiGet(`/payments/payu/status/${txn_id}`);
-          if (stRes?.data?.payment_status === 'SUCCESS') {
-            clearInterval(pollTimer);
-            handlePayuSuccess(txn_id, stRes.data.payu_payment_id);
+          const stRes = await apiGet(`/payments/payu/status/${finalTxnId}`);
+          const pStatus = String(stRes?.data?.status || stRes?.data?.payment_status || '').toLowerCase();
+          if (pStatus === 'success') {
+            if (payuPollRef.current) clearInterval(payuPollRef.current);
+            handlePayuSuccess(finalTxnId, stRes?.data?.payu_payment_id || stRes?.data?.payu_id);
             return;
-          } else if (stRes?.data?.payment_status === 'FAILED') {
-            clearInterval(pollTimer);
-            handlePayuFailure(stRes?.data?.error_message);
+          } else if (pStatus === 'failed' || pStatus === 'failure') {
+            if (payuPollRef.current) clearInterval(payuPollRef.current);
+            handlePayuFailure(stRes?.data?.error_message || 'Payment failed.');
             return;
           }
         } catch (_) {}
 
         if (attempts >= maxAttempts) {
-          clearInterval(pollTimer);
+          if (payuPollRef.current) clearInterval(payuPollRef.current);
         }
-      }, 2500);
+      }, 2000);
     } catch (err) {
       setIsProcessing(false);
       Alert.alert('Payment Error', err.message || 'Could not connect to PayU Gateway.');

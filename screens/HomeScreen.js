@@ -1609,7 +1609,13 @@ export default function HomeScreen({
     }
   };
 
-  const effectiveZone = localZone || selectedZone;
+  const effectiveZone = localZone || selectedZone || {
+    id: 'gotri',
+    name: 'Gotri Zone, Vadodara',
+    shortName: 'Gotri',
+    city: 'Vadodara',
+    address: 'Office 10, Royal Nandish, New Alkapuri',
+  };
   const isZoneSelected = Boolean(effectiveZone);
   const activeZoneLabel = isZoneSelected
     ? effectiveZone.name
@@ -1830,10 +1836,11 @@ export default function HomeScreen({
   // Dynamic Slider Fetch from Backend
   useEffect(() => {
     let mounted = true;
-    apiGet('/app-sliders')
+    apiGet('/settings/app_slider')
+      .catch(() => apiGet('/app-sliders'))
       .then((res) => {
         if (!mounted) return;
-        const raw = res?.data?.home_sliders || res?.data?.home || [];
+        const raw = res?.data?.home_sliders || res?.data?.value?.home_sliders || res?.data?.home || [];
         const active = raw.filter((s) => s.active !== false);
         if (active.length > 0) {
           const mapped = active.map((s, idx) => {

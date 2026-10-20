@@ -1,9 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
+  Dimensions,
   Linking,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,6 +18,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import MapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import * as Location from 'expo-location';
 import Animated, {
   Easing,
   FadeInDown,
@@ -27,6 +31,8 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { apiGet, apiPost, getStoredRider } from '../services/api';
+
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 const BRAND_PURPLE = '#4A168C';
 const BRAND_PURPLE_LIGHT = '#7C3AED';
@@ -105,6 +111,17 @@ function formatDropDate(ms) {
   })} · ${d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`;
 }
 
+function formatDropDateOnly(ms) {
+  if (!ms) return 'Today';
+  const d = new Date(ms);
+  return d.toLocaleDateString('en-IN', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
 function getTopDownVehicleAsset(name) {
   const lower = String(name || '').toLowerCase();
   if (lower.includes('city')) return require('../assets/home/city-top.png');
@@ -140,6 +157,18 @@ export default function RideScreen({
   const [payuLoading, setPayuLoading] = useState(true);
   const [isProcessingPay, setIsProcessingPay] = useState(false);
   const payuPollRef = useRef(null);
+
+  // BMS Live Telemetry & Auto Scan State
+  const [bmsStatus, setBmsStatus] = useState('connected');
+  const [bmsSoc, setBmsSoc] = useState(
+    vehicle?.battery_pct != null ? Math.round(Number(vehicle.battery_pct)) : 86
+  );
+  const [bmsBatteryId, setBmsBatteryId] = useState(
+    receipt?.battery_id || vehicle?.battery_id || trip?.battery_id || 'BAT-450X-101'
+  );
+  const [bmsTemp, setBmsTemp] = useState(32);
+  const [bmsVoltage, setBmsVoltage] = useState(54.2);
+  const [bmsDetailOpen, setBmsDetailOpen] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -334,6 +363,52 @@ export default function RideScreen({
     runAutoScanBms();
   }, []);
 
+  // Live GPS Telemetry for Real Device Location
+  const [liveGpsCoord, setLiveGpsCoord] = useState(null);
+
+  useEffect(() => {
+    let sub = null;
+    let isMounted = true;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          if (isMounted && loc?.coords) {
+            setLiveGpsCoord({
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+            });
+          }
+          sub = await Location.watchPositionAsync(
+            {
+              accuracy: Location.Accuracy.Balanced,
+              timeInterval: 4000,
+              distanceInterval: 8,
+            },
+            (newLoc) => {
+              if (isMounted && newLoc?.coords) {
+                setLiveGpsCoord({
+                  latitude: newLoc.coords.latitude,
+                  longitude: newLoc.coords.longitude,
+                });
+              }
+            }
+          );
+        }
+      } catch (err) {
+        console.warn('GPS location tracking notice:', err.message);
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+      if (sub?.remove) sub.remove();
+    };
+  }, []);
+
   const startCoord = placeFor(trip?.pickupName);
   const waypoints = buildRouteWaypoints(startCoord);
   const progress = Math.min(0.88, 0.42 + (seconds % 90) * 0.005);
@@ -347,11 +422,118 @@ export default function RideScreen({
     latitude: pA.latitude + (pB.latitude - pA.latitude) * segFrac,
     longitude: pA.longitude + (pB.longitude - pA.longitude) * segFrac,
   };
+  const activeScooterCoord = liveGpsCoord || position;
   const midCalloutCoord = waypoints[2];
+
+  // Destination Return Hub & Nearby Battery Swap Stations
+  const dropStationCoord = useMemo(() => {
+    const dropName = trip?.dropName || trip?.dropZone?.name || 'Gotri Zone';
+    return placeFor(dropName);
+  }, [trip]);
+
+  const batteryStations = useMemo(() => {
+    return [
+      {
+        id: 'bat_gotri_hub',
+        title: 'Gotri Battery Swap Hub',
+        count: 14,
+        pct: 100,
+        coordinate: { latitude: startCoord.latitude + 0.0035, longitude: startCoord.longitude - 0.0031 },
+      },
+      {
+        id: 'bat_alkapuri_hub',
+        title: 'Alkapuri Swap Hub',
+        count: 8,
+        pct: 98,
+        coordinate: { latitude: startCoord.latitude + 0.0062, longitude: startCoord.longitude + 0.0038 },
+      },
+    ];
+  }, [startCoord]);
+
+  // Live route path from rider scooter position to drop station
+  const liveRoutePath = useMemo(() => {
+    return [
+      activeScooterCoord,
+      {
+        latitude: (activeScooterCoord.latitude + dropStationCoord.latitude) / 2 + 0.0015,
+        longitude: (activeScooterCoord.longitude + dropStationCoord.longitude) / 2 - 0.0012,
+      },
+      dropStationCoord,
+    ];
+  }, [activeScooterCoord, dropStationCoord]);
 
   const baseDropAt = trip?.dropAt || Date.now() + 24 * 3600 * 1000;
   const effectiveDropAt = baseDropAt + extraMs;
   const bookingIdText = receipt?.bookingId || 'EVG39745433';
+
+  // Guard active ride screen: prevent accidental exit while ride is live
+  const handleBackGuard = () => {
+    Alert.alert(
+      'Active Ride in Progress',
+      `Booking #${bookingIdText} is currently ACTIVE.\n\nYour session remains live until official handover and vehicle check-in at the station.`,
+      [
+        { text: 'Stay on Live Cockpit', style: 'cancel' },
+        { text: 'Minimize to My Rides', onPress: onBack },
+      ]
+    );
+  };
+
+  useEffect(() => {
+    const onBackPress = () => {
+      handleBackGuard();
+      return true;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => sub.remove();
+  }, [bookingIdText]);
+
+  // Disable manual End Ride: Station executive inspection is required
+  const handleDisabledEndRide = () => {
+    Alert.alert(
+      'Station Handover Required',
+      'Rider self-checkout is disabled for vehicle safety verification.\n\nPlease return the EV to your station. The station executive will inspect the scooter and close the ride in the system.\n\nThis screen will automatically complete and show your summary once confirmed.',
+      [
+        {
+          text: 'Call Station Support',
+          onPress: () => Linking.openURL('tel:18008898791').catch(() => {}),
+        },
+        { text: 'Understood', style: 'cancel' },
+      ]
+    );
+  };
+
+  // Background Active Ride Polling: Detects when station executive/admin closes the ride in the backend
+  useEffect(() => {
+    let mounted = true;
+    const pollInterval = setInterval(async () => {
+      try {
+        const stored = await getStoredRider().catch(() => null);
+        const mobile = (stored?.mobile || stored?.phone || trip?.phone || '8128251172').replace(/\D/g, '').slice(-10);
+        if (!mobile) return;
+
+        const res = await apiGet(`/reservations/active-ride?mobile=${mobile}`).catch(() => null);
+        if (!mounted) return;
+
+        if (res && res.status === 'success') {
+          // If backend reports no active ride or status transitioned to completed/ended
+          if (!res.has_active_ride || (res.data && ['completed', 'completed ride', 'ended', 'returned'].includes(String(res.data.status).toLowerCase()))) {
+            clearInterval(pollInterval);
+            onEnd?.({
+              elapsed: clock(seconds),
+              distance: ((seconds / 3600) * 22).toFixed(1),
+              fare: extraFareTotal,
+              batteryUsedPct: Math.max(4, 100 - bmsSoc),
+            });
+          }
+        }
+      } catch (_) {}
+    }, 5000);
+
+    return () => {
+      mounted = false;
+      clearInterval(pollInterval);
+    };
+  }, [seconds, extraFareTotal, bmsSoc, onEnd]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -449,7 +631,7 @@ export default function RideScreen({
         return;
       }
 
-      const finalTxnId = initRes.data.txnid || initRes.data.tx_id;
+      const finalTxnId = initRes.data.txnid || initRes.data.tx_id || initRes.data.txn_id;
       const finalCheckoutUrl = initRes.data.checkout_url || `https://evegah.cloud/api/payments/payu/checkout/${finalTxnId}`;
 
       setPayuTxnId(finalTxnId);
@@ -545,8 +727,8 @@ export default function RideScreen({
   const recenterMap = () => {
     mapRef.current?.animateToRegion(
       {
-        latitude: (startCoord.latitude + position.latitude) / 2,
-        longitude: (startCoord.longitude + position.longitude) / 2,
+        latitude: activeScooterCoord.latitude,
+        longitude: activeScooterCoord.longitude,
         latitudeDelta: 0.014,
         longitudeDelta: 0.014,
       },
@@ -565,14 +747,16 @@ export default function RideScreen({
       <View style={styles.mapContainer}>
         <MapView
           ref={mapRef}
-          provider={PROVIDER_GOOGLE}
-          style={StyleSheet.absoluteFill}
+          provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+          style={StyleSheet.absoluteFillObject}
           initialRegion={{
-            latitude: (startCoord.latitude + position.latitude) / 2,
-            longitude: (startCoord.longitude + position.longitude) / 2,
-            latitudeDelta: 0.014,
-            longitudeDelta: 0.014,
+            latitude: (startCoord.latitude + activeScooterCoord.latitude) / 2,
+            longitude: (startCoord.longitude + activeScooterCoord.longitude) / 2,
+            latitudeDelta: 0.015,
+            longitudeDelta: 0.015,
           }}
+          showsUserLocation
+          showsMyLocationButton={false}
           toolbarEnabled={false}
           rotateEnabled={false}
           pitchEnabled={false}
@@ -599,12 +783,54 @@ export default function RideScreen({
             lineJoin="round"
           />
 
-          {/* Origin Zone Pin */}
+          {/* Live Dynamic Route Path connecting Scooter to Return Station Hub */}
+          <Polyline
+            coordinates={liveRoutePath}
+            strokeColor="#7C3AED"
+            strokeWidth={4}
+            lineDashPattern={[6, 4]}
+            lineCap="round"
+          />
+
+          {/* Origin Station Pin */}
           <Marker coordinate={startCoord} anchor={{ x: 0.5, y: 0.5 }}>
             <View style={styles.originMarkerOuter}>
               <View style={styles.originMarkerInner} />
             </View>
           </Marker>
+
+          {/* Return / Destination Hub Pin */}
+          <Marker
+            coordinate={dropStationCoord}
+            anchor={{ x: 0.5, y: 0.95 }}
+            onPress={() => triggerQuickAction(`Destination Station: ${trip?.dropName || 'Gotri Hub'}`)}
+          >
+            <View style={styles.hubStationMarker}>
+              <LinearGradient colors={['#240B4C', '#4A168C']} style={styles.hubStationBadge}>
+                <Ionicons name="business" size={12} color="#FFFFFF" />
+                <Text style={styles.hubStationText}>{trip?.dropName || 'Return Hub'}</Text>
+              </LinearGradient>
+              <View style={styles.hubStationArrow} />
+            </View>
+          </Marker>
+
+          {/* Battery Swapping Station Pins */}
+          {batteryStations.map((station) => (
+            <Marker
+              key={station.id}
+              coordinate={station.coordinate}
+              anchor={{ x: 0.5, y: 0.95 }}
+              onPress={() => triggerQuickAction(`${station.title}: ${station.count} fresh batteries (${station.pct}%) ready`)}
+            >
+              <View style={styles.batteryPinWrap}>
+                <LinearGradient colors={['#059669', '#10B981']} style={styles.batteryPinBadge}>
+                  <Ionicons name="battery-charging" size={13} color="#FFFFFF" />
+                  <Text style={styles.batteryPinCount}>{station.count} Packs</Text>
+                </LinearGradient>
+                <View style={styles.batteryPinArrow} />
+              </View>
+            </Marker>
+          ))}
 
           {/* Mid-Route Turn Navigation Pill */}
           <Marker coordinate={midCalloutCoord} anchor={{ x: 0.5, y: 1.15 }}>
@@ -624,7 +850,7 @@ export default function RideScreen({
 
           {/* Rider Live Pulse Halo */}
           <Circle
-            center={position}
+            center={activeScooterCoord}
             radius={75}
             fillColor="rgba(124, 58, 237, 0.14)"
             strokeColor="rgba(124, 58, 237, 0.32)"
@@ -632,7 +858,7 @@ export default function RideScreen({
           />
 
           {/* Top-Down 3D Scooter Marker */}
-          <Marker coordinate={position} anchor={{ x: 0.5, y: 0.5 }}>
+          <Marker coordinate={activeScooterCoord} anchor={{ x: 0.5, y: 0.5 }}>
             <View style={styles.scooterMarkerWrap}>
               <View style={styles.scooterMarkerHalo} />
               <Image
@@ -646,17 +872,29 @@ export default function RideScreen({
 
         {/* Top Floating Cockpit HUD Bar */}
         <View style={[styles.topHudBar, { top: insets.top + 8 }]}>
-          <Pressable hitSlop={10} style={styles.hudCircleBtn} onPress={onBack}>
+          <Pressable hitSlop={10} style={styles.hudCircleBtn} onPress={handleBackGuard}>
             <Ionicons name="chevron-back" size={21} color={DARK_NAVY} />
           </Pressable>
 
           <Pressable
             style={styles.hudCenterPill}
-            onPress={() =>
-              triggerQuickAction(
-                `Active Zone: ${trip?.pickupName || 'Bill Zone'} · Support 1800 889 8791`
-              )
-            }
+            onPress={() => {
+              const invoiceId = receipt?.bookingId || trip?.id || 'EVG';
+              Alert.alert(
+                `Active Ride #${invoiceId}`,
+                `Pickup: ${trip?.pickupName || 'Gotri Zone'}\nDrop: ${trip?.dropName || 'Gotri Zone'}\nSupport Helpline: 1800 889 8791`,
+                [
+                  {
+                    text: 'View Tax Receipt',
+                    onPress: () => {
+                      const url = `https://evegah.cloud/api/receipts/${invoiceId}`;
+                      Linking.openURL(url).catch(() => {});
+                    },
+                  },
+                  { text: 'Close', style: 'cancel' },
+                ]
+              );
+            }}
           >
             <View
               style={[
@@ -930,7 +1168,7 @@ export default function RideScreen({
           >
             <View style={styles.bmsCardHeader}>
               <View style={styles.bmsLabelCluster}>
-                <Ionicons name="time" size={13} color={BRAND_PURPLE} />
+                <Ionicons name="calendar-outline" size={13} color={BRAND_PURPLE} />
                 <Text style={styles.cardSmallTitle}>RETURN BY</Text>
               </View>
               <View style={styles.extendMiniTag}>
@@ -938,6 +1176,9 @@ export default function RideScreen({
               </View>
             </View>
 
+            <Text style={styles.dropBigDate}>
+              {formatDropDateOnly(effectiveDropAt)}
+            </Text>
             <Text style={styles.dropBigTime}>
               {formatDropTimeOnly(effectiveDropAt)}
             </Text>
@@ -950,7 +1191,8 @@ export default function RideScreen({
           </Pressable>
         </View>
 
-        {/* 4. Quick Hardware Controls (Pause Immobilizer | Beep EV | Hazard) */}
+        {/* 4. Quick Hardware Controls (Pause | Beep EV | Hazard) - Hidden per user request */}
+        {false && (
         <View style={styles.hardwareControlsRow}>
           <Pressable
             onPress={() => {
@@ -1045,6 +1287,7 @@ export default function RideScreen({
             </View>
           </Pressable>
         </View>
+        )}
 
         {/* 5. Primary Bottom CTA Row (Extend Ride + End Ride) */}
         <View style={styles.primaryCtaRow}>
@@ -1073,21 +1316,21 @@ export default function RideScreen({
                   stiffness: 280,
                 });
               }}
-              onPress={onEnd}
+              onPress={handleDisabledEndRide}
               style={styles.primaryEndTouch}
             >
               <LinearGradient
-                colors={[BRAND_PURPLE, '#6D28D9']}
+                colors={['#1E1B4B', '#312E81']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                style={styles.primaryEndGradient}
+                style={[styles.primaryEndGradient, { borderColor: '#4338CA', borderWidth: 1 }]}
               >
-                <Text style={styles.primaryEndText}>End & Lock Ride</Text>
-                <View style={styles.primaryEndIconPill}>
+                <Text style={styles.primaryEndText}>Return at Station</Text>
+                <View style={[styles.primaryEndIconPill, { backgroundColor: '#4338CA' }]}>
                   <Ionicons
-                    name="lock-closed"
+                    name="shield-checkmark"
                     size={14}
-                    color={BRAND_PURPLE}
+                    color="#A5B4FC"
                   />
                 </View>
               </LinearGradient>
@@ -1440,8 +1683,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#E2E8F0',
   },
   mapContainer: {
-    flex: 1,
+    width: '100%',
+    height: Math.round(SCREEN_H * 0.40),
+    minHeight: 280,
     position: 'relative',
+    backgroundColor: '#E2E8F0',
+    overflow: 'hidden',
   },
 
   /* Map Markers */
@@ -1496,6 +1743,78 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
     color: '#64748B',
+  },
+  hubStationMarker: {
+    alignItems: 'center',
+  },
+  hubStationBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#7C3AED',
+    shadowColor: '#240B4C',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 5,
+  },
+  hubStationText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  hubStationArrow: {
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderStyle: 'solid',
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderBottomWidth: 0,
+    borderTopWidth: 6,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#240B4C',
+  },
+  batteryPinWrap: {
+    alignItems: 'center',
+  },
+  batteryPinBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#34D399',
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 4,
+  },
+  batteryPinCount: {
+    color: '#FFFFFF',
+    fontSize: 10.5,
+    fontWeight: '800',
+  },
+  batteryPinArrow: {
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderStyle: 'solid',
+    borderLeftWidth: 4,
+    borderRightWidth: 4,
+    borderBottomWidth: 0,
+    borderTopWidth: 5,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#059669',
   },
   scooterMarkerWrap: {
     width: 58,
@@ -1975,11 +2294,18 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: BRAND_PURPLE,
   },
+  dropBigDate: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: BRAND_PURPLE,
+    marginTop: 3,
+    letterSpacing: 0.2,
+  },
   dropBigTime: {
     fontSize: 17,
     fontWeight: '900',
     color: DARK_NAVY,
-    marginTop: 4,
+    marginTop: 2,
   },
   dropZoneSubText: {
     fontSize: 11,
