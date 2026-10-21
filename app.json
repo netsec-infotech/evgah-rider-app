@@ -2,14 +2,14 @@
   "expo": {
     "name": "Evegah Rider",
     "slug": "evegah-rider",
-    "version": "1.3.1",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "io.ionic.evegah",
-      "buildNumber": "1.3.1",
+      "buildNumber": "1.0.0",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSLocationWhenInUseUsageDescription": "Evegah needs your location to show nearby electric scooters, battery swapping stations, and provide live ride navigation.",
