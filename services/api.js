@@ -149,7 +149,10 @@ export function last10(phone) {
 export async function apiGet(path, options = {}) {
   const { skipCache = false, forceRefresh = false } = options;
   const isLocalPreferred = path.startsWith('/kyc') || path.startsWith('/renters') || path.startsWith('/zones') || path.startsWith('/vehicles') || path.startsWith('/coupons') || path.startsWith('/v1');
-  const candidateBases = isLocalPreferred
+  const configuredBase = process.env.EXPO_PUBLIC_API_URL ? process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, '') : null;
+  const candidateBases = configuredBase
+    ? [configuredBase, REMOTE_BASE]
+    : isLocalPreferred
     ? (cachedWorkingLocalBase ? [cachedWorkingLocalBase, REMOTE_BASE] : [...getLocalCandidates(), REMOTE_BASE])
     : [getBaseForPath(path), REMOTE_BASE];
 
@@ -236,7 +239,10 @@ export async function prefetchInitialData() {
  */
 export async function apiPost(path, body) {
   const isLocalPreferred = path.startsWith('/kyc') || path.startsWith('/renters') || path.startsWith('/reservations') || path.startsWith('/rides');
-  const candidateBases = isLocalPreferred
+  const configuredBase = process.env.EXPO_PUBLIC_API_URL ? process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, '') : null;
+  const candidateBases = configuredBase
+    ? [configuredBase, REMOTE_BASE]
+    : isLocalPreferred
     ? (cachedWorkingLocalBase
         ? [cachedWorkingLocalBase, ...getLocalCandidates().filter((b) => b !== cachedWorkingLocalBase), REMOTE_BASE]
         : [...getLocalCandidates(), REMOTE_BASE])

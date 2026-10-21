@@ -166,12 +166,7 @@ export default function OtpScreen({ phone, onEdit, onSuccess, onBack }) {
 
   useEffect(() => {
     riderX.value = withTiming(0, { duration: 900, easing: Easing.out(Easing.cubic) });
-    if (phone) {
-      sendRiderOtp(phone).catch((err) => {
-        console.warn('Initial OTP send notice:', err.message);
-      });
-    }
-  }, [riderX, phone]);
+  }, [riderX]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
