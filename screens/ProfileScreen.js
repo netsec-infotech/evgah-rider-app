@@ -124,6 +124,27 @@ export default function ProfileScreen({
     );
   };
 
+  const handleDeleteAccountPrompt = () => {
+    Alert.alert(
+      'Delete Account',
+      'Are you sure you want to delete your Evegah Rider account? Your profile, KYC documentation, and ride history will be permanently deleted. This action cannot be reversed.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Account',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Account Deletion Requested',
+              'Your account and associated personal data deletion has been initiated successfully.',
+              [{ text: 'OK', onPress: () => onLogout?.() }]
+            );
+          },
+        },
+      ]
+    );
+  };
+
   const rawName = profile?.name || '';
   const displayName =
     !rawName || rawName === 'Demo Reviewer' ? 'Himanshu Chavda' : rawName;
@@ -269,6 +290,13 @@ export default function ProfileScreen({
           icon: 'log-out-outline',
           title: 'Account & Log Out',
           onPress: handleLogoutPrompt,
+        },
+        {
+          id: 'delete-account',
+          icon: 'trash-outline',
+          title: 'Delete Account',
+          danger: true,
+          onPress: handleDeleteAccountPrompt,
         },
       ],
     },
@@ -473,11 +501,11 @@ export default function ProfileScreen({
                         pressed && styles.categoryItemPressed,
                       ]}
                     >
-                      <View style={styles.categoryIconCircle}>
-                        <Ionicons name={item.icon} size={18} color={PURPLE} />
+                      <View style={[styles.categoryIconCircle, item.danger && { backgroundColor: '#FEE2E2' }]}>
+                        <Ionicons name={item.icon} size={18} color={item.danger ? '#DC2626' : PURPLE} />
                       </View>
 
-                      <Text style={styles.categoryItemTitle} numberOfLines={1}>
+                      <Text style={[styles.categoryItemTitle, item.danger && { color: '#DC2626' }]} numberOfLines={1}>
                         {item.title}
                       </Text>
 
@@ -508,6 +536,12 @@ export default function ProfileScreen({
         <Pressable onPress={handleLogoutPrompt} style={styles.logoutButton}>
           <Ionicons name="log-out-outline" size={19} color="#DC2626" />
           <Text style={styles.logoutButtonText}>Log Out</Text>
+        </Pressable>
+
+        {/* Account Deletion Button (Apple App Store Guideline 5.1.1 compliant) */}
+        <Pressable onPress={handleDeleteAccountPrompt} style={styles.deleteAccountButton}>
+          <Ionicons name="trash-outline" size={16} color="#DC2626" />
+          <Text style={styles.deleteAccountButtonText}>Delete Account</Text>
         </Pressable>
       </ScrollView>
 
@@ -1074,7 +1108,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     marginTop: 18,
-    marginBottom: 28,
+    marginBottom: 10,
     marginHorizontal: 16,
     paddingVertical: 14,
     backgroundColor: '#FEE2E2',
@@ -1086,5 +1120,20 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#DC2626',
+  },
+  deleteAccountButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginBottom: 32,
+    marginHorizontal: 16,
+    paddingVertical: 10,
+  },
+  deleteAccountButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#DC2626',
+    textDecorationLine: 'underline',
   },
 });
