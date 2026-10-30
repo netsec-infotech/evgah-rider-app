@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Dimensions, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Dimensions, Linking, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
@@ -197,207 +197,140 @@ export default function VehicleListScreen({
   const [zoneAvailableVehicles, setZoneAvailableVehicles] = useState([]);
   const [rawBackendModels, setRawBackendModels] = useState([]);
   const [activeZoneData, setActiveZoneData] = useState(null);
-  const [packageTabs, setPackageTabs] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [isHourlyZone, setIsHourlyZone] = useState(false);
   const [hourlySummary, setHourlySummary] = useState('');
-  const [activePackageKey, setActivePackageKey] = useState(() => {
-    const dur =
-      trip?.packageDays ||
-      trip?.durationDays ||
-      trip?.selectedPackage?.duration ||
-      trip?.selectedPackage?.days;
-    const pkgName = (
-      trip?.packageName ||
-      trip?.selectedPackage?.name ||
-      trip?.packageId ||
-      ''
-    ).toLowerCase();
-
-    if (dur === 1 || pkgName.includes('daily')) {
-      return 'daily';
-    }
-    if (dur === 7 || pkgName.includes('weekly')) {
-      return 'weekly';
-    }
-    if (dur === 30 || pkgName.includes('month') || pkgName.includes('monthly')) {
-      return 'monthly';
-    }
-    return 'daily';
-  });
 
   // Connect Vehicle List with Backend API (Selected Zone & Zone Pricing)
-  useEffect(() => {
-    let mounted = true;
-
-    async function fetchZoneVehicles() {
-      try {
+  const fetchZoneVehicles = useCallback(async (isPullToRefresh = false) => {
+    try {
+      if (isPullToRefresh) {
+        setRefreshing(true);
+      } else {
         setIsLoading(true);
-        const [modelsRes, zonesRes, vehiclesRes] = await Promise.all([
-          apiGet('/vehicles/models').catch(() => null),
-          apiGet('/zones').catch(() => null),
-          apiGet('/vehicles?status=Available').catch(() => null),
-        ]);
-
-        if (!mounted) return;
-
-        const rawModels = modelsRes?.data || (Array.isArray(modelsRes) ? modelsRes : []);
-        const rawZones = zonesRes?.data || (Array.isArray(zonesRes) ? zonesRes : []);
-        let rawVehicles = vehiclesRes?.data || (Array.isArray(vehiclesRes) ? vehiclesRes : []);
-
-        // Also fetch all vehicles if status=Available returned empty (to handle Online status)
-        if (rawVehicles.length === 0) {
-          const allVehiclesRes = await apiGet('/vehicles').catch(() => null);
-          const allVehicles = allVehiclesRes?.data || (Array.isArray(allVehiclesRes) ? allVehiclesRes : []);
-          rawVehicles = allVehicles.filter(
-            (v) => !v.status || v.status.toLowerCase() === 'online' || v.status.toLowerCase() === 'available'
-          );
-        }
-
-        // Find active zone data
-        const currentZoneName = (
-          selectedZone?.name ||
-          selectedZone?.shortName ||
-          trip?.pickupName ||
-          'Gotri Zone'
-        ).toLowerCase().trim();
-
-        const zoneObj = rawZones.find((z) => {
-          const zName = (z.name || '').toLowerCase().trim();
-          const zLoc = (z.locality || '').toLowerCase().trim();
-          return (
-            zName.includes(currentZoneName) ||
-            currentZoneName.includes(zName) ||
-            zLoc.includes(currentZoneName) ||
-            currentZoneName.includes(zLoc)
-          );
-        }) || selectedZone || rawZones[0];
-
-        setActiveZoneData(zoneObj);
-
-        const zonePricing = zoneObj?.pricing || {};
-        const hourlyPricing = Array.isArray(zonePricing?.hourlyPricing) ? zonePricing.hourlyPricing : [];
-        const hasHourly =
-          hourlyPricing.length > 0 ||
-          (zonePricing?.basePrice !== undefined && zonePricing?.basePrice !== null && Number(zonePricing.basePrice) > 0);
-        const isHourly =
-          Boolean(trip?.isHourlyZone) ||
-          (zonePricing?.pricingModel || '').toLowerCase().includes('hour') ||
-          (zonePricing?.pricingModel || '').toLowerCase().includes('minute') ||
-          (hasHourly && (!Array.isArray(zonePricing?.packages) || zonePricing.packages.length === 0));
-
-        setIsHourlyZone(isHourly);
-
-        if (isHourly) {
-          const firstHourly = hourlyPricing[0] || {};
-          const baseRate = firstHourly.basePrice ? parseFloat(firstHourly.basePrice) : (zonePricing?.basePrice || 5);
-          const extraRate = firstHourly.extraPrice ? parseFloat(firstHourly.extraPrice) : (zonePricing?.extraPrice || 10);
-          const rule = firstHourly.roundingRule || 'Per 15 Minutes';
-          setHourlySummary(`₹${baseRate}/hr Base • ₹${extraRate} ${rule}`);
-        }
-
-        // Extract zone packages
-        let allZonePackages = [];
-        if (!isHourly) {
-          if (Array.isArray(zonePricing?.packages) && zonePricing.packages.length > 0) {
-            allZonePackages = zonePricing.packages.map((p, idx) => ({
-              id: String(p.id || `pkg_${idx}`),
-              name: (p.name || 'Daily').trim(),
-              model: (p.model || '').trim(),
-              price: parseFloat(p.price) || 0,
-              deposit: p.deposit !== undefined ? parseFloat(p.deposit) : 0,
-              duration: parseInt(p.duration, 10) || 1,
-            }));
-          } else if (zonePricing?.modelPackages && typeof zonePricing.modelPackages === 'object') {
-            Object.entries(zonePricing.modelPackages).forEach(([mName, pkgs]) => {
-              if (Array.isArray(pkgs)) {
-                pkgs.forEach((p, idx) => {
-                  allZonePackages.push({
-                    id: String(p.id || `${mName}_pkg_${idx}`),
-                    name: (p.name || 'Daily').trim(),
-                    model: mName.trim(),
-                    price: parseFloat(p.price) || 0,
-                    deposit: p.deposit !== undefined ? parseFloat(p.deposit) : 0,
-                    duration: parseInt(p.duration, 10) || 1,
-                  });
-                });
-              }
-            });
-          }
-        }
-
-        setZonePackagesList(allZonePackages);
-
-        // Build distinct package tabs
-        const tabs = [];
-        const seenKeys = new Set();
-        allZonePackages.forEach((p) => {
-          const dur = p.duration;
-          const pName = p.name.toLowerCase();
-          const key =
-            dur === 1 || pName.includes('daily')
-              ? 'daily'
-              : dur === 7 || pName.includes('weekly')
-              ? 'weekly'
-              : dur === 30 || pName.includes('month')
-              ? 'monthly'
-              : `${pName}_${dur}`;
-          const label =
-            dur === 1 || pName.includes('daily')
-              ? 'Daily'
-              : dur === 7 || pName.includes('weekly')
-              ? 'Weekly'
-              : dur === 30 || pName.includes('month')
-              ? 'Monthly'
-              : `${p.name} (${dur}d)`;
-
-          if (!seenKeys.has(key)) {
-            seenKeys.add(key);
-            tabs.push({
-              key,
-              label,
-              duration: dur,
-              name: p.name,
-              price: p.price,
-            });
-          }
-        });
-        setPackageTabs(tabs);
-
-        // If activePackageKey is not in tabs, pick first tab
-        if (tabs.length > 0) {
-          const exists = tabs.some((t) => t.key === activePackageKey);
-          if (!exists) {
-            setActivePackageKey(tabs[0].key);
-          }
-        }
-
-        // Extract vehicles assigned to this zone
-        const matchedVehicles = rawVehicles.filter((v) => {
-          if (!v.zone) return false;
-          const vZone = v.zone.toLowerCase().trim();
-          return (
-            vZone.includes(currentZoneName) ||
-            currentZoneName.includes(vZone) ||
-            (zoneObj?.name && vZone.includes(zoneObj.name.toLowerCase().trim())) ||
-            (zoneObj?.locality && vZone.includes(zoneObj.locality.toLowerCase().trim()))
-          );
-        });
-
-        setZoneAvailableVehicles(matchedVehicles);
-        setRawBackendModels(rawModels);
-        setIsLoading(false);
-      } catch (err) {
-        console.warn('Vehicle list dynamic fetch notice:', err.message);
-        setIsLoading(false);
       }
+      const [modelsRes, zonesRes, vehiclesRes] = await Promise.all([
+        apiGet('/vehicles/models').catch(() => null),
+        apiGet('/zones').catch(() => null),
+        apiGet('/vehicles?status=Available').catch(() => null),
+      ]);
+
+      const rawModels = modelsRes?.data || (Array.isArray(modelsRes) ? modelsRes : []);
+      const rawZones = zonesRes?.data || (Array.isArray(zonesRes) ? zonesRes : []);
+      let rawVehicles = vehiclesRes?.data || (Array.isArray(vehiclesRes) ? vehiclesRes : []);
+
+      // Also fetch all vehicles if status=Available returned empty (to handle Online status)
+      if (rawVehicles.length === 0) {
+        const allVehiclesRes = await apiGet('/vehicles').catch(() => null);
+        const allVehicles = allVehiclesRes?.data || (Array.isArray(allVehiclesRes) ? allVehiclesRes : []);
+        rawVehicles = allVehicles.filter(
+          (v) => !v.status || v.status.toLowerCase() === 'online' || v.status.toLowerCase() === 'available'
+        );
+      }
+
+      // Find active zone data
+      const currentZoneName = (
+        selectedZone?.name ||
+        selectedZone?.shortName ||
+        trip?.pickupName ||
+        'Gotri Zone'
+      ).toLowerCase().trim();
+
+      const zoneObj = rawZones.find((z) => {
+        const zName = (z.name || '').toLowerCase().trim();
+        const zLoc = (z.locality || '').toLowerCase().trim();
+        return (
+          zName.includes(currentZoneName) ||
+          currentZoneName.includes(zName) ||
+          zLoc.includes(currentZoneName) ||
+          currentZoneName.includes(zLoc)
+        );
+      }) || selectedZone || rawZones[0];
+
+      setActiveZoneData(zoneObj);
+
+      const zonePricing = zoneObj?.pricing || {};
+      const hourlyPricing = Array.isArray(zonePricing?.hourlyPricing) ? zonePricing.hourlyPricing : [];
+      const hasHourly =
+        hourlyPricing.length > 0 ||
+        (zonePricing?.basePrice !== undefined && zonePricing?.basePrice !== null && Number(zonePricing.basePrice) > 0);
+      const isHourly =
+        Boolean(trip?.isHourlyZone) ||
+        (zonePricing?.pricingModel || '').toLowerCase().includes('hour') ||
+        (zonePricing?.pricingModel || '').toLowerCase().includes('minute') ||
+        (hasHourly && (!Array.isArray(zonePricing?.packages) || zonePricing.packages.length === 0));
+
+      setIsHourlyZone(isHourly);
+
+      if (isHourly) {
+        const firstHourly = hourlyPricing[0] || {};
+        const baseRate = firstHourly.basePrice ? parseFloat(firstHourly.basePrice) : (zonePricing?.basePrice || 5);
+        const extraRate = firstHourly.extraPrice ? parseFloat(firstHourly.extraPrice) : (zonePricing?.extraPrice || 10);
+        const rule = firstHourly.roundingRule || 'Per 15 Minutes';
+        setHourlySummary(`₹${baseRate}/hr Base • ₹${extraRate} ${rule}`);
+      }
+
+      // Extract zone packages
+      let allZonePackages = [];
+      if (!isHourly) {
+        if (Array.isArray(zonePricing?.packages) && zonePricing.packages.length > 0) {
+          allZonePackages = zonePricing.packages.map((p, idx) => ({
+            id: String(p.id || `pkg_${idx}`),
+            name: (p.name || 'Daily').trim(),
+            model: (p.model || '').trim(),
+            price: parseFloat(p.price) || 0,
+            deposit: p.deposit !== undefined ? parseFloat(p.deposit) : 0,
+            duration: parseInt(p.duration, 10) || 1,
+          }));
+        } else if (zonePricing?.modelPackages && typeof zonePricing.modelPackages === 'object') {
+          Object.entries(zonePricing.modelPackages).forEach(([mName, pkgs]) => {
+            if (Array.isArray(pkgs)) {
+              pkgs.forEach((p, idx) => {
+                allZonePackages.push({
+                  id: String(p.id || `${mName}_pkg_${idx}`),
+                  name: (p.name || 'Daily').trim(),
+                  model: mName.trim(),
+                  price: parseFloat(p.price) || 0,
+                  deposit: p.deposit !== undefined ? parseFloat(p.deposit) : 0,
+                  duration: parseInt(p.duration, 10) || 1,
+                });
+              });
+            }
+          });
+        }
+      }
+
+      setZonePackagesList(allZonePackages);
+
+      // Extract vehicles assigned to this zone
+      const matchedVehicles = rawVehicles.filter((v) => {
+        if (!v.zone) return false;
+        const vZone = v.zone.toLowerCase().trim();
+        return (
+          vZone.includes(currentZoneName) ||
+          currentZoneName.includes(vZone) ||
+          (zoneObj?.name && vZone.includes(zoneObj.name.toLowerCase().trim())) ||
+          (zoneObj?.locality && vZone.includes(zoneObj.locality.toLowerCase().trim()))
+        );
+      });
+
+      setZoneAvailableVehicles(matchedVehicles);
+      setRawBackendModels(rawModels);
+    } catch (err) {
+      console.warn('Vehicle list dynamic fetch notice:', err.message);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
     }
-
-    fetchZoneVehicles();
-
-    return () => {
-      mounted = false;
-    };
   }, [selectedZone, trip]);
+
+  useEffect(() => {
+    fetchZoneVehicles(false);
+  }, [fetchZoneVehicles]);
+
+  const onRefresh = useCallback(() => {
+    fetchZoneVehicles(true);
+  }, [fetchZoneVehicles]);
 
   // Derive filtered vehicles strictly according to selected package & backend pricing
   useEffect(() => {
@@ -493,52 +426,33 @@ export default function VehicleListScreen({
       return;
     }
 
-    // Package Based: STRICTLY filter to the active package
-    const activePackages = zonePackagesList.filter((p) => {
-      if (activePackageKey === 'daily') return p.duration === 1 || p.name.toLowerCase().includes('daily');
-      if (activePackageKey === 'weekly') return p.duration === 7 || p.name.toLowerCase().includes('weekly');
-      if (activePackageKey === 'monthly') return p.duration === 30 || p.name.toLowerCase().includes('monthly');
-      return p.id === activePackageKey || `${p.name.toLowerCase()}_${p.duration}` === activePackageKey;
+    // Direct model listing for all available models in zone (no rental package selector)
+    const modelsToRender = modelsPool.filter((m) => {
+      const mName = (m.name || m.evegah_model_name || '').toLowerCase().trim();
+      return availableModelNames.some((avail) => avail.includes(mName) || mName.includes(avail));
     });
 
-    if (activePackages.length === 0) {
-      setVehiclesList([]);
-      setDistinctModelNames([]);
-      return;
-    }
-
-    // Filter models: A model MUST satisfy ALL conditions:
-    // 1) Must have at least 1 available vehicle in this zone
-    // 2) Must have a configured package in activePackages specifically for this model (or generic package with no model filter)
-    const validModelPackages = [];
-
-    modelsPool.forEach((m) => {
-      const mName = (m.name || m.evegah_model_name || '').trim();
+    const mapped = modelsToRender.map((m, index) => {
+      const mName = m.name || m.evegah_model_name || `Model ${index + 1}`;
       const mKey = mName.toLowerCase();
 
-      // 1. Vehicle availability check
-      const hasAvailableVehicle = availableModelNames.some(
-        (avail) => avail.includes(mKey) || mKey.includes(avail)
-      );
-      if (!hasAvailableVehicle) return;
-
-      // 2. Strict package matching
-      // If package defines a specific model, it MUST match this model
-      const matchingPkg = activePackages.find((p) => {
-        if (!p.model) return true; // generic package for any model
+      // Find packages matching this specific model or generic zone packages
+      const modelPkgs = zonePackagesList.filter((p) => {
+        if (!p.model) return true;
         const pMod = p.model.toLowerCase().trim();
         return pMod.includes(mKey) || mKey.includes(pMod);
       });
 
-      // If no package configured for this model in this package tier, DO NOT DISPLAY!
-      if (!matchingPkg) return;
-
-      validModelPackages.push({ model: m, package: matchingPkg });
-    });
-
-    const mapped = validModelPackages.map(({ model: m, package: matchingPkg }, index) => {
-      const mName = m.name || m.evegah_model_name || `Model ${index + 1}`;
-      const mKey = mName.toLowerCase();
+      // Match daily package first, then any available package, or fallback
+      const matchingPkg =
+        modelPkgs.find((p) => p.duration === 1 || p.name.toLowerCase().includes('daily')) ||
+        modelPkgs[0] || {
+          id: `pkg_default_${index}`,
+          name: 'Daily Rental',
+          price: m.daily_rate || m.price || 249,
+          duration: 1,
+          deposit: m.deposit !== undefined ? m.deposit : 0,
+        };
 
       const pkgPrice = parseFloat(matchingPkg.price) || 0;
       const pkgDur = matchingPkg.duration || 1;
@@ -552,7 +466,7 @@ export default function VehicleListScreen({
 
       if (isDaily) {
         priceStr = `₹${pkgPrice}/day`;
-        emiRate = ''; // Daily package: only daily price, no emi/monthly rate shown
+        emiRate = '';
       } else if (isWeekly) {
         priceStr = `₹${pkgPrice}/week`;
         const dailyVal = pkgPrice / 7;
@@ -612,7 +526,6 @@ export default function VehicleListScreen({
     setVehiclesList(mapped);
     setDistinctModelNames(Array.from(new Set(mapped.map((v) => v.name))));
   }, [
-    activePackageKey,
     zonePackagesList,
     zoneAvailableVehicles,
     rawBackendModels,
@@ -738,83 +651,8 @@ export default function VehicleListScreen({
         </View>
       </View>
 
-      {/* Dynamic Package Tabs from Backend Zone Packages (Sticky Top Selector) */}
-      {packageTabs.length > 0 && !isHourlyZone ? (
-        <View style={styles.packageTabsSection}>
-          <View style={styles.packageTabsHeader}>
-            <Text style={styles.packageTabsTitle}>Rental Package</Text>
-            <Text style={styles.packageTabsSub}>Showing models configured in {zoneLabel}</Text>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.packageTabsScroll}
-          >
-            {packageTabs.map((pkg) => {
-              const isActive = activePackageKey === pkg.key;
-              return (
-                <Pressable
-                  key={pkg.key}
-                  style={[styles.packageTabChip, isActive && styles.packageTabChipActive]}
-                  onPress={() => {
-                    setActivePackageKey(pkg.key);
-                    setSelectedModel('all');
-                  }}
-                >
-                  <Ionicons
-                    name={
-                      pkg.key === 'daily'
-                        ? 'flash'
-                        : pkg.key === 'weekly'
-                        ? 'calendar-outline'
-                        : 'calendar'
-                    }
-                    size={14}
-                    color={isActive ? '#FFFFFF' : ACCENT_PURPLE}
-                  />
-                  <Text
-                    style={[
-                      styles.packageTabLabel,
-                      isActive && styles.packageTabLabelActive,
-                    ]}
-                  >
-                    {pkg.label}
-                  </Text>
-                  {pkg.price ? (
-                    <View
-                      style={[
-                        styles.packageTabPriceBadge,
-                        isActive && styles.packageTabPriceBadgeActive,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.packageTabPrice,
-                          isActive && styles.packageTabPriceActive,
-                        ]}
-                      >
-                        ₹{pkg.price}
-                      </Text>
-                    </View>
-                  ) : null}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-      ) : isHourlyZone ? (
-        <View style={styles.hourlyNoticeBar}>
-          <Ionicons name="time" size={16} color={ACCENT_PURPLE} />
-          <Text style={styles.hourlyNoticeText}>
-            {hourlySummary || 'Hourly / Minute Rental Zone'}
-          </Text>
-        </View>
-      ) : null}
-
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
-      >
+      {/* Fixed Header Elements: Banner and Zone Filters (Do not scroll down on refresh) */}
+      <View style={styles.fixedHeaderArea}>
         {/* Animated Navratri Header Banner */}
         <View style={styles.bannerWrap}>
           <Animated.View style={[StyleSheet.absoluteFillObject, bannerBgAnimStyle]}>
@@ -961,56 +799,53 @@ export default function VehicleListScreen({
           </Pressable>
         </ScrollView>
 
-        {/* Sub-Filter Pill Bar: Saved Filters & Quick Price Pill */}
-        <View style={styles.subFilterRow}>
-          <Pressable
-            style={[styles.saveFilterPill, savedFilter && styles.saveFilterPillActive]}
-            onPress={() => setSavedFilter((v) => !v)}
-          >
-            <Ionicons
-              name={savedFilter ? 'bookmark' : 'bookmark-outline'}
-              size={14}
-              color={savedFilter ? '#FFFFFF' : '#D94E43'}
-            />
-            <Text
-              style={[
-                styles.saveFilterText,
-                savedFilter && { color: '#FFFFFF', fontWeight: '700' },
-              ]}
-            >
-              {savedFilter ? 'Saved Only' : 'Save Filters'}
-            </Text>
-          </Pressable>
+        {/* Sub-Filter Pill Bar: Quick Price & Model Pills (without Save Filters button) */}
+        {(priceRange !== 'all' || selectedModel !== 'all') ? (
+          <View style={styles.subFilterRow}>
+            {priceRange !== 'all' ? (
+              <Pressable
+                style={[styles.filterChip, styles.filterChipActive]}
+                onPress={() => setPriceRange('all')}
+              >
+                <Text style={[styles.filterChipText, styles.filterChipTextActive]}>
+                  {getPriceRangeLabel()}
+                </Text>
+                <Ionicons name="close" size={14} color="#FFFFFF" />
+              </Pressable>
+            ) : null}
 
-          {priceRange !== 'all' ? (
-            <Pressable
-              style={[styles.filterChip, styles.filterChipActive]}
-              onPress={() => setPriceRange('all')}
-            >
-              <Text style={[styles.filterChipText, styles.filterChipTextActive]}>
-                {getPriceRangeLabel()}
-              </Text>
-              <Ionicons name="close" size={14} color="#FFFFFF" />
-            </Pressable>
-          ) : null}
+            {selectedModel !== 'all' ? (
+              <Pressable
+                style={[styles.filterChip, styles.filterChipActive]}
+                onPress={() => setSelectedModel('all')}
+              >
+                <Text style={[styles.filterChipText, styles.filterChipTextActive]}>
+                  {selectedModel}
+                </Text>
+                <Ionicons name="close" size={14} color="#FFFFFF" />
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
 
-          {selectedModel !== 'all' ? (
-            <Pressable
-              style={[styles.filterChip, styles.filterChipActive]}
-              onPress={() => setSelectedModel('all')}
-            >
-              <Text style={[styles.filterChipText, styles.filterChipTextActive]}>
-                {selectedModel}
-              </Text>
-              <Ionicons name="close" size={14} color="#FFFFFF" />
-            </Pressable>
-          ) : null}
-        </View>
-
-        {/* Real Dynamic Results Heading */}
+      <ScrollView
+        style={styles.vehicleListScroll}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[PURPLE]}
+            tintColor={PURPLE}
+          />
+        }
+      >
+        {/* Dynamic Results Heading */}
         <Text style={styles.resultsHeading}>
           <Text style={styles.resultsCount}>{filteredVehicles.length}</Text> EV{' '}
-          {filteredVehicles.length === 1 ? 'Scooter' : 'Scooters'} available in {zoneLabel}
+          {filteredVehicles.length === 1 ? 'Model' : 'Models'} available in {zoneLabel}
         </Text>
 
         {isLoading ? (
@@ -1448,31 +1283,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
+  fixedHeaderArea: {
+    backgroundColor: '#FAFAFC',
+  },
+  vehicleListScroll: {
+    flex: 1,
+  },
   subFilterRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    marginTop: 10,
-    gap: 10,
-  },
-  saveFilterPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#ECA39B',
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  saveFilterPillActive: {
-    backgroundColor: '#FFF2F0',
-  },
-  saveFilterText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: PURPLE,
+    marginTop: 8,
+    marginBottom: 6,
+    gap: 8,
   },
   resultsHeading: {
     marginTop: 18,
@@ -1763,98 +1586,5 @@ const styles = StyleSheet.create({
   filterOptionTextActive: {
     color: PURPLE,
     fontWeight: '800',
-  },
-  packageTabsSection: {
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0EBF8',
-  },
-  packageTabsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    marginBottom: 8,
-  },
-  packageTabsTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#300D4F',
-    letterSpacing: 0.3,
-    textTransform: 'uppercase',
-  },
-  packageTabsSub: {
-    fontSize: 11,
-    color: '#8A8297',
-    fontWeight: '500',
-  },
-  packageTabsScroll: {
-    paddingHorizontal: 16,
-    gap: 8,
-  },
-  packageTabChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 7,
-    paddingHorizontal: 13,
-    borderRadius: 20,
-    backgroundColor: '#F7F3FB',
-    borderWidth: 1,
-    borderColor: '#E8DEF8',
-  },
-  packageTabChipActive: {
-    backgroundColor: ACCENT_PURPLE,
-    borderColor: ACCENT_PURPLE,
-    shadowColor: ACCENT_PURPLE,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  packageTabLabel: {
-    fontSize: 12.5,
-    fontWeight: '700',
-    color: '#300D4F',
-  },
-  packageTabLabelActive: {
-    color: '#FFFFFF',
-  },
-  packageTabPriceBadge: {
-    backgroundColor: '#EDE4FA',
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: 8,
-  },
-  packageTabPriceBadgeActive: {
-    backgroundColor: '#FFFFFF',
-  },
-  packageTabPrice: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: ACCENT_PURPLE,
-  },
-  packageTabPriceActive: {
-    color: ACCENT_PURPLE,
-  },
-  hourlyNoticeBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 4,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#F3E8FF',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E9D5FF',
-  },
-  hourlyNoticeText: {
-    fontSize: 12.5,
-    fontWeight: '700',
-    color: '#6300B5',
   },
 });
