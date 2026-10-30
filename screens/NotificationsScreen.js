@@ -11,7 +11,15 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
-import { apiGet, getStoredRider, last10, shortDate } from '../services/api';
+import { apiGet, getStoredRider } from '../services/api';
+import {
+  filterNotificationFeed,
+  formatActiveRideAsNotification,
+  formatCouponAsNotification,
+  formatReservationAsNotification,
+  last10,
+  mergeNotifications,
+} from '../utils/notifications';
 
 const PURPLE = '#4A168C';
 const PURPLE_DEEP = '#24083C';
@@ -26,59 +34,122 @@ const NOTIF_ICONS = {
   System: { icon: 'information-circle-outline', bg: '#F1F5F9', color: '#64748B' },
 };
 
-function kindFor(type) {
-  const value = String(type || '').toLowerCase();
-  if (value.includes('ride') || value.includes('book')) return 'Rides';
-  if (value.includes('pay') || value.includes('wallet')) return 'Wallet';
-  if (value.includes('promo') || value.includes('offer')) return 'Offers';
-  return 'System';
-}
-
 export default function NotificationsScreen({
   notes,
   phone,
   onRead,
   onReadAll,
   onBack,
+  onUpdateNotes,
 }) {
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState('All');
-  const [items, setItems] = useState(notes || []);
+  const [items, setItems] = useState(() => filterNotificationFeed(notes || [], phone));
 
   useEffect(() => {
     let active = true;
+
     async function loadNotifications() {
       let mobile = last10(phone);
-      if (!mobile) {
-        try {
-          const stored = await getStoredRider();
-          mobile = last10(stored?.mobile || stored?.phone);
-        } catch (_) {}
-      }
+      let storedRider = null;
       try {
+        storedRider = await getStoredRider();
+        if (!mobile) {
+          mobile = last10(storedRider?.mobile || storedRider?.phone);
+        }
+      } catch (_) {}
+
+      const userContext = {
+        mobile,
+        rider_id: storedRider?.rider_id || storedRider?.id || null,
+      };
+
+      try {
+        // 1. Fetch raw backend notifications
         const url = mobile ? `/notifications?mobile=${mobile}` : '/notifications';
-        const body = await apiGet(url);
-        if (!active) return;
-        const rows = body?.data || (Array.isArray(body) ? body : []);
-        if (rows.length > 0) {
-          setItems(
-            rows.map((item) => ({
-              id: String(item.id || Math.random()),
-              kind: kindFor(item.type || item.category),
-              title: item.title,
-              text: item.message || item.text,
-              time: shortDate(item.created_at || item.timestamp),
-              read: Boolean(item.read || item.is_read),
-            }))
+        const notifRes = await apiGet(url).catch(() => null);
+        const rawRows = notifRes?.data || (Array.isArray(notifRes) ? notifRes : []);
+        // Strictly filter to ensure global ride leaks are excluded and only promos/system remain
+        const sanitizedBackendFeed = filterNotificationFeed(rawRows, userContext);
+
+        // 2. Fetch authenticated user-specific rides and reservations
+        const userRideNotifs = [];
+        if (mobile) {
+          try {
+            // Check active ride
+            const activeRes = await apiGet(`/rides/active/${mobile}`).catch(() => null);
+            const activeRide = activeRes?.data?.active_ride;
+            if (activeRide) {
+              const activeItem = formatActiveRideAsNotification({ ...activeRide, mobile });
+              if (activeItem) userRideNotifs.push(activeItem);
+            }
+          } catch (_) {}
+
+          try {
+            // Fetch reservations
+            const resBody = await apiGet(`/reservations?mobile=${mobile}&limit=10`).catch(() => null);
+            const reservations = resBody?.data || (Array.isArray(resBody) ? resBody : []);
+            reservations.slice(0, 5).forEach((res) => {
+              const resItem = formatReservationAsNotification({ ...res, mobile });
+              if (resItem) userRideNotifs.push(resItem);
+            });
+          } catch (_) {}
+        }
+
+        // 3. Fetch active coupons to ensure global offers are populated
+        let couponNotifs = [];
+        try {
+          const couponRes = await apiGet('/coupons').catch(() => null);
+          const couponList = couponRes?.data || (Array.isArray(couponRes) ? couponRes : []);
+          const activeCoupons = couponList.filter(
+            (c) => String(c.status || '').toLowerCase() === 'active'
           );
+          couponNotifs = activeCoupons.slice(0, 3).map(formatCouponAsNotification);
+        } catch (_) {}
+
+        // 4. Sanitize fallback notes prop
+        const sanitizedFallback = filterNotificationFeed(notes || [], userContext);
+
+        // 5. Merge all feeds: user rides first, then backend notifications, coupons, and fallbacks
+        const merged = mergeNotifications(
+          userRideNotifs,
+          sanitizedBackendFeed,
+          couponNotifs,
+          sanitizedFallback
+        );
+
+        if (!active) return;
+        if (merged.length > 0) {
+          setItems(merged);
+          onUpdateNotes?.(merged);
         }
       } catch (_) {}
     }
+
     loadNotifications();
+
     return () => {
       active = false;
     };
   }, [phone]);
+
+  const handleRead = (id) => {
+    setItems((list) => {
+      const next = list.map((row) => (row.id === id ? { ...row, read: true } : row));
+      onUpdateNotes?.(next);
+      return next;
+    });
+    onRead?.(id);
+  };
+
+  const handleReadAll = () => {
+    setItems((list) => {
+      const next = list.map((item) => ({ ...item, read: true }));
+      onUpdateNotes?.(next);
+      return next;
+    });
+    onReadAll?.();
+  };
 
   const visible = items.filter((item) => filter === 'All' || item.kind === filter);
   const unreadCount = items.filter((item) => !item.read).length;
@@ -105,10 +176,7 @@ export default function NotificationsScreen({
         {unreadCount > 0 ? (
           <Pressable
             hitSlop={8}
-            onPress={() => {
-              setItems((list) => list.map((item) => ({ ...item, read: true })));
-              onReadAll?.();
-            }}
+            onPress={handleReadAll}
             style={styles.markAllBtn}
           >
             <Text style={styles.markAllText}>Mark read</Text>
@@ -169,14 +237,7 @@ export default function NotificationsScreen({
                 entering={FadeInDown.delay(index * 45).duration(240)}
               >
                 <Pressable
-                  onPress={() => {
-                    setItems((list) =>
-                      list.map((row) =>
-                        row.id === item.id ? { ...row, read: true } : row
-                      )
-                    );
-                    onRead?.(item.id);
-                  }}
+                  onPress={() => handleRead(item.id)}
                   style={[
                     styles.notifRow,
                     !item.read && styles.notifRowUnread,
