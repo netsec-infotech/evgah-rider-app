@@ -35,6 +35,7 @@ import BookingConfirmedScreen from './screens/BookingConfirmedScreen';
 import RideScreen from './screens/RideScreen';
 import EndRideScreen from './screens/EndRideScreen';
 import WalletIntro from './components/WalletIntro';
+import { preserveZoneOnBooking } from './utils/flexiAddressUtils';
 import {
   apiGet,
   apiPost,
@@ -420,24 +421,7 @@ export default function App() {
               nextVehicle = { ...(vehicle || {}), ...flexiData };
               setVehicle(nextVehicle);
               if (flexiData.flexiPickupAddress || flexiData.flexiDropAddress || flexiData.flexiEnabled) {
-                nextTrip = {
-                  ...(trip || {
-                    pickupAt: Date.now(),
-                    dropAt: Date.now() + 24 * 3600 * 1000,
-                    packageId: 'daily',
-                    durationText: '24 hrs',
-                  }),
-                  pickupName: flexiData.flexiPickupAddress || trip?.pickupName || selectedZone?.name || 'Gotri Zone',
-                  dropName: flexiData.flexiDropAddress || trip?.dropName || selectedZone?.name || 'Gotri Zone',
-                  deliveryAnywhere: Boolean(flexiData.flexiEnabled),
-                  flexiEnabled: Boolean(flexiData.flexiEnabled),
-                  flexiDeliveryCharge: Number(flexiData.totalDeliveryCharge || 0),
-                  totalDeliveryKm: Number(flexiData.pickupKm || 0) + Number(flexiData.dropKm || 0),
-                  pickupKm: Number(flexiData.pickupKm || 0),
-                  dropKm: Number(flexiData.dropKm || 0),
-                  pickupDeliveryCharge: Number(flexiData.pickupDeliveryCharge || 0),
-                  dropDeliveryCharge: Number(flexiData.dropDeliveryCharge || 0),
-                };
+                nextTrip = preserveZoneOnBooking(trip, selectedZone, flexiData);
                 setTrip(nextTrip);
               }
             }

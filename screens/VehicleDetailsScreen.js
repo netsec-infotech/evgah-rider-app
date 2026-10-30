@@ -25,6 +25,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
+import { cleanAddressText } from '../utils/flexiAddressUtils';
 import { apiGet, resolveMediaUrl } from '../services/api';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -90,7 +91,7 @@ const INITIAL_SAVED_ADDRESSES = [
   {
     id: 'addr-2',
     tag: 'HOME',
-    address: '746R+56R, Vadodara, Gujarat 391410, India',
+    address: 'Gotri - Bhayli Road, Bhayli, Vadodara, Gujarat 391410, India',
   },
   {
     id: 'addr-3',
@@ -148,7 +149,7 @@ const MAP_LANDMARKS = [
     icon: 'bag-handle',
     bottom: '28%',
     left: '14%',
-    address: '746R+56R, Pure Water Suppliers, Vadodara, Gujarat 391410, India',
+    address: 'Pure Water Suppliers, Bhayli Road, Vadodara, Gujarat 391410, India',
   },
   {
     id: 'lm-6',
@@ -369,7 +370,6 @@ const EXTRA = {
 const GALLERY_TABS = [
   { key: 'Exterior', label: 'Exterior', scale: 1, rotate: '0deg' },
   { key: 'Interior', label: 'Interior', scale: 1.25, rotate: '-4deg' },
-  { key: 'Tyres', label: 'Tyres', scale: 1.45, rotate: '6deg' },
   { key: 'Features', label: 'Features', scale: 1.2, rotate: '3deg' },
   { key: 'Highlights', label: 'Highlights', scale: 1.05, rotate: '0deg', badge: true },
 ];
@@ -382,7 +382,7 @@ const SECTION_TABS = [
   { key: 'more', label: 'More rides' },
 ];
 
-const BENTO_CATEGORIES = ['Exterior', 'Interior', 'Features', 'Tyres'];
+const BENTO_CATEGORIES = ['Exterior', 'Interior', 'Features'];
 
 const BENTO_VIEWS = {
   Exterior: {
@@ -402,12 +402,6 @@ const BENTO_VIEWS = {
     bottomLeftTop: { label: 'Keyless Start', scale: 1.35, rotate: '-3deg' },
     bottomLeftBottom: { label: 'USB Fast Charger', scale: 1.2, rotate: '0deg' },
     bottomRight: { label: 'Regenerative Braking', scale: 1.3, rotate: '-5deg' },
-  },
-  Tyres: {
-    top: { label: 'Front Tubeless Tyre', scale: 1.48, rotate: '8deg' },
-    bottomLeftTop: { label: 'Front Alloy Rim', scale: 1.4, rotate: '-6deg' },
-    bottomLeftBottom: { label: 'Rear Tubeless Tyre', scale: 1.5, rotate: '4deg' },
-    bottomRight: { label: 'Dual Disc Caliper', scale: 1.44, rotate: '-4deg' },
   },
 };
 
@@ -484,7 +478,7 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
   const zoneCoords = useMemo(() => {
     const lat = selectedZone?.lat || selectedZone?.center?.lat || (trip?.pickupZoneObj?.lat) || 22.3168;
     const lng = selectedZone?.lng || selectedZone?.center?.lng || (trip?.pickupZoneObj?.lng) || 73.1415;
-    const name = selectedZone?.name || trip?.pickupName || 'Gotri Zone';
+    const name = selectedZone?.name || trip?.pickupZoneName || trip?.pickupName || 'Gotri Zone';
     return { lat: Number(lat), lng: Number(lng), name };
   }, [selectedZone, trip]);
 
@@ -492,10 +486,10 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
   const [flexiEnabled, setFlexiEnabled] = useState(Boolean(vehicle?.flexiEnabled));
   const [sameFlexiLocation, setSameFlexiLocation] = useState(false);
   const [flexiPickupAddress, setFlexiPickupAddress] = useState(
-    vehicle?.flexiPickupAddress || ''
+    cleanAddressText(vehicle?.flexiPickupAddress || '')
   );
   const [flexiDropAddress, setFlexiDropAddress] = useState(
-    vehicle?.flexiDropAddress || ''
+    cleanAddressText(vehicle?.flexiDropAddress || '')
   );
   const [pickupCoords, setPickupCoords] = useState(null);
   const [dropCoords, setDropCoords] = useState(null);
@@ -507,17 +501,18 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
   const [addressTarget, setAddressTarget] = useState('pickup'); // 'pickup' | 'drop'
   const [addressSheetOpen, setAddressSheetOpen] = useState(false);
   const [mapPickerOpen, setMapPickerOpen] = useState(false);
+  const [mapSearchFocused, setMapSearchFocused] = useState(false);
   const [searchAddressPopupOpen, setSearchAddressPopupOpen] = useState(false);
   const [searchAddressQuery, setSearchAddressQuery] = useState('');
   const [addAddressSheetOpen, setAddAddressSheetOpen] = useState(false);
   const [addressCategoryTag, setAddressCategoryTag] = useState('HOME'); // 'HOME' | 'WORK' | 'OTHERS'
   const [localityDraft, setLocalityDraft] = useState('vadodara');
   const [completeAddressDraft, setCompleteAddressDraft] = useState(
-    '746R+56R, Vadodara, Gujarat 391410, India'
+    'Gotri - Bhayli Road, Bhayli, Vadodara, Gujarat 391410, India'
   );
   const [savedAddresses, setSavedAddresses] = useState(INITIAL_SAVED_ADDRESSES);
   const [mapAddressDraft, setMapAddressDraft] = useState(
-    '746R+56R, Vadodara, Gujarat 391410, India'
+    'Gotri - Bhayli Road, Bhayli, Vadodara, Gujarat 391410, India'
   );
   const [editingAddressId, setEditingAddressId] = useState(null);
   const [thingsKeepInMindOpen, setThingsKeepInMindOpen] = useState(false);
@@ -579,13 +574,51 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
   <script>
     var map;
     var hubMarker;
+    var directionsService;
+    var directionsRenderer;
+    var fallbackPolyline;
+    var hubLat = ${hubLat};
+    var hubLng = ${hubLng};
+
+    function updateRoutePath(destLat, destLng) {
+      if (!destLat || !destLng || !map) return;
+      var origin = new google.maps.LatLng(hubLat, hubLng);
+      var destination = new google.maps.LatLng(Number(destLat), Number(destLng));
+
+      if (directionsService && directionsRenderer) {
+        directionsService.route({
+          origin: origin,
+          destination: destination,
+          travelMode: google.maps.TravelMode.DRIVING
+        }, function(response, status) {
+          if (status === 'OK' && response) {
+            if (fallbackPolyline) {
+              fallbackPolyline.setMap(null);
+              fallbackPolyline = null;
+            }
+            directionsRenderer.setDirections(response);
+          } else {
+            if (directionsRenderer) directionsRenderer.set('directions', null);
+            if (fallbackPolyline) fallbackPolyline.setMap(null);
+            fallbackPolyline = new google.maps.Polyline({
+              path: [origin, destination],
+              geodesic: true,
+              strokeColor: '#4A168C',
+              strokeOpacity: 0.85,
+              strokeWeight: 4.5,
+              map: map
+            });
+          }
+        });
+      }
+    }
 
     function initMap() {
       try {
         var startCenter = { lat: ${lat}, lng: ${lng} };
         map = new google.maps.Map(document.getElementById('map'), {
           center: startCenter,
-          zoom: 16,
+          zoom: 15,
           disableDefaultUI: true,
           zoomControl: false,
           mapTypeControl: false,
@@ -597,27 +630,46 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
           clickableIcons: false
         });
 
+        directionsService = new google.maps.DirectionsService();
+        directionsRenderer = new google.maps.DirectionsRenderer({
+          map: map,
+          suppressMarkers: true,
+          preserveViewport: true,
+          polylineOptions: {
+            strokeColor: '#4A168C',
+            strokeWeight: 5,
+            strokeOpacity: 0.85
+          }
+        });
+
         hubMarker = new google.maps.Marker({
-          position: { lat: ${hubLat}, lng: ${hubLng} },
+          position: { lat: hubLat, lng: hubLng },
           map: map,
           title: "${hubName} Hub",
           icon: {
             path: google.maps.SymbolPath.CIRCLE,
-            scale: 9,
+            scale: 10,
             fillColor: "#4A168C",
             fillOpacity: 1,
-            strokeWeight: 2.5,
+            strokeWeight: 3,
             strokeColor: "#FFFFFF"
           }
         });
 
+        // Initial path from hub to start location
+        updateRoutePath(${lat}, ${lng});
+
         google.maps.event.addListener(map, 'idle', function() {
           var c = map.getCenter();
+          var cLat = c.lat();
+          var cLng = c.lng();
+          updateRoutePath(cLat, cLng);
+
           if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
             window.ReactNativeWebView.postMessage(JSON.stringify({
               type: 'MAP_IDLE',
-              latitude: c.lat(),
-              longitude: c.lng()
+              latitude: cLat,
+              longitude: cLng
             }));
           }
         });
@@ -635,6 +687,7 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
     window.panToLocation = function(lat, lng) {
       if (map && map.panTo) {
         map.panTo({ lat: Number(lat), lng: Number(lng) });
+        updateRoutePath(Number(lat), Number(lng));
       }
     };
 
@@ -666,7 +719,7 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
           const res = await fetch(geoUrl);
           const json = await res.json();
           if (json?.status === 'OK' && json?.results?.[0]?.formatted_address) {
-            setMapAddressDraft(json.results[0].formatted_address);
+            setMapAddressDraft(cleanAddressText(json.results[0].formatted_address));
             return;
           }
         } catch (_) {}
@@ -676,7 +729,7 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
           if (rev && rev[0]) {
             const item = rev[0];
             const parts = [item.name || item.street, item.subregion || item.district, item.city].filter(Boolean);
-            if (parts.length > 0) setMapAddressDraft(parts.join(', '));
+            if (parts.length > 0) setMapAddressDraft(cleanAddressText(parts.join(', ')));
           }
         } catch (_) {}
       }
@@ -720,6 +773,7 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
   const selectGooglePlace = async (placeId, description) => {
     try {
       Keyboard.dismiss();
+      const cleanDesc = cleanAddressText(description);
       const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=geometry,formatted_address,name&key=${GOOGLE_MAPS_KEY}`;
       const res = await fetch(url);
       const json = await res.json();
@@ -733,17 +787,17 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
         };
         setMapRegion(newCoords);
         webMapRef.current?.injectJavaScript(`window.panToLocation(${newCoords.latitude}, ${newCoords.longitude}); true;`);
-        const fullAddr = json.result.formatted_address || description;
+        const fullAddr = cleanAddressText(json.result.formatted_address || cleanDesc);
         setMapAddressDraft(fullAddr);
         setCompleteAddressDraft(fullAddr);
         setLocalityDraft(json.result.name || 'vadodara');
       } else {
-        setMapAddressDraft(description);
-        setCompleteAddressDraft(description);
+        setMapAddressDraft(cleanDesc);
+        setCompleteAddressDraft(cleanDesc);
       }
     } catch (_) {
-      setMapAddressDraft(description);
-      setCompleteAddressDraft(description);
+      setMapAddressDraft(cleanAddressText(description));
+      setCompleteAddressDraft(cleanAddressText(description));
     }
     setSearchAddressPopupOpen(false);
   };
@@ -771,7 +825,7 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
           const res = await fetch(geoUrl);
           const json = await res.json();
           if (json?.status === 'OK' && json?.results?.[0]?.formatted_address) {
-            setMapAddressDraft(json.results[0].formatted_address);
+            setMapAddressDraft(cleanAddressText(json.results[0].formatted_address));
           } else {
             const rev = await Location.reverseGeocodeAsync({
               latitude: pos.coords.latitude,
@@ -781,7 +835,7 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
               const item = rev[0];
               const parts = [item.name || item.street, item.subregion || item.district, item.city, item.postalCode].filter(Boolean);
               const addr = parts.join(', ');
-              if (addr) setMapAddressDraft(addr);
+              if (addr) setMapAddressDraft(cleanAddressText(addr));
             }
           }
         } catch (_) {}
@@ -817,24 +871,25 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
   };
 
   const applySelectedAddress = async (addrString, coords) => {
+    const cleanAddr = cleanAddressText(addrString);
     const locCoords = coords || { latitude: mapRegion.latitude, longitude: mapRegion.longitude };
     const km = await fetchGoogleDistanceKm(zoneCoords.lat, zoneCoords.lng, locCoords.latitude, locCoords.longitude);
     const charge = Math.round(km * 30);
 
     if (addressTarget === 'pickup') {
-      setFlexiPickupAddress(addrString);
+      setFlexiPickupAddress(cleanAddr);
       setPickupCoords(locCoords);
       setPickupKm(km);
       setPickupDeliveryCharge(charge);
       if (sameFlexiLocation) {
-        setFlexiDropAddress(addrString);
+        setFlexiDropAddress(cleanAddr);
         setDropCoords(locCoords);
         setDropKm(km);
         setDropDeliveryCharge(charge);
       }
       setAddressSheetOpen(false);
     } else {
-      setFlexiDropAddress(addrString);
+      setFlexiDropAddress(cleanAddr);
       setDropCoords(locCoords);
       setDropKm(km);
       setDropDeliveryCharge(charge);
@@ -860,8 +915,7 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
     : pickupKm + (flexiDropAddress ? dropKm : 0);
 
   const handleConfirmMapPin = () => {
-    const cleanAddr =
-      mapAddressDraft.trim() || '746R+56R, Vadodara, Gujarat 391410, India';
+    const cleanAddr = cleanAddressText(mapAddressDraft);
     const currentCoords = { latitude: mapRegion.latitude, longitude: mapRegion.longitude };
     if (editingAddressId) {
       setSavedAddresses((prev) =>
@@ -900,8 +954,8 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
 
       onBook?.({
         flexiEnabled: true,
-        flexiPickupAddress,
-        flexiDropAddress: effectiveDrop,
+        flexiPickupAddress: cleanAddressText(flexiPickupAddress),
+        flexiDropAddress: cleanAddressText(effectiveDrop),
         pickupKm,
         dropKm: effDropKm,
         totalDeliveryKm: totalKm,
@@ -922,6 +976,8 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
 
   const mainScrollRef = useRef(null);
   const galleryRef = useRef(null);
+  const autoSlideTimerRef = useRef(null);
+  const isUserInteractingWithSlider = useRef(false);
   const sectionOffsets = useRef({
     promise: 0,
     variant: 480,
@@ -1040,6 +1096,26 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
       badge: idx === 0,
     };
   });
+
+  // Automated Hero Slider Loop
+  useEffect(() => {
+    if (galleryItems.length <= 1) return;
+
+    if (autoSlideTimerRef.current) clearInterval(autoSlideTimerRef.current);
+
+    autoSlideTimerRef.current = setInterval(() => {
+      if (isUserInteractingWithSlider.current) return;
+      setActiveTab((prev) => {
+        const next = (prev + 1) % galleryItems.length;
+        galleryRef.current?.scrollTo({ x: next * SCREEN_W, animated: true });
+        return next;
+      });
+    }, 3500);
+
+    return () => {
+      if (autoSlideTimerRef.current) clearInterval(autoSlideTimerRef.current);
+    };
+  }, [galleryItems.length]);
 
   const resolvedVideoUrl = resolveMediaUrl(modelDetails?.video_url || vehicle?.video_url);
   const videoSource = resolvedVideoUrl ? { uri: resolvedVideoUrl } : STORY_VIDEO;
@@ -1188,10 +1264,20 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
+              onScrollBeginDrag={() => {
+                isUserInteractingWithSlider.current = true;
+              }}
+              onScrollEndDrag={() => {
+                setTimeout(() => {
+                  isUserInteractingWithSlider.current = false;
+                }, 2500);
+              }}
               onMomentumScrollEnd={(event) => {
                 const offsetX = event?.nativeEvent?.contentOffset?.x ?? 0;
                 const page = Math.round(offsetX / SCREEN_W);
-                setActiveTab(Math.max(0, Math.min(galleryItems.length - 1, page)));
+                const clamped = Math.max(0, Math.min(galleryItems.length - 1, page));
+                setActiveTab(clamped);
+                isUserInteractingWithSlider.current = false;
               }}
             >
               {galleryItems.map((item) => (
@@ -1406,7 +1492,7 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
                           style={styles.flexiSelectedAddressText}
                           numberOfLines={2}
                         >
-                          {flexiPickupAddress}
+                          {cleanAddressText(flexiPickupAddress)}
                         </Text>
                       ) : null}
                     </View>
@@ -1429,7 +1515,7 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
                       const nextSame = !sameFlexiLocation;
                       setSameFlexiLocation(nextSame);
                       if (nextSame && flexiPickupAddress) {
-                        setFlexiDropAddress(flexiPickupAddress);
+                        setFlexiDropAddress(cleanAddressText(flexiPickupAddress));
                       }
                     }}
                     style={styles.flexiSameLocRow}
@@ -1467,7 +1553,7 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
                             style={styles.flexiSelectedAddressText}
                             numberOfLines={2}
                           >
-                            {flexiDropAddress}
+                            {cleanAddressText(flexiDropAddress)}
                           </Text>
                         ) : null}
                       </View>
@@ -2151,7 +2237,7 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
                     hitSlop={10}
                     onPress={() => {
                       setEditingAddressId(item.id);
-                      setMapAddressDraft(item.address);
+                      setMapAddressDraft(cleanAddressText(item.address));
                       setAddressSheetOpen(false);
                       setMapPickerOpen(true);
                     }}
@@ -2172,7 +2258,9 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
             <Pressable
               onPress={() => {
                 setEditingAddressId(null);
-                setMapAddressDraft('746R+56R, Vadodara, Gujarat 391410, India');
+                setMapAddressDraft(
+                  cleanAddressText(flexiPickupAddress || flexiDropAddress || 'Gotri - Bhayli Road, Bhayli, Vadodara, Gujarat 391410, India')
+                );
                 setAddressSheetOpen(false);
                 setMapPickerOpen(true);
               }}
@@ -2248,45 +2336,178 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
               <View style={styles.mapCenterGroundDot} />
             </View>
 
-            {/* Top Floating Back + Address Search Bar */}
-            <View style={[styles.mapTopBarRow, { top: insets.top + 10 }]}>
-              <Pressable
-                onPress={() => {
-                  setMapPickerOpen(false);
-                  setTimeout(() => {
-                    setAddressSheetOpen(true);
-                  }, 150);
-                }}
-                style={styles.mapBackCircleBtn}
-              >
-                <Ionicons name="arrow-back" size={20} color="#111827" />
-              </Pressable>
+            {/* Google Maps Style Top Floating Search Container with Pickup / Drop Switcher */}
+            <View style={[styles.mapTopSearchContainer, { top: insets.top + 8 }]}>
+              {/* Pickup & Drop Switcher (same for both pickup and drop location) */}
+              <View style={styles.mapTargetSwitchRow}>
+                <Pressable
+                  onPress={() => {
+                    setAddressTarget('pickup');
+                    if (pickupCoords) {
+                      setMapRegion((prev) => ({ ...prev, ...pickupCoords }));
+                      webMapRef.current?.injectJavaScript(`window.panToLocation(${pickupCoords.latitude}, ${pickupCoords.longitude}); true;`);
+                    }
+                    if (flexiPickupAddress) {
+                      setMapAddressDraft(cleanAddressText(flexiPickupAddress));
+                    }
+                  }}
+                  style={[styles.mapTargetTab, addressTarget === 'pickup' && styles.mapTargetTabActive]}
+                >
+                  <Ionicons
+                    name="navigate-circle"
+                    size={14}
+                    color={addressTarget === 'pickup' ? '#FFFFFF' : '#4A168C'}
+                  />
+                  <Text
+                    style={[
+                      styles.mapTargetTabText,
+                      addressTarget === 'pickup' && styles.mapTargetTabTextActive,
+                    ]}
+                  >
+                    Pickup Location
+                  </Text>
+                </Pressable>
 
-              <Pressable
-                onPress={() => {
-                  setSearchAddressQuery('');
-                  setSearchAddressPopupOpen(true);
-                }}
-                style={styles.mapSearchPill}
-              >
-                <Text style={styles.mapSearchPillText} numberOfLines={1}>
-                  {mapAddressDraft || 'Detecting address on map...'}
-                </Text>
+                <Pressable
+                  onPress={() => {
+                    setAddressTarget('drop');
+                    if (dropCoords) {
+                      setMapRegion((prev) => ({ ...prev, ...dropCoords }));
+                      webMapRef.current?.injectJavaScript(`window.panToLocation(${dropCoords.latitude}, ${dropCoords.longitude}); true;`);
+                    }
+                    if (flexiDropAddress) {
+                      setMapAddressDraft(cleanAddressText(flexiDropAddress));
+                    }
+                  }}
+                  style={[styles.mapTargetTab, addressTarget === 'drop' && styles.mapTargetTabActiveDrop]}
+                >
+                  <Ionicons
+                    name="flag"
+                    size={14}
+                    color={addressTarget === 'drop' ? '#FFFFFF' : '#10B981'}
+                  />
+                  <Text
+                    style={[
+                      styles.mapTargetTabText,
+                      addressTarget === 'drop' && styles.mapTargetTabTextActive,
+                    ]}
+                  >
+                    Drop Location
+                  </Text>
+                </Pressable>
+              </View>
+
+              {/* Google Maps Search Bar Card */}
+              <View style={styles.mapSearchBarCard}>
                 <Pressable
                   hitSlop={8}
                   onPress={() => {
-                    setSearchAddressQuery('');
-                    setSearchAddressPopupOpen(true);
+                    Keyboard.dismiss();
+                    setMapSearchFocused(false);
+                    setMapPickerOpen(false);
+                    setTimeout(() => {
+                      setAddressSheetOpen(true);
+                    }, 150);
                   }}
-                  style={styles.mapSearchClearBtn}
+                  style={styles.mapSearchBackBtn}
                 >
-                  <Ionicons name="close" size={17} color="#4B5563" />
+                  <Ionicons name="arrow-back" size={20} color="#1E293B" />
                 </Pressable>
-              </Pressable>
+
+                <Ionicons name="search" size={17} color="#64748B" style={{ marginLeft: 2 }} />
+
+                <TextInput
+                  value={searchAddressQuery}
+                  onChangeText={(text) => {
+                    setSearchAddressQuery(text);
+                    setMapSearchFocused(true);
+                  }}
+                  onFocus={() => setMapSearchFocused(true)}
+                  placeholder={
+                    mapAddressDraft
+                      ? cleanAddressText(mapAddressDraft)
+                      : `Search ${addressTarget} address...`
+                  }
+                  placeholderTextColor="#64748B"
+                  style={styles.mapSearchTextInput}
+                  returnKeyType="search"
+                />
+
+                {searchAddressQuery ? (
+                  <Pressable
+                    hitSlop={8}
+                    onPress={() => {
+                      setSearchAddressQuery('');
+                    }}
+                    style={styles.mapSearchClearCircle}
+                  >
+                    <Ionicons name="close-circle" size={18} color="#64748B" />
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    hitSlop={8}
+                    onPress={getMapUserLocation}
+                    style={styles.mapSearchGpsIcon}
+                  >
+                    <Ionicons name="locate" size={18} color={FLEXI_PURPLE} />
+                  </Pressable>
+                )}
+              </View>
+
+              {/* Floating Autocomplete Predictions Dropdown directly below Search Bar */}
+              {mapSearchFocused && (searchAddressQuery.trim().length > 0 || googlePlacesPredictions.length > 0) ? (
+                <View style={styles.mapPredictionsDropdown}>
+                  {isSearchingPlaces && (
+                    <View style={styles.placesLoadingRow}>
+                      <ActivityIndicator size="small" color={FLEXI_PURPLE} />
+                      <Text style={styles.placesLoadingText}>Searching Google Maps...</Text>
+                    </View>
+                  )}
+
+                  <ScrollView
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                    style={{ maxHeight: 240 }}
+                  >
+                    {googlePlacesPredictions.map((pred) => (
+                      <Pressable
+                        key={pred.place_id}
+                        onPress={() => {
+                          Keyboard.dismiss();
+                          setMapSearchFocused(false);
+                          setSearchAddressQuery('');
+                          selectGooglePlace(pred.place_id, pred.description);
+                        }}
+                        style={styles.dropdownPlaceItem}
+                      >
+                        <View style={styles.dropdownPlaceIconCircle}>
+                          <Ionicons name="location-outline" size={16} color={FLEXI_PURPLE} />
+                        </View>
+                        <View style={styles.dropdownPlaceTexts}>
+                          <Text style={styles.dropdownPlaceMainText} numberOfLines={1}>
+                            {cleanAddressText(pred.structured_formatting?.main_text || pred.description)}
+                          </Text>
+                          <Text style={styles.dropdownPlaceSubText} numberOfLines={1}>
+                            {cleanAddressText(pred.structured_formatting?.secondary_text || pred.description)}
+                          </Text>
+                        </View>
+                      </Pressable>
+                    ))}
+
+                    {googlePlacesPredictions.length === 0 && !isSearchingPlaces && (
+                      <View style={{ padding: 14 }}>
+                        <Text style={styles.noPlacesFoundText}>
+                          No locations found. Drag the pin on the map to select.
+                        </Text>
+                      </View>
+                    )}
+                  </ScrollView>
+                </View>
+              ) : null}
             </View>
 
             {/* Distance from Hub Floating Pill */}
-            <View style={[styles.mapDistanceFloatingPill, { top: insets.top + 62 }]}>
+            <View style={[styles.mapDistanceFloatingPill, { top: insets.top + 98 }]}>
               <Ionicons name="navigate-outline" size={14} color="#4A168C" />
               <Text style={styles.mapDistanceFloatingText}>
                 {zoneCoords.name.replace(/Zone/i, '').trim()} Hub ➔{' '}
@@ -2319,7 +2540,7 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
             <Pressable
               onPress={() => {
                 setCompleteAddressDraft(
-                  mapAddressDraft || '746R+56R, Vadodara, Gujarat 391410, India'
+                  cleanAddressText(mapAddressDraft)
                 );
                 setLocalityDraft('vadodara');
                 setAddAddressSheetOpen(true);
@@ -2329,198 +2550,6 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
               <Text style={styles.mapConfirmGreenBtnText}>Confirm Location</Text>
             </Pressable>
           </View>
-
-          {/* Search Address Popup Overlay View with Keyboard Avoiding */}
-          {searchAddressPopupOpen ? (
-            <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
-              style={[styles.modalBackdropDark, StyleSheet.absoluteFill, { zIndex: 10001 }]}
-            >
-              <Pressable
-                style={styles.modalBackdropTouch}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setSearchAddressPopupOpen(false);
-                }}
-              />
-              <View
-                style={[
-                  styles.searchAddressSheet,
-                  { paddingBottom: Math.max(insets.bottom, 20) },
-                ]}
-              >
-                {/* Header with Title & Circular Close Button */}
-                <View style={styles.searchAddressHeader}>
-                  <Text style={styles.searchAddressTitle}>Search Address</Text>
-                  <Pressable
-                    hitSlop={10}
-                    onPress={() => {
-                      Keyboard.dismiss();
-                      setSearchAddressPopupOpen(false);
-                    }}
-                    style={styles.modalRoundCloseBtn}
-                  >
-                    <Ionicons name="close" size={20} color="#111827" />
-                  </Pressable>
-                </View>
-
-                {/* Search Input Box */}
-                <View style={styles.searchAddressInputBox}>
-                  <TextInput
-                    value={searchAddressQuery}
-                    onChangeText={setSearchAddressQuery}
-                    placeholder="Search address or landmark on Google Maps"
-                    placeholderTextColor="#9CA3AF"
-                    style={styles.searchAddressTextInput}
-                    autoFocus
-                  />
-                  {searchAddressQuery ? (
-                    <Pressable
-                      hitSlop={8}
-                      onPress={() => setSearchAddressQuery('')}
-                    >
-                      <Ionicons name="close-circle" size={16} color="#9CA3AF" />
-                    </Pressable>
-                  ) : null}
-                </View>
-
-                <ScrollView
-                  keyboardShouldPersistTaps="handled"
-                  showsVerticalScrollIndicator={false}
-                  style={{ maxHeight: 360 }}
-                >
-                  {isSearchingPlaces && (
-                    <View style={styles.placesLoadingRow}>
-                      <ActivityIndicator size="small" color={FLEXI_PURPLE} />
-                      <Text style={styles.placesLoadingText}>Searching Google Maps...</Text>
-                    </View>
-                  )}
-
-                  {/* Google Places live predictions */}
-                  {googlePlacesPredictions.length > 0 ? (
-                    <View>
-                      <View style={styles.searchSectionBanner}>
-                        <Text style={styles.searchSectionBannerText}>
-                          Google Maps Suggestions
-                        </Text>
-                      </View>
-                      {googlePlacesPredictions.map((pred) => (
-                        <Pressable
-                          key={pred.place_id}
-                          onPress={() => selectGooglePlace(pred.place_id, pred.description)}
-                          style={styles.searchLocationItemRow}
-                        >
-                          <View style={styles.locationPinCircle}>
-                            <Ionicons
-                              name="location-outline"
-                              size={18}
-                              color={FLEXI_PURPLE}
-                            />
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.searchLocationItemTitle}>
-                              {pred.structured_formatting?.main_text || pred.description}
-                            </Text>
-                            <Text
-                              style={styles.searchLocationItemSub}
-                              numberOfLines={1}
-                            >
-                              {pred.structured_formatting?.secondary_text || pred.description}
-                            </Text>
-                          </View>
-                        </Pressable>
-                      ))}
-                    </View>
-                  ) : null}
-
-                  {/* Recently Searched Locations */}
-                  <View style={styles.searchSectionBanner}>
-                    <Text style={styles.searchSectionBannerText}>
-                      Recently Searched Locations
-                    </Text>
-                  </View>
-
-                  {filteredRecent.map((item) => (
-                    <Pressable
-                      key={item.id}
-                      onPress={() => {
-                        Keyboard.dismiss();
-                        setMapAddressDraft(item.address || item.title);
-                        setCompleteAddressDraft(item.title);
-                        setLocalityDraft(item.locality || 'vadodara');
-                        setSearchAddressPopupOpen(false);
-                      }}
-                      style={styles.searchLocationItemRow}
-                    >
-                      <View style={styles.locationPinCircle}>
-                        <Ionicons
-                          name="location"
-                          size={18}
-                          color={FLEXI_PURPLE}
-                        />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.searchLocationItemTitle}>
-                          {item.title}
-                        </Text>
-                        {item.address !== item.title ? (
-                          <Text
-                            style={styles.searchLocationItemSub}
-                            numberOfLines={1}
-                          >
-                            {item.address}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </Pressable>
-                  ))}
-
-                  {/* Suggested Pickup Locations */}
-                  <View style={[styles.searchSectionBanner, { marginTop: 14 }]}>
-                    <Text style={styles.searchSectionBannerText}>
-                      Suggested Pickup Locations
-                    </Text>
-                  </View>
-
-                  {filteredSuggested.map((item) => (
-                    <Pressable
-                      key={item.id}
-                      onPress={() => {
-                        Keyboard.dismiss();
-                        setMapAddressDraft(item.title);
-                        setCompleteAddressDraft(item.title);
-                        setLocalityDraft(item.locality || 'vadodara');
-                        setSearchAddressPopupOpen(false);
-                      }}
-                      style={styles.searchLocationItemRow}
-                    >
-                      <View style={styles.locationPinCircle}>
-                        <Ionicons
-                          name="location"
-                          size={18}
-                          color={FLEXI_PURPLE}
-                        />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.searchLocationItemTitle}>
-                          {item.title}
-                        </Text>
-                        {item.address ? (
-                          <Text
-                            style={styles.searchLocationItemSub}
-                            numberOfLines={2}
-                          >
-                            {item.address}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            </KeyboardAvoidingView>
-          ) : null}
 
           {/* Add A New Delivery Address Overlay View with Keyboard Avoiding */}
           {addAddressSheetOpen ? (
@@ -2621,7 +2650,7 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
                   <Pressable
                     onPress={() => {
                       Keyboard.dismiss();
-                      const finalAddr = completeAddressDraft.trim() || mapAddressDraft;
+                      const finalAddr = cleanAddressText(completeAddressDraft.trim() || mapAddressDraft);
                       if (editingAddressId) {
                         setSavedAddresses((prev) =>
                           prev.map((item) =>
@@ -4738,57 +4767,135 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#FFFFFF',
   },
-  mapTopBarRow: {
+  mapTopSearchContainer: {
     position: 'absolute',
-    left: 16,
-    right: 16,
+    left: 14,
+    right: 14,
+    zIndex: 20,
+  },
+  mapTargetSwitchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
+    marginBottom: 8,
   },
-  mapBackCircleBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#FFFFFF',
+  mapTargetTab: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 22,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 4,
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  mapSearchPill: {
-    flex: 1,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16,
+  mapTargetTabActive: {
+    backgroundColor: '#4A168C',
+    borderColor: '#4A168C',
+  },
+  mapTargetTabActiveDrop: {
+    backgroundColor: '#10B981',
+    borderColor: '#10B981',
+  },
+  mapTargetTabText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  mapTargetTabTextActive: {
+    color: '#FFFFFF',
+  },
+  mapSearchBarCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    height: 48,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.12,
     shadowRadius: 6,
     elevation: 4,
   },
-  mapSearchPillText: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-    marginRight: 6,
+  mapSearchBackBtn: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 2,
   },
-  mapSearchClearBtn: {
+  mapSearchTextInput: {
+    flex: 1,
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: '#0F172A',
+    paddingHorizontal: 8,
+    paddingVertical: 0,
+  },
+  mapSearchClearCircle: {
     padding: 4,
   },
-  mapSearchInput: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-    paddingVertical: 0,
+  mapSearchGpsIcon: {
+    padding: 4,
+  },
+  mapPredictionsDropdown: {
+    marginTop: 6,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
+    overflow: 'hidden',
+  },
+  dropdownPlaceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#F1F5F9',
+  },
+  dropdownPlaceIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#F3E8FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  dropdownPlaceTexts: {
+    flex: 1,
+  },
+  dropdownPlaceMainText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  dropdownPlaceSubText: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  noPlacesFoundText: {
+    fontSize: 12.5,
+    color: '#64748B',
+    textAlign: 'center',
   },
   googleWatermarkWrap: {
     position: 'absolute',
