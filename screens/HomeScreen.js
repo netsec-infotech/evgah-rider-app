@@ -31,7 +31,6 @@ import {
   isSameDay,
   isPastDay,
   getBookingMinTime,
-  cleanDay,
 } from '../utils/bookingDateTime';
 
 const { width: SCREEN_W } = Dimensions.get('window');

@@ -57,7 +57,8 @@
           "iosGoogleMapsApiKey": "AIzaSyC_Pn12n9hRH5jQdxU7hQUOPDy820ehjwo"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-status-bar"
     ],
     "extra": {
       "eas": {
