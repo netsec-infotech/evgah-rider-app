@@ -27,6 +27,12 @@ import AnalogClockModal, {
   formatClockString,
   parseOperatingHours,
 } from '../components/AnalogClockPicker';
+import {
+  isSameDay,
+  isPastDay,
+  getBookingMinTime,
+  cleanDay,
+} from '../utils/bookingDateTime';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const H_PAD = 16;
@@ -1146,6 +1152,7 @@ function BookingCalendarModal({
 
   const handleDayPress = (day) => {
     const clicked = cleanDay(day);
+    if (isPastDay(clicked)) return;
     const pkg = activeOptions.find((p) => p.id === packageId);
     if (pkg && pkg.days) {
       const autoEnd = addDaysToDate(clicked, pkg.days);
@@ -1288,16 +1295,18 @@ function BookingCalendarModal({
                         );
                       }
                       const t = cleanDay(cellDate).getTime();
+                      const isPast = isPastDay(cellDate);
                       const sT = startDay ? cleanDay(startDay).getTime() : null;
                       const eT = endDay ? cleanDay(endDay).getTime() : null;
                       const isStart = sT === t;
                       const isEnd = eT === t;
                       const inRange =
-                        sT != null && eT != null && t > sT && t < eT;
+                        !isPast && sT != null && eT != null && t > sT && t < eT;
 
                       return (
                         <Pressable
                           key={cellDate.toISOString()}
+                          disabled={isPast}
                           onPress={() => handleDayPress(cellDate)}
                           style={[
                             styles.calDayCell,
@@ -1309,12 +1318,14 @@ function BookingCalendarModal({
                           <View
                             style={[
                               styles.calDayCircle,
+                              isPast && styles.calDayCircleDisabled,
                               (isStart || isEnd) && styles.calDayCircleSelected,
                             ]}
                           >
                             <Text
                               style={[
                                 styles.calDayNumText,
+                                isPast && styles.calDayNumDisabledText,
                                 inRange && styles.calDayNumInRangeText,
                                 (isStart || isEnd) && styles.calDayNumSelectedText,
                               ]}
@@ -1386,6 +1397,18 @@ function BookingCalendarModal({
           visible={clockModalTarget !== null}
           title={clockModalTarget === 'pickup' ? 'Select Pickup Time' : 'Select Return Time'}
           operatingHours={operatingHours}
+          minTime={
+            clockModalTarget === 'drop'
+              ? getBookingMinTime({
+                  isToday: isSameDay(endDay, new Date()),
+                  isSameDayAsPickup: isSameDay(startDay, endDay),
+                  pickupTime: formatHourToDisplay(pickupHour, pickupMinute),
+                })
+              : getBookingMinTime({
+                  isToday: isSameDay(startDay, new Date()),
+                  isSameDayAsPickup: false,
+                })
+          }
           initialTime={
             clockModalTarget === 'pickup'
               ? formatHourToDisplay(pickupHour, pickupMinute)
@@ -1398,6 +1421,15 @@ function BookingCalendarModal({
               if (pkg && pkg.days) {
                 onChangeHours?.(hour24, hour24, minute, minute);
               } else {
+                if (isSameDay(startDay, endDay)) {
+                  const currentDropTotal = dropHour * 60 + dropMinute;
+                  const newPickupTotal = hour24 * 60 + minute;
+                  if (currentDropTotal < newPickupTotal) {
+                    onChangeHours?.(hour24, hour24, minute, minute);
+                    setClockModalTarget(null);
+                    return;
+                  }
+                }
                 onChangeHours?.(hour24, dropHour, minute, dropMinute);
               }
             } else {
@@ -3125,10 +3157,17 @@ const styles = StyleSheet.create({
   calDayCircleSelected: {
     backgroundColor: TAB_PURPLE,
   },
+  calDayCircleDisabled: {
+    opacity: 0.28,
+  },
   calDayNumText: {
     fontSize: 13,
     fontWeight: '600',
     color: '#24083C',
+  },
+  calDayNumDisabledText: {
+    color: '#9CA3AF',
+    textDecorationLine: 'line-through',
   },
   calDayNumInRangeText: {
     color: TAB_PURPLE,

@@ -56,6 +56,13 @@ import {
   clampTimeToOperatingHours,
   getValidHoursForMeridiem,
 } from '../components/AnalogClockPicker';
+import {
+  isSameDay,
+  isPastDay,
+  isTimeBefore,
+  getBookingMinTime,
+  isValidDayInRange,
+} from '../utils/bookingDateTime';
 import { apiGet, resolveMediaUrl } from '../services/api';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -278,10 +285,7 @@ function monthCells(cursor) {
 
 function dayInWindow(day) {
   if (!day) return false;
-  const start = new Date(CAL_ANCHOR.getFullYear(), CAL_ANCHOR.getMonth(), CAL_ANCHOR.getDate());
-  const end = new Date(start.getTime());
-  end.setDate(end.getDate() + 90);
-  return day.getTime() >= start.getTime() && day.getTime() <= end.getTime();
+  return isValidDayInRange(day);
 }
 
 function rangeCaption(start, end) {
@@ -516,12 +520,12 @@ function PopupShell({ blurTarget, onClose, children }) {
   );
 }
 
-function ClockPopup({ blurTarget, time, title, operatingHours, onClose, onConfirm }) {
+function ClockPopup({ blurTarget, time, title, operatingHours, minTime, onClose, onConfirm }) {
   const opHours = useMemo(() => parseOperatingHours(operatingHours), [operatingHours]);
   const initial = useMemo(() => {
     const p = parseClockString(time);
-    return clampTimeToOperatingHours(p.hour, p.minute, p.meridiem, opHours);
-  }, [time, opHours]);
+    return clampTimeToOperatingHours(p.hour, p.minute, p.meridiem, opHours, minTime);
+  }, [time, opHours, minTime]);
 
   const [hour, setHour] = useState(initial.hour);
   const [minute, setMinute] = useState(initial.minute);
@@ -529,16 +533,20 @@ function ClockPopup({ blurTarget, time, title, operatingHours, onClose, onConfir
   const [mode, setMode] = useState('hour'); // 'hour' | 'minute'
 
   const amAllowed = useMemo(
-    () => opHours.is24Hours || getValidHoursForMeridiem('AM', opHours).length > 0,
-    [opHours]
+    () => getValidHoursForMeridiem('AM', opHours, minTime).length > 0,
+    [opHours, minTime]
   );
   const pmAllowed = useMemo(
-    () => opHours.is24Hours || getValidHoursForMeridiem('PM', opHours).length > 0,
-    [opHours]
+    () => getValidHoursForMeridiem('PM', opHours, minTime).length > 0,
+    [opHours, minTime]
   );
 
   const handleSelectHour = (h) => {
     setHour(h);
+    const h24 = (h % 12) + (meridiem === 'PM' ? 12 : 0);
+    if (minTime && h24 === minTime.hour24 && parseInt(minute, 10) < minTime.minute) {
+      setMinute(String(minTime.minute).padStart(2, '0'));
+    }
     setMode('minute');
   };
 
@@ -548,7 +556,7 @@ function ClockPopup({ blurTarget, time, title, operatingHours, onClose, onConfir
 
   const handleSwitchMeridiem = (nextMer) => {
     if (nextMer === meridiem) return;
-    const clamped = clampTimeToOperatingHours(hour, minute, nextMer, opHours);
+    const clamped = clampTimeToOperatingHours(hour, minute, nextMer, opHours, minTime);
     setHour(clamped.hour);
     setMinute(clamped.minute);
     setMeridiem(clamped.meridiem);
@@ -557,13 +565,8 @@ function ClockPopup({ blurTarget, time, title, operatingHours, onClose, onConfir
   const adjustMinute = (delta) => {
     const cur = parseInt(minute, 10) || 0;
     let next = (cur + delta + 60) % 60;
-    const h24 = (hour % 12) + (meridiem === 'PM' ? 12 : 0);
-    if (!opHours.is24Hours && h24 === opHours.closeHour && opHours.closeMinute != null && next > opHours.closeMinute) {
-      next = opHours.closeMinute;
-    } else if (!opHours.is24Hours && h24 === opHours.openHour && opHours.openMinute != null && next < opHours.openMinute) {
-      next = opHours.openMinute;
-    }
-    setMinute(String(next).padStart(2, '0'));
+    const clamped = clampTimeToOperatingHours(hour, String(next), meridiem, opHours, minTime);
+    setMinute(clamped.minute);
     setMode('minute');
   };
 
@@ -672,6 +675,7 @@ function ClockPopup({ blurTarget, time, title, operatingHours, onClose, onConfir
             minute={minute}
             meridiem={meridiem}
             operatingHours={operatingHours}
+            minTime={minTime}
             onSelectHour={handleSelectHour}
             onSelectMinute={handleSelectMinute}
           />
@@ -683,7 +687,7 @@ function ClockPopup({ blurTarget, time, title, operatingHours, onClose, onConfir
             <Pressable
               style={styles.popupSet}
               onPress={() => {
-                const clamped = clampTimeToOperatingHours(hour, minute, meridiem, opHours);
+                const clamped = clampTimeToOperatingHours(hour, minute, meridiem, opHours, minTime);
                 onConfirm(formatClockString(clamped.hour, clamped.minute, clamped.meridiem));
                 requestClose();
               }}
@@ -708,11 +712,12 @@ function DatePopup({
   onClose,
   onConfirm,
 }) {
-  const [cursor, setCursor] = useState(() => (pickupDay ? new Date(pickupDay) : new Date(CAL_ANCHOR)));
-  const [draftStart, setDraftStart] = useState(() => (pickupDay ? new Date(pickupDay) : new Date(CAL_ANCHOR)));
+  const today = useMemo(() => cleanDay(new Date()), []);
+  const [cursor, setCursor] = useState(() => (pickupDay && !isPastDay(pickupDay) ? new Date(pickupDay) : today));
+  const [draftStart, setDraftStart] = useState(() => (pickupDay && !isPastDay(pickupDay) ? new Date(pickupDay) : today));
   const [draftEnd, setDraftEnd] = useState(() => {
-    if (dropDay) return new Date(dropDay);
-    const d = new Date(CAL_ANCHOR);
+    if (dropDay && !isPastDay(dropDay)) return new Date(dropDay);
+    const d = new Date(today);
     if (isHourlyZone) return d;
     const currentPkg = packageOptions.find((p) => p.id === initialPkgId) || packageOptions[0];
     const daysToAdd = currentPkg?.days || 1;
@@ -731,12 +736,13 @@ function DatePopup({
     year: 'numeric',
   });
 
+  const now = new Date();
   const prevAllowed =
-    cursor.getFullYear() > CAL_ANCHOR.getFullYear() ||
-    (cursor.getFullYear() === CAL_ANCHOR.getFullYear() && cursor.getMonth() > CAL_ANCHOR.getMonth());
+    cursor.getFullYear() > now.getFullYear() ||
+    (cursor.getFullYear() === now.getFullYear() && cursor.getMonth() > now.getMonth());
 
   const nextAllowed = (() => {
-    const maxDate = new Date(CAL_ANCHOR);
+    const maxDate = new Date(today);
     maxDate.setDate(maxDate.getDate() + 90);
     return cursor.getTime() < maxDate.getTime();
   })();
@@ -745,7 +751,7 @@ function DatePopup({
     setPackageId(pkgId);
     const pkg = packageOptions.find((p) => p.id === pkgId);
     if (pkg && pkg.days) {
-      const base = draftStart || new Date(CAL_ANCHOR);
+      const base = draftStart || today;
       setDraftStart(base);
       const autoEnd = new Date(base);
       autoEnd.setDate(autoEnd.getDate() + pkg.days);
@@ -754,6 +760,7 @@ function DatePopup({
   };
 
   const handlePick = (day) => {
+    if (!day || !dayInWindow(day)) return;
     if (isHourlyZone) {
       // In hourly zone, tapping sets same-day rental by default or toggles
       if (!draftStart || (draftStart && draftEnd && draftStart.getTime() !== draftEnd.getTime())) {
@@ -1447,6 +1454,11 @@ export default function RentScreen({
 
   const choosePickupTime = (time) => {
     setPickupTime(time);
+    if (isSameDay(pickupDay, dropDay)) {
+      if (isTimeBefore(dropTime, time)) {
+        setDropTime(time);
+      }
+    }
     if (!isHourlyZone) {
       const pkg = zonePackageOptions.find((p) => p.id === rentPackageId);
       if (pkg && pkg.days) {
@@ -2067,6 +2079,18 @@ export default function RentScreen({
           blurTarget={blurTargetRef}
           title={clockFor === 'drop' ? 'Select Return Time' : 'Select Pickup Time'}
           time={clockFor === 'drop' ? dropTime : pickupTime}
+          minTime={
+            clockFor === 'drop'
+              ? getBookingMinTime({
+                  isToday: isSameDay(dropDay, new Date()),
+                  isSameDayAsPickup: isSameDay(pickupDay, dropDay),
+                  pickupTime,
+                })
+              : getBookingMinTime({
+                  isToday: isSameDay(pickupDay, new Date()),
+                  isSameDayAsPickup: false,
+                })
+          }
           operatingHours={
             clockFor === 'drop'
               ? (dropPlace?.hours || (dropPlace?.open_time && `${dropPlace.open_time} - ${dropPlace.close_time}`) || '06:00 – 23:00')
