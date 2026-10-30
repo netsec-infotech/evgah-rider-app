@@ -388,26 +388,28 @@ function MergeSlide({ index, slide, scrollX }) {
 
   const bgSource = typeof slide.bg === 'string' ? { uri: resolveMediaUrl(slide.bg) } : slide.bg;
   const frontSource = typeof slide.front === 'string' ? { uri: resolveMediaUrl(slide.front) } : slide.front;
+  const hasText = Boolean(slide.tag || (slide.lines && slide.lines.length > 0) || slide.sub || slide.cta);
 
   return (
     <View pointerEvents="none" style={styles.slide}>
-      {/* LAYER 1 & 2: Background Image + White Gradient Overlay */}
-      {/* Keeping LinearGradient inside slideBgWrap ensures inactive slides' gradients hide when opacity is 0 */}
+      {/* LAYER 1 & 2: Background Image */}
       <Animated.View style={[styles.slideBgWrap, bgStyle]}>
         <Image source={bgSource} style={styles.slideImage} contentFit="cover" />
-        <LinearGradient
-          colors={[
-            'rgba(255, 255, 255, 0.72)',
-            'rgba(255, 255, 255, 0.50)',
-            'rgba(255, 255, 255, 0.20)',
-            'rgba(255, 255, 255, 0.0)',
-          ]}
-          locations={[0, 0.28, 0.55, 0.82]}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-          pointerEvents="none"
-          style={styles.slideOverlayGradient}
-        />
+        {hasText ? (
+          <LinearGradient
+            colors={[
+              'rgba(255, 255, 255, 0.72)',
+              'rgba(255, 255, 255, 0.50)',
+              'rgba(255, 255, 255, 0.20)',
+              'rgba(255, 255, 255, 0.0)',
+            ]}
+            locations={[0, 0.28, 0.55, 0.82]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            pointerEvents="none"
+            style={styles.slideOverlayGradient}
+          />
+        ) : null}
       </Animated.View>
 
       {/* LAYER 3: Foreground Cutout Image (Scooter & Rider) */}
@@ -428,38 +430,42 @@ function MergeSlide({ index, slide, scrollX }) {
         </Animated.View>
       ) : null}
 
-      {/* LAYER 4: Text Lines, Tag, Subtext & CTA Button (Strictly on top of everything) */}
-      <Animated.View style={[styles.slideCopyWrap, copyStyle]}>
-        <View style={styles.slideHeadlineBlock}>
-          {slide.tag ? (
-            <View style={styles.slideTagPill}>
-              <View style={styles.slideAccentDot} />
-              <Text style={styles.slideTagText}>{slide.tag}</Text>
-            </View>
-          ) : (
-            <View style={styles.slideAccentVector}>
-              <View style={styles.slideAccentDot} />
-              <View style={styles.slideAccentLine} />
-            </View>
-          )}
+      {/* LAYER 4: Text Lines, Tag, Subtext & CTA Button */}
+      {hasText ? (
+        <Animated.View style={[styles.slideCopyWrap, copyStyle]}>
+          <View style={styles.slideHeadlineBlock}>
+            {slide.tag ? (
+              <View style={styles.slideTagPill}>
+                <View style={styles.slideAccentDot} />
+                <Text style={styles.slideTagText}>{slide.tag}</Text>
+              </View>
+            ) : (
+              <View style={styles.slideAccentVector}>
+                <View style={styles.slideAccentDot} />
+                <View style={styles.slideAccentLine} />
+              </View>
+            )}
 
-          {slide.lines?.map((line) => (
-            <Text key={line} style={styles.slideHeadlineText}>
-              {line}
-            </Text>
-          ))}
+            {slide.lines?.map((line) => (
+              <Text key={line} style={styles.slideHeadlineText}>
+                {line}
+              </Text>
+            ))}
 
-          {slide.sub ? (
-            <View style={styles.slideSubBlock}>
-              <Text style={styles.slideSubText}>{slide.sub}</Text>
+            {slide.sub ? (
+              <View style={styles.slideSubBlock}>
+                <Text style={styles.slideSubText}>{slide.sub}</Text>
+              </View>
+            ) : null}
+          </View>
+
+          {slide.cta ? (
+            <View style={styles.slideCtaBtn}>
+              <Text style={styles.slideCtaText}>{slide.cta || 'Rent EV'}</Text>
             </View>
           ) : null}
-        </View>
-
-        <View style={styles.slideCtaBtn}>
-          <Text style={styles.slideCtaText}>{slide.cta || 'Rent EV'}</Text>
-        </View>
-      </Animated.View>
+        </Animated.View>
+      ) : null}
     </View>
   );
 }
@@ -1134,41 +1140,64 @@ export default function RentScreen({
   const slideScrollX = useSharedValue(0);
   const [activeSlideIndex, setActiveSlideIndex] = useState(0);
 
-  // Dynamic Slider Fetch from Backend
+  // Dynamic Slider Fetch from Backend (Live auto-sync)
   useEffect(() => {
     let mounted = true;
-    apiGet('/settings/app_slider')
-      .catch(() => apiGet('/app-sliders'))
-      .then((res) => {
-        if (!mounted) return;
-        const raw = res?.data?.rent_sliders || res?.data?.value?.rent_sliders || res?.data?.rent || [];
-        const active = raw.filter((s) => s.active !== false);
-        if (active.length > 0) {
-          const mapped = active.map((s, idx) => {
-            const fallback = RENT_SLIDES[idx % RENT_SLIDES.length];
-            return {
-              id: s.id || `rent-${idx}`,
-              kind: s.kind || fallback.kind,
-              bg: s.bg ? resolveMediaUrl(s.bg) : fallback.bg,
-              front: s.front ? resolveMediaUrl(s.front) : fallback.front,
-              frontWidth: s.frontWidth || fallback.frontWidth,
-              frontHeight: s.frontHeight || fallback.frontHeight,
-              frontRight: s.frontRight ?? fallback.frontRight,
-              frontBottom: s.frontBottom ?? fallback.frontBottom,
-              tag: s.tag || fallback.tag,
-              lines: Array.isArray(s.lines)
-                ? s.lines
-                : (s.title ? s.title.split('\n') : fallback.lines),
-              sub: s.sub || fallback.sub,
-              cta: s.cta || fallback.cta,
-            };
-          });
-          setSliderList(mapped);
-        }
-      })
-      .catch(() => {});
+    const fetchRentSliders = (force = false) => {
+      apiGet('/settings/app_slider', { skipCache: force, forceRefresh: force })
+        .catch(() => apiGet('/app-sliders', { skipCache: force, forceRefresh: force }))
+        .then((res) => {
+          if (!mounted) return;
+          const raw = res?.data?.rent_sliders || res?.data?.value?.rent_sliders || res?.data?.rent || [];
+          const active = raw.filter((s) => s.active !== false);
+          if (active.length > 0) {
+            const mapped = active.map((s, idx) => {
+              const fallback = RENT_SLIDES[idx % RENT_SLIDES.length] || RENT_SLIDES[0];
+              const bannerImg = s.bg || s.image || s.image_url || s.banner || s.banner_url;
+              const hasCustomBg = Boolean(bannerImg);
+              const frontImg = s.front || s.front_image || s.front_url;
+              const hasCustomFront = Boolean(frontImg);
+
+              let lines = [];
+              if (Array.isArray(s.lines) && s.lines.length > 0) {
+                lines = s.lines;
+              } else if (s.title && s.title.trim()) {
+                lines = s.title.split('\n');
+              } else if (!hasCustomBg) {
+                lines = fallback.lines || [];
+              }
+
+              const sub = s.sub !== undefined ? s.sub : (s.subtitle !== undefined ? s.subtitle : (hasCustomBg ? '' : fallback.sub));
+              const cta = s.cta !== undefined ? s.cta : (hasCustomBg ? '' : fallback.cta);
+              const tag = s.tag !== undefined ? s.tag : (hasCustomBg ? '' : fallback.tag);
+
+              return {
+                id: s.id || `rent-${idx}`,
+                kind: s.kind || (hasCustomBg ? 'custom' : fallback.kind),
+                bg: hasCustomBg ? resolveMediaUrl(bannerImg) : fallback.bg,
+                front: hasCustomFront ? resolveMediaUrl(frontImg) : (hasCustomBg ? null : fallback.front),
+                frontWidth: s.frontWidth || fallback.frontWidth,
+                frontHeight: s.frontHeight || fallback.frontHeight,
+                frontRight: s.frontRight ?? fallback.frontRight,
+                frontBottom: s.frontBottom ?? fallback.frontBottom,
+                tag,
+                lines,
+                sub,
+                cta,
+                isCustom: hasCustomBg,
+              };
+            });
+            setSliderList(mapped);
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchRentSliders(true);
+    const interval = setInterval(() => fetchRentSliders(true), 30000);
     return () => {
       mounted = false;
+      clearInterval(interval);
     };
   }, []);
 

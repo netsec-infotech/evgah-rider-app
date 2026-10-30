@@ -1772,43 +1772,71 @@ export default function HomeScreen({
   const [homeSliderList, setHomeSliderList] = useState(SLIDES);
   const homeSliderLoop = useMemo(() => [...homeSliderList, homeSliderList[0]], [homeSliderList]);
 
-  // Dynamic Slider Fetch from Backend
+  // Dynamic Slider Fetch from Backend (Live auto-sync)
   useEffect(() => {
     let mounted = true;
-    apiGet('/settings/app_slider')
-      .catch(() => apiGet('/app-sliders'))
-      .then((res) => {
-        if (!mounted) return;
-        const raw = res?.data?.home_sliders || res?.data?.value?.home_sliders || res?.data?.home || [];
-        const active = raw.filter((s) => s.active !== false);
-        if (active.length > 0) {
-          const mapped = active.map((s, idx) => {
-            const fallback = SLIDES[idx % SLIDES.length];
-            return {
-              id: s.id || `home-${idx}`,
-              kind: s.kind || fallback.kind,
-              bg: s.bg ? resolveMediaUrl(s.bg) : fallback.bg,
-              front: s.front ? resolveMediaUrl(s.front) : fallback.front,
-              frontWidth: s.frontWidth || fallback.frontWidth,
-              frontHeight: s.frontHeight || fallback.frontHeight,
-              frontRight: s.frontRight ?? fallback.frontRight,
-              frontBottom: s.frontBottom ?? fallback.frontBottom,
-              tag: s.tag || fallback.tag,
-              lines: Array.isArray(s.lines)
-                ? s.lines
-                : (s.title ? s.title.split('\n') : fallback.lines),
-              subLines: Array.isArray(s.subLines)
-                ? s.subLines
-                : (s.sub ? [s.sub] : fallback.subLines),
-              cta: s.cta || fallback.cta,
-            };
-          });
-          setHomeSliderList(mapped);
-        }
-      })
-      .catch(() => {});
+    const fetchSliders = (force = false) => {
+      apiGet('/settings/app_slider', { skipCache: force, forceRefresh: force })
+        .catch(() => apiGet('/app-sliders', { skipCache: force, forceRefresh: force }))
+        .then((res) => {
+          if (!mounted) return;
+          const raw = res?.data?.home_sliders || res?.data?.value?.home_sliders || res?.data?.home || [];
+          const active = raw.filter((s) => s.active !== false);
+          if (active.length > 0) {
+            const mapped = active.map((s, idx) => {
+              const fallback = SLIDES[idx % SLIDES.length] || SLIDES[0];
+              const bannerImg = s.bg || s.image || s.image_url || s.banner || s.banner_url;
+              const hasCustomBg = Boolean(bannerImg);
+              const frontImg = s.front || s.front_image || s.front_url;
+              const hasCustomFront = Boolean(frontImg);
+
+              let lines = [];
+              if (Array.isArray(s.lines) && s.lines.length > 0) {
+                lines = s.lines;
+              } else if (s.title && s.title.trim()) {
+                lines = s.title.split('\n');
+              } else if (!hasCustomBg) {
+                lines = fallback.lines || [];
+              }
+
+              let subLines = [];
+              if (Array.isArray(s.subLines) && s.subLines.length > 0) {
+                subLines = s.subLines;
+              } else if (s.subtitle && s.subtitle.trim()) {
+                subLines = [s.subtitle.trim()];
+              } else if (s.sub && s.sub.trim()) {
+                subLines = [s.sub.trim()];
+              } else if (!hasCustomBg) {
+                subLines = fallback.subLines || [];
+              }
+
+              return {
+                id: s.id || `home-${idx}`,
+                kind: s.kind || (hasCustomBg ? 'headline' : fallback.kind),
+                bg: hasCustomBg ? resolveMediaUrl(bannerImg) : fallback.bg,
+                front: hasCustomFront ? resolveMediaUrl(frontImg) : (hasCustomBg ? null : fallback.front),
+                frontWidth: s.frontWidth || fallback.frontWidth,
+                frontHeight: s.frontHeight || fallback.frontHeight,
+                frontRight: s.frontRight ?? fallback.frontRight,
+                frontBottom: s.frontBottom ?? fallback.frontBottom,
+                tag: s.tag !== undefined ? s.tag : (hasCustomBg ? '' : fallback.tag),
+                lines,
+                subLines,
+                cta: s.cta !== undefined ? s.cta : (hasCustomBg ? '' : fallback.cta),
+                isCustom: hasCustomBg,
+              };
+            });
+            setHomeSliderList(mapped);
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchSliders(true);
+    const interval = setInterval(() => fetchSliders(true), 30000);
     return () => {
       mounted = false;
+      clearInterval(interval);
     };
   }, []);
 

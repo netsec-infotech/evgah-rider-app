@@ -130,12 +130,35 @@ export const LOCAL_BASE = `http://${LAN_IP}:5000/api`;
 
 export function resolveMediaUrl(mediaPath) {
   if (!mediaPath) return null;
-  const s = String(mediaPath).trim();
-  if (s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:')) return s;
+  let s = String(mediaPath).trim();
+  if (!s) return null;
+
+  // If already an absolute URL
+  if (s.startsWith('http://') || s.startsWith('https://')) {
+    // If it points to evegah.cloud/uploads/ (which returns 500 on Nginx), rewrite to /api/uploads/
+    if (s.includes('evegah.cloud/uploads/')) {
+      return s.replace('evegah.cloud/uploads/', 'evegah.cloud/api/uploads/');
+    }
+    // If it points to internal LAN IP or localhost on non-local environment, rewrite to live cloud
+    if ((s.includes('192.168.') || s.includes('10.0.2.2') || s.includes('localhost:5000')) && !cachedWorkingLocalBase) {
+      return s.replace(/https?:\/\/[^/]+(?:\/api)?(\/uploads\/[^\s?#]+)/, 'https://evegah.cloud/api$1');
+    }
+    return s;
+  }
+  if (s.startsWith('data:')) return s;
+
+  // Normalize relative path
   const clean = s.startsWith('/') ? s : `/${s}`;
-  const host = cachedWorkingLocalBase
-    ? cachedWorkingLocalBase.replace(/\/api\/?$/, '')
-    : `http://${LAN_IP}:5000`;
+  const configuredBase = process.env.EXPO_PUBLIC_API_URL ? process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, '') : null;
+  const activeBase = configuredBase || cachedWorkingLocalBase || REMOTE_BASE;
+
+  // On evegah.cloud (and backend Express setup), uploads are reliably served under /api/uploads/
+  if (clean.startsWith('/uploads/')) {
+    const hostWithApi = activeBase.endsWith('/api') ? activeBase : `${activeBase}/api`;
+    return `${hostWithApi}${clean}`;
+  }
+
+  const host = activeBase.replace(/\/api\/?$/, '');
   return `${host}${clean}`;
 }
 
