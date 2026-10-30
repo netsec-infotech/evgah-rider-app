@@ -2732,7 +2732,7 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
                   Coordinate on Location
                 </Text>
                 <Text style={styles.keepInMindItemDesc}>
-                  Stay reachable and share updates to ensure the Host can find you easily at both handover points.
+                  Stay reachable and share your exact location so your EVegah Coordinator can find you easily for pickup and return.
                 </Text>
               </View>
             </View>
@@ -2747,7 +2747,7 @@ export default function VehicleDetailsScreen({ vehicle, trip, selectedZone, onBa
               <View style={styles.keepInMindTextCol}>
                 <Text style={styles.keepInMindItemHeading}>Be on Time</Text>
                 <Text style={styles.keepInMindItemDesc}>
-                  Reach the pickup and return spot on time, as the Host will be travelling for the handover.
+                  Be at the agreed pickup and return locations on time. Your EVegah Coordinator will meet you there for the vehicle handover.
                 </Text>
               </View>
             </View>
