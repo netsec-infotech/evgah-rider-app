@@ -8,6 +8,12 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import {
+  isHourSelectable,
+  isMinuteSelectable,
+  getSelectableHoursForMeridiem,
+  clampBookingTime,
+} from '../utils/bookingDateTime';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const CLOCK_SIZE = 240;
@@ -160,13 +166,19 @@ export function parseOperatingHours(zoneOrHours) {
   };
 }
 
-export function isHourAllowed(hour12, meridiem, opHours) {
+export function isHourAllowed(hour12, meridiem, opHours, minTime) {
+  if (minTime) {
+    return isHourSelectable(hour12, meridiem, opHours, minTime);
+  }
   if (!opHours || opHours.is24Hours) return true;
   let h24 = (hour12 % 12) + (meridiem === 'PM' ? 12 : 0);
   return h24 >= opHours.openHour && h24 <= opHours.closeHour;
 }
 
-export function getValidHoursForMeridiem(meridiem, opHours) {
+export function getValidHoursForMeridiem(meridiem, opHours, minTime) {
+  if (minTime) {
+    return getSelectableHoursForMeridiem(meridiem, opHours, minTime);
+  }
   if (!opHours || opHours.is24Hours) return HOURS_LIST;
   return HOURS_LIST.filter((h) => {
     const h24 = (h % 12) + (meridiem === 'PM' ? 12 : 0);
@@ -174,7 +186,10 @@ export function getValidHoursForMeridiem(meridiem, opHours) {
   });
 }
 
-export function clampTimeToOperatingHours(hour12, minuteStr, meridiem, opHoursInput) {
+export function clampTimeToOperatingHours(hour12, minuteStr, meridiem, opHoursInput, minTime) {
+  if (minTime) {
+    return clampBookingTime(hour12, minuteStr, meridiem, opHoursInput, minTime);
+  }
   const op = opHoursInput && opHoursInput.openHour !== undefined
     ? opHoursInput
     : parseOperatingHours(opHoursInput);
@@ -214,6 +229,7 @@ export function AnalogClockDial({
   minute = '00',
   meridiem = 'AM',
   operatingHours,
+  minTime,
   onSelectHour,
   onSelectMinute,
 }) {
@@ -245,28 +261,26 @@ export function AnalogClockDial({
       if (h === 0) h = 12;
       if (h > 12) h = 12;
 
-      // Operating hours constraint check
-      if (!opHours.is24Hours) {
-        const validHours = getValidHoursForMeridiem(meridiem, opHours);
-        if (validHours.length > 0) {
-          if (validHours.includes(h)) {
-            onSelectHour?.(h);
-          } else {
-            // Find closest valid hour in this meridiem
-            let closest = validHours[0];
-            let minDiff = 999;
-            for (const vh of validHours) {
-              let diff = Math.abs((vh % 12) - (h % 12));
-              if (diff > 6) diff = 12 - diff;
-              if (diff < minDiff) {
-                minDiff = diff;
-                closest = vh;
-              }
+      // Operating hours & minTime constraint check
+      const validHours = getSelectableHoursForMeridiem(meridiem, opHours, minTime);
+      if (validHours.length > 0) {
+        if (validHours.includes(h)) {
+          onSelectHour?.(h);
+        } else {
+          // Find closest valid hour in this meridiem
+          let closest = validHours[0];
+          let minDiff = 999;
+          for (const vh of validHours) {
+            let diff = Math.abs((vh % 12) - (h % 12));
+            if (diff > 6) diff = 12 - diff;
+            if (diff < minDiff) {
+              minDiff = diff;
+              closest = vh;
             }
-            onSelectHour?.(closest);
           }
-          return;
+          onSelectHour?.(closest);
         }
+        return;
       }
       onSelectHour?.(h);
     } else {
@@ -277,6 +291,11 @@ export function AnalogClockDial({
         m = opHours.closeMinute;
       } else if (!opHours.is24Hours && h24 === opHours.openHour && opHours.openMinute != null && m < opHours.openMinute) {
         m = opHours.openMinute;
+      }
+      if (minTime) {
+        if (h24 === minTime.hour24 && m < minTime.minute) {
+          m = minTime.minute;
+        }
       }
       onSelectMinute?.(String(m).padStart(2, '0'));
     }
@@ -348,7 +367,7 @@ export function AnalogClockDial({
               const posX = CLOCK_RADIUS + RING_RADIUS * Math.cos(theta) - ITEM_SIZE / 2;
               const posY = CLOCK_RADIUS + RING_RADIUS * Math.sin(theta) - ITEM_SIZE / 2;
               const isSelected = hour === hVal;
-              const isAllowed = isHourAllowed(hVal, meridiem, opHours);
+              const isAllowed = isHourAllowed(hVal, meridiem, opHours, minTime);
 
               return (
                 <View
@@ -379,6 +398,7 @@ export function AnalogClockDial({
               const posX = CLOCK_RADIUS + RING_RADIUS * Math.cos(theta) - ITEM_SIZE / 2;
               const posY = CLOCK_RADIUS + RING_RADIUS * Math.sin(theta) - ITEM_SIZE / 2;
               const isSelected = String(minute).padStart(2, '0') === mVal;
+              const isAllowed = isMinuteSelectable(hour, mVal, meridiem, opHours, minTime);
 
               return (
                 <View
@@ -387,17 +407,20 @@ export function AnalogClockDial({
                   style={[
                     styles.numItem,
                     { left: posX, top: posY },
-                    isSelected && styles.numItemSelected,
+                    isSelected && isAllowed && styles.numItemSelected,
+                    !isAllowed && styles.numItemDisabled,
                   ]}
                 >
                   <Text
                     style={[
                       styles.numItemText,
-                      isSelected && styles.numItemTextSelected,
+                      isSelected && isAllowed && styles.numItemTextSelected,
+                      !isAllowed && styles.numItemTextDisabled,
                     ]}
                   >
                     {mVal}
                   </Text>
+                  {!isAllowed && <View style={styles.disabledLockDot} />}
                 </View>
               );
             })}
@@ -411,6 +434,7 @@ export default function AnalogClockModal({
   title = 'Select Time',
   initialTime,
   operatingHours,
+  minTime,
   onConfirm,
   onClose,
 }) {
@@ -418,8 +442,8 @@ export default function AnalogClockModal({
 
   const parsed = useMemo(() => {
     const p = parseClockString(initialTime);
-    return clampTimeToOperatingHours(p.hour, p.minute, p.meridiem, opHours);
-  }, [initialTime, opHours]);
+    return clampTimeToOperatingHours(p.hour, p.minute, p.meridiem, opHours, minTime);
+  }, [initialTime, opHours, minTime]);
 
   const [hour, setHour] = useState(parsed.hour);
   const [minute, setMinute] = useState(parsed.minute);
@@ -427,29 +451,33 @@ export default function AnalogClockModal({
   const [mode, setMode] = useState('hour'); // 'hour' | 'minute'
 
   const amAllowed = useMemo(
-    () => opHours.is24Hours || getValidHoursForMeridiem('AM', opHours).length > 0,
-    [opHours]
+    () => getValidHoursForMeridiem('AM', opHours, minTime).length > 0,
+    [opHours, minTime]
   );
   const pmAllowed = useMemo(
-    () => opHours.is24Hours || getValidHoursForMeridiem('PM', opHours).length > 0,
-    [opHours]
+    () => getValidHoursForMeridiem('PM', opHours, minTime).length > 0,
+    [opHours, minTime]
   );
 
   // Reset when re-opened
   React.useEffect(() => {
     if (visible) {
       const p = parseClockString(initialTime);
-      const clamped = clampTimeToOperatingHours(p.hour, p.minute, p.meridiem, opHours);
+      const clamped = clampTimeToOperatingHours(p.hour, p.minute, p.meridiem, opHours, minTime);
       setHour(clamped.hour);
       setMinute(clamped.minute);
       setMeridiem(clamped.meridiem);
       setMode('hour');
     }
-  }, [visible, initialTime, opHours]);
+  }, [visible, initialTime, opHours, minTime]);
 
   const handleSelectHour = (h) => {
     setHour(h);
-    // Smooth auto-transition to minute selection
+    // If selecting this hour falls at minTime boundary, clamp minute
+    const h24 = (h % 12) + (meridiem === 'PM' ? 12 : 0);
+    if (minTime && h24 === minTime.hour24 && parseInt(minute, 10) < minTime.minute) {
+      setMinute(String(minTime.minute).padStart(2, '0'));
+    }
     setMode('minute');
   };
 
@@ -459,7 +487,7 @@ export default function AnalogClockModal({
 
   const handleSwitchMeridiem = (nextMer) => {
     if (nextMer === meridiem) return;
-    const clamped = clampTimeToOperatingHours(hour, minute, nextMer, opHours);
+    const clamped = clampTimeToOperatingHours(hour, minute, nextMer, opHours, minTime);
     setHour(clamped.hour);
     setMinute(clamped.minute);
     setMeridiem(clamped.meridiem);
@@ -468,18 +496,13 @@ export default function AnalogClockModal({
   const adjustMinute = (delta) => {
     const cur = parseInt(minute, 10) || 0;
     let next = (cur + delta + 60) % 60;
-    const h24 = (hour % 12) + (meridiem === 'PM' ? 12 : 0);
-    if (!opHours.is24Hours && h24 === opHours.closeHour && opHours.closeMinute != null && next > opHours.closeMinute) {
-      next = opHours.closeMinute;
-    } else if (!opHours.is24Hours && h24 === opHours.openHour && opHours.openMinute != null && next < opHours.openMinute) {
-      next = opHours.openMinute;
-    }
-    setMinute(String(next).padStart(2, '0'));
+    const clamped = clampTimeToOperatingHours(hour, String(next), meridiem, opHours, minTime);
+    setMinute(clamped.minute);
     setMode('minute');
   };
 
   const handleConfirm = () => {
-    const clamped = clampTimeToOperatingHours(hour, minute, meridiem, opHours);
+    const clamped = clampTimeToOperatingHours(hour, minute, meridiem, opHours, minTime);
     const formatted = formatClockString(clamped.hour, clamped.minute, clamped.meridiem);
     const h24 = clockToHour24(clamped.hour, clamped.minute, clamped.meridiem);
     onConfirm?.({
@@ -657,6 +680,7 @@ export default function AnalogClockModal({
             minute={minute}
             meridiem={meridiem}
             operatingHours={operatingHours}
+            minTime={minTime}
             onSelectHour={handleSelectHour}
             onSelectMinute={handleSelectMinute}
           />
