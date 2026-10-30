@@ -494,6 +494,7 @@ export default function App() {
           onBack={() => setScreen('home')}
           onRead={(id) => setNotes((list) => list.map((item) => (item.id === id ? { ...item, read: true } : item)))}
           onReadAll={() => setNotes((list) => list.map((item) => ({ ...item, read: true })))}
+          onUpdateNotes={setNotes}
         />
       ) : screen === 'about' ? (
         <AboutScreen
