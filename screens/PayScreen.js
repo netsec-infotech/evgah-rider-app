@@ -445,7 +445,6 @@ export default function PayScreen({ vehicle, trip, riderProfile, onBack, onPay }
             </Text>
             <View style={styles.vehiclePriceRow}>
               <Text style={styles.vehiclePrice}>{rupee(fare)}</Text>
-              <Text style={styles.vehicleEmi}>EMI {vehicle?.emi || '₹1,499/mo'}</Text>
             </View>
             <Pressable
               hitSlop={8}

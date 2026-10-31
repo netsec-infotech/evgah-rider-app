@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
   Linking,
@@ -12,312 +12,231 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import Animated, {
-  Easing,
-  FadeInDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withRepeat,
-  withSequence,
-  withSpring,
-  withTiming,
-} from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
-// Pure Light Theme Palette
-const PAGE_BG = '#F8F7FC';
-const CARD_BG = '#FFFFFF';
-const TEXT_INK = '#190D33';
-const TEXT_SLATE = '#524769';
-const TEXT_MUTED = '#84789C';
-const PURPLE_PRIMARY = '#5B21B6';
-const PURPLE_VIOLET = '#7C3AED';
-const PURPLE_TINT = '#F3EEFF';
-const BORDER_LIGHT = '#EAE4F7';
+const PURPLE_DARK = '#240646';
+const PURPLE_PRIMARY = '#4A168C';
+const PURPLE_ACCENT = '#6B21A8';
+const PURPLE_SOFT = '#F6F1FC';
 
 const EVEGAH_LOGO = require('../assets/login/evegah-logo.png');
 const FLEET_PARTNERS_IMG = require('../assets/home/fleet-partners.png');
 
 const HERO_STORY_PHOTO =
-  'https://lh3.googleusercontent.com/gps-cs-s/ANWiy9Sv5y_bzYeIRCzdzC_vtHL3lAwhNhzLwbE3lxjKyG28PXE9yNyIJdTltt8X7Pf3Jf4YlChaW31MQq0qklijuZiUfJHFBuIvinW5MAVDQr_oDvhO5l6gpvuNMu2IfuXJSrrb3x1m7BjXvB6d=s1360-w1360-h1020-rw';
+  'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=900&auto=format&fit=crop&q=85';
 
 const SQUAD_PHOTO =
-  'https://lh3.googleusercontent.com/gps-cs-s/ANWiy9SXMdTnjAwnr0knYYf0K7zeeQqQnNeszEgYriXfUrgSOVXOtb91979RnnSID_WaHX3PNd-5WcPLIJ03f1aHmejn3LzoRQkPRm8KlJD9N3oNv_fXVvfMpA42rWxTw14FPij91LCvuXWA9po=s1360-w1360-h1020-rw';
+  'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=1000&auto=format&fit=crop&q=85';
 
 const CULTURE_SLIDES = [
   {
     id: 'culture-1',
-    tag: 'INNOVATION Zone',
-    uri: 'https://www.evegah.com/images/frame2.webp',
-    caption: 'Team Evegah at our Vadodara EV Innovation Zone',
+    uri: 'https://images.unsplash.com/photo-1542744173-8e7e53415bb0?w=900&auto=format&fit=crop&q=85',
+    caption: 'Team Evegah at our Vadodara EV Innovation Hub',
   },
   {
     id: 'culture-2',
-    tag: 'GREEN OPERATIONS',
-    uri: 'https://lh3.googleusercontent.com/gps-cs-s/ANWiy9R-9lDgiWJtNv_a92NE2VCu8GezJkSs-Od5fQf-q9kNIjHusxkMujPOoZcYBAvLi4SdYZuN7id1YdQo2lrC08gYkevuQDwQcLQ-T0cV8_2axuPo6738TX66VOq3HtWIcFI-KfT-Qt2_viP8=s1360-w1360-h1020-rw',
+    uri: 'https://images.unsplash.com/photo-1517048676732-d65bc937f952?w=900&auto=format&fit=crop&q=85',
     caption: 'Collaborating on zero-emission smart fleet operations',
+  },
+  {
+    id: 'culture-3',
+    uri: 'https://images.unsplash.com/photo-1531482615713-2afd69097998?w=900&auto=format&fit=crop&q=85',
+    caption: 'Celebrating 2.6 Lakh+ rides across Gujarat & India',
   },
 ];
 
 const VALUES_LIST = [
   {
     id: 'quality',
-    step: '01',
-    chip: '50-Point Smart Check',
-    icon: 'ribbon',
-    accentIcon: 'star',
-    tint: '#F3EEFF',
-    accent: '#6D28D9',
-    title: 'Uncompromising Quality',
+    icon: 'ribbon-outline',
+    badgeIcon: 'checkmark-seal',
+    title: 'Quality',
     body: 'Every Evegah electric scooter undergoes a 50-point smart diagnostics & battery health inspection before hitting the zone — ensuring a smooth, safe, and worry-free ride every single time.',
   },
   {
     id: 'transparency',
-    step: '02',
-    chip: '100% Upfront Pricing',
-    icon: 'bar-chart',
-    accentIcon: 'shield-checkmark',
-    tint: '#ECFDF5',
-    accent: '#059669',
+    icon: 'Analytics-outline',
     title: 'Transparency & Accountability',
     body: 'From upfront per-minute and rental package pricing to real-time BMS battery range and live zone tracking, we keep every ride 100% transparent with zero hidden charges.',
   },
   {
     id: 'personalized',
-    step: '03',
-    chip: 'Doorstep Flexi Delivery',
-    icon: 'bicycle',
-    accentIcon: 'sparkles',
-    tint: '#EFF6FF',
-    accent: '#2563EB',
+    icon: 'sparkles-outline',
     title: 'Personalized Experience',
     body: 'Whether you are a daily college commuter, corporate rider, tourist at Atal Sarovar, or last-mile delivery partner, Evegah tailors plans and doorstep Flexi pickup & drop around your life.',
   },
 ];
 
-const SQUAD_MILESTONES = [
-  { year: '2021', title: 'Founded', desc: 'Started in Gujarat' },
-  { year: '8+ Cities', title: 'Expanded', desc: '25+ Smart Zones' },
-  { year: '2.6L+', title: 'Community', desc: 'Daily EV Riders' },
-];
-
-const PARTNER_PILLS = [
-  '⚡ Quick-Commerce Fleets',
-  '🎓 Smart University Campuses',
-  '🌿 Eco-Tourism Corridors',
-  '🏢 Corporate Mobility Parks',
-  '📦 Last-Mile Delivery Zones',
+const PARTNER_CARDS = [
+  {
+    id: 'delivery-1',
+    topBadge: 'zomato',
+    topColor: '#E23744',
+    topSub: 'LAST-MILE DELIVERY PARTNER',
+    bottomBadge: 'bigbasket',
+    bottomColor: '#689F38',
+    bottomSub: 'A TATA Enterprise · EV Grocery Fleet',
+  },
+  {
+    id: 'delivery-2',
+    topBadge: 'zepto',
+    topColor: '#4A168C',
+    topSub: '10-MINUTE QUICK COMMERCE FLEET',
+    bottomBadge: 'SPEED FORCE EV',
+    bottomColor: '#1D4ED8',
+    bottomSub: 'Make Smart Choice · Service Partner',
+  },
+  {
+    id: 'gov-startup',
+    topBadge: '#startupindia',
+    topColor: '#EA580C',
+    topSub: 'DPIIT Recognized Clean Mobility Startup',
+    bottomBadge: 'SHOONYA',
+    bottomColor: '#0284C7',
+    bottomSub: 'Zero Pollution Mobility Campaign',
+  },
+  {
+    id: 'campus-partners',
+    topBadge: 'SIGMA UNIVERSITY',
+    topColor: '#3B0764',
+    topSub: 'Vadodara Campus Green Mobility Partner',
+    bottomBadge: 'KPGU VADODARA',
+    bottomColor: '#B91C1C',
+    bottomSub: 'Drs. Kiran & Pallavi Patel Global University',
+  },
+  {
+    id: 'tourism-civic',
+    topBadge: 'DAMAN MUNICIPAL COUNCIL',
+    topColor: '#0369A1',
+    topSub: 'Smart City Public EV Mobility Partner',
+    bottomBadge: 'ATAL SAROVAR & AATAPI',
+    bottomColor: '#15803D',
+    bottomSub: 'Eco-Tourism & Riverfront EV Zones',
+  },
+  {
+    id: 'hyperlocal-partners',
+    topBadge: 'XERO · TRAVEL BY PIGU',
+    topColor: '#1E293B',
+    topSub: 'Smart Commute & Urban Transit Partner',
+    bottomBadge: 'BADAL BASKET',
+    bottomColor: '#D97706',
+    bottomSub: 'Hyperlocal EV Delivery Ecosystem',
+  },
 ];
 
 const MEDIA_CARDS = [
   {
     id: 'fe',
     outlet: 'Financial Express',
-    tag: 'FEATURE STORY',
-    readTime: '3 min read',
-    headline:
-      'How Evegah is electrifying urban micro-mobility and last-mile delivery across Gujarat',
-    uri: 'https://speedforceev.in/blog/wp-content/uploads/2026/08/The-road-to-growth-begins-with-the-right-fleet.Congratulations-to-evegahride-gahride-on-this-e-1.jpg',
+    headline: 'How Evegah is electrifying urban micro-mobility and last-mile delivery across Gujarat',
+    uri: 'https://images.unsplash.com/photo-1558981806-ec527fa84c39?w=700&auto=format&fit=crop&q=80',
   },
   {
     id: 'db',
     outlet: 'Dainik Bhaskar',
-    tag: 'CITY EXPANSION',
-    readTime: '2 min read',
-    headline:
-      'Evegah expands smart EV scooter zones across Vadodara, Ahmedabad, Rajkot & Daman',
-    uri: 'https://www.evegah.com/images/blog8-hero.webp',
+    headline: 'Evegah expands smart EV scooter zones across Vadodara, Ahmedabad, Rajkot & Daman',
+    uri: 'https://images.unsplash.com/photo-1593941707882-a5bba14938c7?w=700&auto=format&fit=crop&q=80',
   },
   {
     id: 'afaqs',
     outlet: 'AFAQS',
-    tag: 'GEN-Z MOBILITY',
-    readTime: '4 min read',
-    headline:
-      'Young commuters & delivery partners switch to Evegah zero-emission electric scooters',
-    uri: 'https://www.evegah.com/images/blog2-hero.webp',
+    headline: 'Young commuters & delivery partners switch to Evegah zero-emission electric scooters',
+    uri: 'https://images.unsplash.com/photo-1526367790999-0150786686a2?w=700&auto=format&fit=crop&q=80',
   },
   {
     id: 'et',
     outlet: 'Economic Times',
-    tag: 'IOT & GREEN TECH',
-    readTime: '3 min read',
-    headline:
-      'Clean mobility startup Evegah powers green campus & tourism fleets with IoT-enabled EVs',
-    uri: 'https://www.evegah.com/images/blog9-hero.webp',
+    headline: 'Clean mobility startup Evegah powers green campus & tourism fleets with IoT-enabled EVs',
+    uri: 'https://images.unsplash.com/photo-1571068316344-75bc76f77890?w=700&auto=format&fit=crop&q=80',
   },
 ];
 
 const SOLID_STATS = [
   {
     id: 'rating',
-    end: 4.8,
-    decimals: 1,
-    suffix: '/5 ★',
-    label: 'TOP RATED APP',
-    subtitle:
-      "is Evegah's average review rating across Play Store, App Store & Google",
+    value: '4.8/5',
+    subtitle: "is Evegah's average review rating across Play Store, App Store & Google",
     mascotIcon: 'diamond',
-    bgGrad: ['#F5F3FF', '#EDE9FE'],
-    border: '#DDD6FE',
-    accent: '#6D28D9',
-    badgeBg: '#DDD6FE',
   },
   {
     id: 'riders',
-    end: 2.6,
-    decimals: 1,
-    suffix: 'L+',
-    label: 'HAPPY RIDERS',
-    subtitle:
-      'happy riders & delivery partners powered by Evegah electric scooters',
+    value: '2.6L+',
+    subtitle: 'happy riders & delivery partners powered by Evegah electric scooters',
     mascotIcon: 'flash',
-    bgGrad: ['#ECFDF5', '#D1FAE5'],
-    border: '#A7F3D0',
-    accent: '#059669',
-    badgeBg: '#A7F3D0',
   },
   {
     id: 'zones',
-    end: 25,
-    decimals: 0,
-    suffix: '+',
-    label: '24×7 SMART ZONES',
-    subtitle:
-      'smart EV pickup & battery swap zones operating 24×7 across cities',
+    value: '25+',
+    subtitle: 'smart EV pickup & battery swap zones operating 24×7 across cities',
     mascotIcon: 'location',
-    bgGrad: ['#EFF6FF', '#DBEAFE'],
-    border: '#BFDBFE',
-    accent: '#2563EB',
-    badgeBg: '#BFDBFE',
   },
 ];
 
-/* ============================================================================
-   ANIMATED NUMBER COUNTER
-============================================================================ */
-function AnimatedCounter({
-  end,
-  duration = 1900,
-  decimals = 0,
-  prefix = '',
-  suffix = '',
-  triggerKey = 0,
-  style,
-}) {
-  const [val, setVal] = useState(0);
+const FOOTER_LINKS_LEFT = [
+  'Evegah Assured',
+  'Who we are',
+  'Evegah Pro',
+  'Blog - Green Drive',
+  "FAQ's",
+  'How it Works',
+];
 
-  useEffect(() => {
-    let raf;
-    const start = Date.now();
-    const step = () => {
-      const elapsed = Date.now() - start;
-      const p = Math.min(1, elapsed / duration);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setVal(end * eased);
-      if (p < 1) {
-        raf = requestAnimationFrame(step);
-      } else {
-        setVal(end);
-      }
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [end, duration, triggerKey]);
+const FOOTER_LINKS_RIGHT = [
+  'Fleet Inspection',
+  'Careers',
+  'Customer Reviews',
+  'Zone Locator',
+  'Sell / Partner Fleet',
+  'Terms & Conditions',
+];
 
-  const formatted =
-    decimals > 0
-      ? val.toFixed(decimals)
-      : Math.round(val).toLocaleString('en-IN');
-
-  return (
-    <Text style={style}>
-      {prefix}
-      {formatted}
-      {suffix}
-    </Text>
-  );
-}
-
-/* ============================================================================
-   FLOATING ANIMATED ICON EMBLEM FOR VALUES
-============================================================================ */
-function FloatingValueBadge({ icon, accentIcon, tint, accent, delayMs = 0 }) {
-  const floatY = useSharedValue(0);
-  const pulse = useSharedValue(1);
-
-  useEffect(() => {
-    floatY.value = withDelay(
-      delayMs,
-      withRepeat(
-        withSequence(
-          withTiming(-5, { duration: 1500, easing: Easing.inOut(Easing.quad) }),
-          withTiming(0, { duration: 1500, easing: Easing.inOut(Easing.quad) })
-        ),
-        -1,
-        true
-      )
+function ValueIllustration({ type }) {
+  if (type === 'quality') {
+    return (
+      <View style={styles.valueArtBox}>
+        <View style={styles.valueArtCircle}>
+          <Ionicons name="ribbon" size={28} color={PURPLE_PRIMARY} />
+          <View style={styles.valueGoldDot}>
+            <Ionicons name="star" size={11} color="#FFFFFF" />
+          </View>
+        </View>
+      </View>
     );
-    pulse.value = withDelay(
-      delayMs,
-      withRepeat(
-        withSequence(
-          withTiming(1.12, { duration: 1500 }),
-          withTiming(1, { duration: 1500 })
-        ),
-        -1,
-        true
-      )
+  }
+  if (type === 'transparency') {
+    return (
+      <View style={styles.valueArtBox}>
+        <View style={styles.valueArtCircle}>
+          <Ionicons name="bar-chart" size={26} color={PURPLE_PRIMARY} />
+          <View style={styles.valueGoldDot}>
+            <Ionicons name="search" size={11} color="#FFFFFF" />
+          </View>
+        </View>
+      </View>
     );
-  }, [delayMs, floatY, pulse]);
-
-  const floatStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: floatY.value }],
-  }));
-
-  const dotStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pulse.value }],
-  }));
-
+  }
   return (
-    <Animated.View style={[styles.valueArtCircle, { backgroundColor: tint }, floatStyle]}>
-      <Ionicons name={icon} size={26} color={accent} />
-      <Animated.View style={[styles.valueGoldDot, dotStyle]}>
-        <Ionicons name={accentIcon} size={11} color="#FFFFFF" />
-      </Animated.View>
-    </Animated.View>
+    <View style={styles.valueArtBox}>
+      <View style={styles.valueArtCircle}>
+        <Ionicons name="bicycle" size={28} color={PURPLE_PRIMARY} />
+        <View style={styles.valueGoldDot}>
+          <Ionicons name="sparkles" size={11} color="#FFFFFF" />
+        </View>
+      </View>
+    </View>
   );
 }
 
 export default function AboutScreen({ onBack, onExplore }) {
   const insets = useSafeAreaInsets();
   const [cultureIdx, setCultureIdx] = useState(0);
-  const [activeValueId, setActiveValueId] = useState('quality');
-  const [statsTrigger, setStatsTrigger] = useState(0);
-
   const cultureScrollRef = useRef(null);
-  const cultureCardW = SCREEN_W - 64; // Inside padded white card
-
-  // Continuous subtle floating animation for the Hero quote badge
-  const heroFloat = useSharedValue(0);
-  useEffect(() => {
-    heroFloat.value = withRepeat(
-      withSequence(
-        withTiming(-4, { duration: 1800, easing: Easing.inOut(Easing.quad) }),
-        withTiming(0, { duration: 1800, easing: Easing.inOut(Easing.quad) })
-      ),
-      -1,
-      true
-    );
-  }, [heroFloat]);
-
-  const heroFloatStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: heroFloat.value }],
-  }));
+  const cultureCardW = SCREEN_W - 36;
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -334,33 +253,20 @@ export default function AboutScreen({ onBack, onExplore }) {
   }, [cultureCardW]);
 
   const handleCallSupport = () => {
-    Linking.openURL('tel:18008898791').catch(() => {});
+    Linking.openURL('tel:7277277275').catch(() => {});
   };
 
   return (
     <View style={styles.root}>
       <StatusBar style="dark" />
 
-      {/* Clean Light Top Navigation Bar */}
+      {/* Top Navigation Header with Evegah Logo */}
       <View style={[styles.topHeader, { paddingTop: insets.top + 8 }]}>
-        <Pressable
-          hitSlop={12}
-          onPress={onBack}
-          style={({ pressed }) => [
-            styles.backBtn,
-            pressed && { opacity: 0.7, transform: [{ scale: 0.96 }] },
-          ]}
-        >
-          <Ionicons name="arrow-back" size={20} color={TEXT_INK} />
+        <Pressable hitSlop={12} onPress={onBack} style={styles.backBtn}>
+          <Ionicons name="chevron-back" size={22} color="#1E1035" />
         </Pressable>
 
-        <View style={styles.topCenterCol}>
-          <Text style={styles.topHeaderTitle}>About Evegah</Text>
-          <View style={styles.topSubRow}>
-            <View style={styles.liveGreenDot} />
-            <Text style={styles.topHeaderSub}>OUR STORY &amp; MISSION</Text>
-          </View>
-        </View>
+        <Text style={styles.topHeaderTitle}>About Evegah</Text>
 
         <View style={styles.headerLogoPill}>
           <Image
@@ -376,10 +282,8 @@ export default function AboutScreen({ onBack, onExplore }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ====================================================================
-            1. EDITORIAL HERO STORY CARD (Pure Light Card with Floating Tags)
-        ==================================================================== */}
-        <Animated.View entering={cardEnter(0)} style={styles.heroCardOuter}>
+        {/* 1. Hero Customer Story Card (Matches video4.mp4 opening section) */}
+        <Animated.View entering={cardEnter(0)} style={styles.heroStorySection}>
           <View style={styles.heroImageFrame}>
             <Image
               source={{ uri: HERO_STORY_PHOTO }}
@@ -387,23 +291,9 @@ export default function AboutScreen({ onBack, onExplore }) {
               contentFit="cover"
             />
             <LinearGradient
-              colors={['rgba(25,13,51,0.05)', 'rgba(25,13,51,0.55)']}
-              style={StyleSheet.absoluteFillObject}
+              colors={['transparent', 'rgba(36, 6, 70, 0.55)']}
+              style={styles.heroImageGradient}
             />
-
-            {/* Top-Left Live Rider Counter Pill */}
-            <View style={styles.heroTopLeftPill}>
-              <Ionicons name="sparkles" size={12} color="#F59E0B" />
-              <AnimatedCounter
-                end={200000}
-                duration={2000}
-                suffix="+ Happy Riders"
-                triggerKey={statsTrigger}
-                style={styles.heroTopLeftPillText}
-              />
-            </View>
-
-            {/* Top-Right Logo Watermark */}
             <View style={styles.heroLogoWatermark}>
               <Image
                 source={EVEGAH_LOGO}
@@ -411,529 +301,299 @@ export default function AboutScreen({ onBack, onExplore }) {
                 contentFit="contain"
               />
             </View>
-
-            {/* Floating Animated Quote Bubble */}
-            <Animated.View style={[styles.floatingQuoteBadge, heroFloatStyle]}>
-              <Ionicons name="chatbubble-ellipses" size={18} color="#FFFFFF" />
-            </Animated.View>
           </View>
 
-          <View style={styles.heroCardBody}>
-            <View style={styles.riderSpotlightTag}>
-              <Text style={styles.riderSpotlightTagText}>RIDER SPOTLIGHT</Text>
-            </View>
+          <Text style={styles.heroStoryTitle}>
+            2 Lakh+ happy riders, here&apos;s what one has to say
+          </Text>
 
-            <Text style={styles.heroStoryTitle}>
-              2 Lakh+ happy riders, here&apos;s what one has to say
-            </Text>
+          <Text style={styles.heroStoryQuote}>
+            &ldquo;Evegah represents reliability and complete peace of mind for my
+            daily commute. From instant QR unlocking to well-maintained electric
+            scooters and doorstep Flexi delivery, the team goes above and beyond
+            to make sustainable city travel effortless.&rdquo;
+          </Text>
 
-            <View style={styles.quoteAccentBlock}>
-              <Text style={styles.heroStoryQuote}>
-                &ldquo;Evegah represents reliability and complete peace of mind
-                for my daily commute. From instant QR unlocking to
-                well-maintained electric scooters and doorstep Flexi delivery,
-                the team goes above and beyond to make sustainable city travel
-                effortless.&rdquo;
-              </Text>
-            </View>
+          <Text style={styles.heroStoryAuthor}>
+            Neha Singh, Assistant Manager, Vadodara
+          </Text>
 
-            {/* Author & Action Footer */}
-            <View style={styles.heroAuthorFooter}>
-              <View style={styles.authorAvatarCircle}>
-                <Text style={styles.authorAvatarInitials}>NS</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.heroStoryAuthorName}>Neha Singh</Text>
-                <Text style={styles.heroStoryAuthorRole}>
-                  Assistant Manager • Vadodara
-                </Text>
-              </View>
-
-              <Pressable
-                onPress={onExplore}
-                style={({ pressed }) => [
-                  styles.loveStoriesPillBtn,
-                  pressed && { opacity: 0.8, transform: [{ scale: 0.97 }] },
-                ]}
-              >
-                <Text style={styles.loveStoriesPillText}>Love Stories</Text>
-                <Ionicons
-                  name="arrow-forward"
-                  size={14}
-                  color={PURPLE_PRIMARY}
-                />
-              </Pressable>
-            </View>
-          </View>
-        </Animated.View>
-
-        {/* ====================================================================
-            2. WHAT'S IMPORTANT TO US (Interactive 3-Pillar Light Cards)
-        ==================================================================== */}
-        <Animated.View entering={cardEnter(1)} style={styles.sectionBlock}>
-          <View style={styles.sectionHeaderRow}>
-            <View>
-              <View style={styles.sectionKickerPill}>
-                <Ionicons
-                  name="compass-outline"
-                  size={12}
-                  color={PURPLE_VIOLET}
-                />
-                <Text style={styles.sectionKickerText}>CORE PILLARS</Text>
-              </View>
-              <Text style={styles.sectionMainHeading}>
-                What&apos;s important to us
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.valuesCardsStack}>
-            {VALUES_LIST.map((item, idx) => {
-              const isSelected = activeValueId === item.id;
-              return (
-                <Pressable
-                  key={item.id}
-                  onPress={() => setActiveValueId(item.id)}
-                  style={[
-                    styles.valueInteractiveCard,
-                    isSelected && {
-                      borderColor: item.accent,
-                      backgroundColor: '#FFFFFF',
-                    },
-                  ]}
-                >
-                  <View style={styles.valueCardTopRow}>
-                    <FloatingValueBadge
-                      icon={item.icon}
-                      accentIcon={item.accentIcon}
-                      tint={item.tint}
-                      accent={item.accent}
-                      delayMs={idx * 250}
-                    />
-
-                    <View style={styles.valueHeaderMeta}>
-                      <View style={styles.valueChipRow}>
-                        <Text
-                          style={[styles.valueStepNum, { color: item.accent }]}
-                        >
-                          PILLAR {item.step}
-                        </Text>
-                        <View
-                          style={[
-                            styles.valueFeatureChip,
-                            { backgroundColor: item.tint },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.valueFeatureChipText,
-                              { color: item.accent },
-                            ]}
-                          >
-                            {item.chip}
-                          </Text>
-                        </View>
-                      </View>
-                      <Text style={styles.valueTitle}>{item.title}</Text>
-                    </View>
-                  </View>
-
-                  <Text style={styles.valueBody}>{item.body}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </Animated.View>
-
-        {/* ====================================================================
-            3. SQUAD EVEGAH SECTION (With 2021 -> 2026 Milestone Strip)
-        ==================================================================== */}
-        <Animated.View entering={cardEnter(2)} style={styles.sectionBlock}>
-          <View style={styles.whiteFeatureCard}>
-            <View style={styles.squadPhotoWrap}>
-              <Image
-                source={{ uri: SQUAD_PHOTO }}
-                style={styles.squadPhoto}
-                contentFit="cover"
-              />
-              <LinearGradient
-                colors={['transparent', 'rgba(25, 13, 51, 0.65)']}
-                style={styles.squadPhotoOverlay}
-              >
-                <View style={styles.squadBadgePill}>
-                  <Ionicons name="people" size={13} color="#FFFFFF" />
-                  <Text style={styles.squadBadgeText}>
-                    LEADERSHIP &amp; ENGINEERING
-                  </Text>
-                </View>
-              </LinearGradient>
-            </View>
-
-            <Text style={styles.sectionMainHeading}>Squad Evegah</Text>
-
-            <Text style={styles.squadParagraph}>
-              Looking to change India&apos;s urban commute for the better,
-              Evegah&apos;s leadership and engineering squad came together in
-              2021 to build a smarter, cleaner, and rider-first electric
-              mobility ecosystem.
-            </Text>
-
-            <Text style={[styles.squadParagraph, { marginTop: 10 }]}>
-              Eight-plus cities and 2.6 Lakh+ riders later, Evegah continues to
-              empower daily commuters, students, and last-mile delivery partners
-              with zero-emission electric scooters and intelligent
-              battery-swapping infrastructure.
-            </Text>
-
-            {/* 3-Step Journey Timeline Strip */}
-            <View style={styles.milestoneStrip}>
-              {SQUAD_MILESTONES.map((m, idx) => (
-                <React.Fragment key={m.year}>
-                  <View style={styles.milestoneCol}>
-                    <Text style={styles.milestoneYear}>{m.year}</Text>
-                    <Text style={styles.milestoneTitle}>{m.title}</Text>
-                    <Text style={styles.milestoneDesc}>{m.desc}</Text>
-                  </View>
-                  {idx < SQUAD_MILESTONES.length - 1 ? (
-                    <View style={styles.milestoneDivider} />
-                  ) : null}
-                </React.Fragment>
-              ))}
-            </View>
-          </View>
-        </Animated.View>
-
-        {/* ====================================================================
-            4. CULTURE CAROUSEL SECTION
-        ==================================================================== */}
-        <Animated.View entering={cardEnter(3)} style={styles.sectionBlock}>
-          <View style={styles.whiteFeatureCard}>
-            <View style={styles.cultureHeaderRow}>
-              <View>
-                <View style={styles.sectionKickerPill}>
-                  <Ionicons
-                    name="heart-outline"
-                    size={12}
-                    color={PURPLE_VIOLET}
-                  />
-                  <Text style={styles.sectionKickerText}>LIFE AT EVEGAH</Text>
-                </View>
-                <Text style={styles.sectionMainHeading}>Culture</Text>
-              </View>
-
-              {/* Animated Pill Progress Indicators */}
-              <View style={styles.cultureDashRow}>
-                {CULTURE_SLIDES.map((s, i) => (
-                  <View
-                    key={s.id}
-                    style={[
-                      styles.cultureDash,
-                      i === cultureIdx && styles.cultureDashActive,
-                    ]}
-                  />
-                ))}
-              </View>
-            </View>
-
-            <ScrollView
-              ref={cultureScrollRef}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              onMomentumScrollEnd={(e) => {
-                const offsetX = e?.nativeEvent?.contentOffset?.x ?? 0;
-                const idx = Math.round(offsetX / cultureCardW);
-                setCultureIdx(
-                  Math.max(0, Math.min(CULTURE_SLIDES.length - 1, idx))
-                );
-              }}
-              style={[styles.cultureCarousel, { width: cultureCardW }]}
-            >
-              {CULTURE_SLIDES.map((slide) => (
-                <View
-                  key={slide.id}
-                  style={[styles.cultureSlideFrame, { width: cultureCardW }]}
-                >
-                  <Image
-                    source={{ uri: slide.uri }}
-                    style={styles.cultureSlideImg}
-                    contentFit="cover"
-                  />
-                  <View style={styles.cultureTopBadge}>
-                    <Text style={styles.cultureTopBadgeText}>{slide.tag}</Text>
-                  </View>
-                  <LinearGradient
-                    colors={['transparent', 'rgba(25, 13, 51, 0.8)']}
-                    style={styles.cultureCaptionGrad}
-                  >
-                    <Text style={styles.cultureCaptionText}>
-                      {slide.caption}
-                    </Text>
-                  </LinearGradient>
-                </View>
-              ))}
-            </ScrollView>
-
-            <Text style={[styles.squadParagraph, { marginTop: 16 }]}>
-              We pride ourselves in prioritizing our riders and partners to
-              deliver an unmatched EV mobility experience. In our endeavour to
-              challenge convention and electrify every street, we remain rooted
-              in fairness, sustainability, and transparency.
-            </Text>
-
-            <Pressable
-              onPress={onExplore}
-              style={({ pressed }) => [
-                styles.careerBannerBtn,
-                pressed && { opacity: 0.85, transform: [{ scale: 0.99 }] },
-              ]}
-            >
-              <View style={styles.careerBannerLeft}>
-                <View style={styles.careerIconCircle}>
-                  <Ionicons
-                    name="briefcase-outline"
-                    size={16}
-                    color={PURPLE_PRIMARY}
-                  />
-                </View>
-                <View>
-                  <Text style={styles.careerBannerTitle}>
-                    Explore careers at Evegah
-                  </Text>
-                  <Text style={styles.careerBannerSub}>
-                    Join our Vadodara &amp; pan-India EV innovation teams
-                  </Text>
-                </View>
-              </View>
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={PURPLE_PRIMARY}
-              />
-            </Pressable>
-          </View>
-        </Animated.View>
-
-        {/* ====================================================================
-            5. OUR FLEET & DELIVERY PARTNERS (Soft Alabaster-Lavender Card)
-        ==================================================================== */}
-        <Animated.View entering={cardEnter(4)} style={styles.sectionBlock}>
-          <LinearGradient
-            colors={['#F3EEFF', '#FDFCFF']}
-            style={styles.partnersLightCard}
+          <Pressable
+            onPress={onExplore}
+            style={({ pressed }) => [
+              styles.loveStoriesLinkRow,
+              pressed && { opacity: 0.75 },
+            ]}
           >
-            <View style={styles.sectionKickerPill}>
-              <Ionicons name="layers-outline" size={12} color={PURPLE_VIOLET} />
-              <Text style={styles.sectionKickerText}>ENTERPRISE ECOSYSTEM</Text>
-            </View>
-
-            <Text style={styles.sectionMainHeading}>
-              Our Fleet &amp; Delivery Partners
+            <Text style={styles.loveStoriesLinkText}>
+              See Evegah love stories
             </Text>
-            <Text style={styles.partnersSubtext}>
-              Trusted by India&apos;s leading quick-commerce platforms, smart
-              cities, universities, and eco-tourism Zones
-            </Text>
-
-            {/* Uploaded Official Fleet & Delivery Partners Logo Banner */}
-            <View style={styles.fleetBannerCard}>
-              <Image
-                source={FLEET_PARTNERS_IMG}
-                style={styles.fleetBannerImage}
-                contentFit="contain"
-              />
-            </View>
-
-            {/* Horizontal Partner Category Chips */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.partnerTagsRow}
-            >
-              {PARTNER_PILLS.map((tag) => (
-                <View key={tag} style={styles.partnerCategoryPill}>
-                  <Text style={styles.partnerCategoryPillText}>{tag}</Text>
-                </View>
-              ))}
-            </ScrollView>
-          </LinearGradient>
+            <Ionicons name="chevron-forward" size={16} color={PURPLE_PRIMARY} />
+          </Pressable>
         </Animated.View>
 
-        {/* ====================================================================
-            6. MEDIA COVERAGE (Light Editorial News Cards)
-        ==================================================================== */}
-        <Animated.View entering={cardEnter(5)} style={styles.sectionBlock}>
-          <View style={styles.sectionHeaderRowPadded}>
-            <View>
-              <View style={styles.sectionKickerPill}>
-                <Ionicons
-                  name="newspaper-outline"
-                  size={12}
-                  color={PURPLE_VIOLET}
-                />
-                <Text style={styles.sectionKickerText}>IN THE PRESS</Text>
-              </View>
-              <Text style={styles.sectionMainHeading}>Media Coverage</Text>
+        <View style={styles.sectionDivider} />
+
+        {/* 2. What's important to us (Matches video4.mp4 3-pillar layout) */}
+        <Animated.View entering={cardEnter(1)} style={styles.sectionWrap}>
+          <Text style={styles.sectionMainHeading}>
+            What&apos;s important to us
+          </Text>
+
+          {VALUES_LIST.map((item) => (
+            <View key={item.id} style={styles.valueBlock}>
+              <ValueIllustration type={item.id} />
+              <Text style={styles.valueTitle}>{item.title}</Text>
+              <Text style={styles.valueBody}>{item.body}</Text>
             </View>
+          ))}
+        </Animated.View>
+
+        <View style={styles.sectionDivider} />
+
+        {/* 3. Squad Evegah Section (Matches video4.mp4 Squad Spinny section) */}
+        <Animated.View entering={cardEnter(2)} style={styles.sectionWrap}>
+          <View style={styles.squadPhotoWrap}>
+            <Image
+              source={{ uri: SQUAD_PHOTO }}
+              style={styles.squadPhoto}
+              contentFit="cover"
+            />
           </View>
+
+          <Text style={styles.sectionMainHeading}>Squad Evegah</Text>
+
+          <Text style={styles.squadParagraph}>
+            Looking to change India&apos;s urban commute for the better,
+            Evegah&apos;s leadership and engineering squad came together in 2021
+            to build a smarter, cleaner, and rider-first electric mobility
+            ecosystem.
+          </Text>
+
+          <Text style={[styles.squadParagraph, { marginTop: 14 }]}>
+            Eight-plus cities and 2.6 Lakh+ riders later, Evegah continues to
+            empower daily commuters, students, and last-mile delivery partners
+            with zero-emission electric scooters and intelligent battery-swapping
+            infrastructure.
+          </Text>
+        </Animated.View>
+
+        <View style={styles.sectionDivider} />
+
+        {/* 4. Culture Carousel Section (Matches video4.mp4 Culture section with 3 bars) */}
+        <Animated.View entering={cardEnter(3)} style={styles.sectionWrap}>
+          <ScrollView
+            ref={cultureScrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={(e) => {
+              const idx = Math.round(
+                e.nativeEvent.contentOffset.x / cultureCardW
+              );
+              setCultureIdx(
+                Math.max(0, Math.min(CULTURE_SLIDES.length - 1, idx))
+              );
+            }}
+            style={[styles.cultureCarousel, { width: cultureCardW }]}
+          >
+            {CULTURE_SLIDES.map((slide) => (
+              <View
+                key={slide.id}
+                style={[styles.cultureSlideFrame, { width: cultureCardW }]}
+              >
+                <Image
+                  source={{ uri: slide.uri }}
+                  style={styles.cultureSlideImg}
+                  contentFit="cover"
+                />
+                <LinearGradient
+                  colors={['transparent', 'rgba(20, 6, 42, 0.72)']}
+                  style={styles.cultureCaptionGrad}
+                >
+                  <Text style={styles.cultureCaptionText}>{slide.caption}</Text>
+                </LinearGradient>
+              </View>
+            ))}
+          </ScrollView>
+
+          {/* 3 Dash Indicator Bars (Matches video4.mp4) */}
+          <View style={styles.cultureDashRow}>
+            {CULTURE_SLIDES.map((s, i) => (
+              <View
+                key={s.id}
+                style={[
+                  styles.cultureDash,
+                  i === cultureIdx && styles.cultureDashActive,
+                ]}
+              />
+            ))}
+          </View>
+
+          <Text style={styles.sectionMainHeading}>Culture</Text>
+
+          <Text style={styles.squadParagraph}>
+            We pride ourselves in prioritizing our riders and partners to deliver
+            an unmatched EV mobility experience. In our endeavour to challenge
+            convention and electrify every street, we remain rooted in fairness,
+            sustainability, and transparency.
+          </Text>
+
+          <Pressable
+            onPress={onExplore}
+            style={({ pressed }) => [
+              styles.loveStoriesLinkRow,
+              { marginTop: 14 },
+              pressed && { opacity: 0.75 },
+            ]}
+          >
+            <Text style={styles.loveStoriesLinkText}>
+              Explore careers at Evegah
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={PURPLE_PRIMARY} />
+          </Pressable>
+        </Animated.View>
+
+        {/* 5. Our Fleet & Delivery Partners Section (Soft Purple Tint + Uploaded Banner + Cards) */}
+        <Animated.View entering={cardEnter(4)} style={styles.partnersSection}>
+          <Text style={styles.sectionMainHeading}>
+            Our Fleet &amp; Delivery Partners
+          </Text>
+          <Text style={styles.partnersSubtext}>
+            Trusted by India&apos;s leading quick-commerce platforms, smart
+            cities, universities, and eco-tourism hubs
+          </Text>
+
+          {/* Uploaded Official Fleet & Delivery Partners Logo Banner */}
+          <View style={styles.fleetBannerCard}>
+            <Image
+              source={FLEET_PARTNERS_IMG}
+              style={styles.fleetBannerImage}
+              contentFit="contain"
+            />
+          </View>
+
+          {/* Horizontal Stacked Partner Cards (Matches video4.mp4 Backers card carousel) */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.partnerCardsScroll}
+          >
+            {PARTNER_CARDS.map((card) => (
+              <View key={card.id} style={styles.partnerDualCard}>
+                <View style={styles.partnerHalf}>
+                  <Text
+                    style={[styles.partnerBrandText, { color: card.topColor }]}
+                    numberOfLines={1}
+                  >
+                    {card.topBadge}
+                  </Text>
+                  <Text style={styles.partnerRoleSub} numberOfLines={2}>
+                    {card.topSub}
+                  </Text>
+                </View>
+
+                <View style={styles.partnerCardDivider} />
+
+                <View style={styles.partnerHalf}>
+                  <Text
+                    style={[
+                      styles.partnerBrandText,
+                      { color: card.bottomColor },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {card.bottomBadge}
+                  </Text>
+                  <Text style={styles.partnerRoleSub} numberOfLines={2}>
+                    {card.bottomSub}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        </Animated.View>
+
+        {/* 6. Media Coverage Carousel (Matches video4.mp4 square image cards with bottom title) */}
+        <Animated.View entering={cardEnter(5)} style={styles.sectionWrap}>
+          <Text style={styles.sectionMainHeading}>Media Coverage</Text>
 
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            decelerationRate="fast"
-            snapToInterval={268}
             contentContainerStyle={styles.mediaScrollContent}
           >
             {MEDIA_CARDS.map((media) => (
-              <Pressable
-                key={media.id}
-                style={({ pressed }) => [
-                  styles.mediaLightCard,
-                  pressed && { transform: [{ scale: 0.98 }] },
-                ]}
-              >
-                <View style={styles.mediaThumbWrap}>
-                  <Image
-                    source={{ uri: media.uri }}
-                    style={styles.mediaThumbImg}
-                    contentFit="cover"
-                  />
-                  <View style={styles.mediaTagBadge}>
-                    <Text style={styles.mediaTagBadgeText}>{media.tag}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.mediaCardBody}>
-                  <View style={styles.mediaMetaTop}>
-                    <Text style={styles.mediaOutletPill}>{media.outlet}</Text>
-                    <Text style={styles.mediaReadTime}>{media.readTime}</Text>
-                  </View>
-
-                  <Text style={styles.mediaHeadlineLight} numberOfLines={3}>
+              <Pressable key={media.id} style={styles.mediaCard}>
+                <Image
+                  source={{ uri: media.uri }}
+                  style={styles.mediaCardImg}
+                  contentFit="cover"
+                />
+                <LinearGradient
+                  colors={[
+                    'rgba(22, 6, 44, 0.08)',
+                    'rgba(22, 6, 44, 0.55)',
+                    'rgba(22, 6, 44, 0.94)',
+                  ]}
+                  style={styles.mediaCardOverlay}
+                >
+                  <Text style={styles.mediaCardHeadline} numberOfLines={2}>
                     {media.headline}
                   </Text>
-
-                  <View style={styles.mediaReadArticleRow}>
-                    <Text style={styles.mediaReadArticleText}>
-                      Read full story
-                    </Text>
+                  <View style={styles.mediaOutletRow}>
+                    <Text style={styles.mediaOutletName}>{media.outlet}</Text>
                     <Ionicons
-                      name="arrow-forward"
-                      size={13}
-                      color={PURPLE_PRIMARY}
+                      name="chevron-forward"
+                      size={16}
+                      color="#FFFFFF"
                     />
                   </View>
-                </View>
+                </LinearGradient>
               </Pressable>
             ))}
           </ScrollView>
         </Animated.View>
 
-        {/* ====================================================================
-            7. SOLID EVEGAH STATS (Pastel Light Cards + Live Counter Animation)
-        ==================================================================== */}
-        <Animated.View entering={cardEnter(6)} style={styles.sectionBlock}>
-          <View style={styles.sectionHeaderRowPadded}>
-            <View>
-              <View style={styles.sectionKickerPill}>
-                <Ionicons
-                  name="trending-up-outline"
-                  size={12}
-                  color="#059669"
-                />
-                <Text style={[styles.sectionKickerText, { color: '#059669' }]}>
-                  VERIFIED IMPACT
-                </Text>
-              </View>
-              <Text style={styles.sectionMainHeading}>Solid Evegah Stats</Text>
-            </View>
-
-            <Pressable
-              hitSlop={10}
-              onPress={() => setStatsTrigger((t) => t + 1)}
-              style={styles.replayStatsPill}
-            >
-              <Ionicons name="refresh" size={13} color={PURPLE_PRIMARY} />
-              <Text style={styles.replayStatsText}>Replay</Text>
-            </Pressable>
-          </View>
+        {/* 7. Solid Evegah Stats (Matches video4.mp4 "Solid Spinny Stats" purple card carousel) */}
+        <Animated.View entering={cardEnter(6)} style={styles.sectionWrap}>
+          <Text style={styles.sectionMainHeading}>Solid Evegah Stats</Text>
 
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            decelerationRate="fast"
-            snapToInterval={268}
             contentContainerStyle={styles.statsScrollContent}
           >
             {SOLID_STATS.map((stat) => (
-              <LinearGradient
-                key={stat.id}
-                colors={stat.bgGrad}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={[styles.solidStatLightCard, { borderColor: stat.border }]}
-              >
-                <View style={styles.solidStatTopRow}>
-                  <View
-                    style={[
-                      styles.solidStatLabelPill,
-                      { backgroundColor: '#FFFFFF' },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.solidStatLabelText,
-                        { color: stat.accent },
-                      ]}
-                    >
-                      {stat.label}
-                    </Text>
-                  </View>
-
-                  <View
-                    style={[
-                      styles.solidStatIconCircle,
-                      { backgroundColor: '#FFFFFF' },
-                    ]}
-                  >
-                    <Ionicons
-                      name={stat.mascotIcon}
-                      size={18}
-                      color={stat.accent}
-                    />
-                  </View>
+              <View key={stat.id} style={styles.solidStatCard}>
+                <View style={styles.solidStatCopy}>
+                  <Text style={styles.solidStatValue}>{stat.value}</Text>
+                  <Text style={styles.solidStatSub}>{stat.subtitle}</Text>
                 </View>
 
-                <AnimatedCounter
-                  end={stat.end}
-                  decimals={stat.decimals}
-                  suffix={stat.suffix}
-                  duration={2000}
-                  triggerKey={statsTrigger}
-                  style={[styles.solidStatValue, { color: TEXT_INK }]}
-                />
-
-                <Text style={styles.solidStatSub}>{stat.subtitle}</Text>
-              </LinearGradient>
+                {/* 3D Mascot Emblem on Bottom-Right */}
+                <LinearGradient
+                  colors={['#A855F7', '#6B21A8', '#3B0764']}
+                  style={styles.solidStatMascot}
+                >
+                  <Ionicons name={stat.mascotIcon} size={30} color="#FDE68A" />
+                </LinearGradient>
+              </View>
             ))}
           </ScrollView>
         </Animated.View>
 
-        {/* ====================================================================
-            8. 100% LIGHT-THEMED EVEGAH BRAND FOOTER
-        ==================================================================== */}
+        {/* 8. Deep Purple Evegah Brand Footer (Matches video4.mp4 bottom footer + Evegah logo) */}
         <LinearGradient
-          colors={['#F3EEFF', '#EDE9FE', '#E4DCFA']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
+          colors={['#2E0E56', '#210740', '#16032E']}
           style={[
-            styles.lightFooterContainer,
+            styles.footerContainer,
             { paddingBottom: Math.max(insets.bottom + 24, 38) },
           ]}
         >
-          {/* Top Brand + Toll-Free Support Card */}
-          <View style={styles.footerWhiteCard}>
-            <View style={styles.footerTopRow}>
+          {/* Footer Top Row: Evegah Logo + Phone Pill */}
+          <View style={styles.footerTopRow}>
+            <View style={styles.footerBrandWrap}>
               <View style={styles.footerLogoBadge}>
                 <Image
                   source={EVEGAH_LOGO}
@@ -941,50 +601,66 @@ export default function AboutScreen({ onBack, onExplore }) {
                   contentFit="contain"
                 />
               </View>
-
-              <Pressable
-                onPress={handleCallSupport}
-                style={({ pressed }) => [
-                  styles.footerCallBtn,
-                  pressed && { opacity: 0.85 },
-                ]}
-              >
-                <Ionicons name="call" size={14} color="#FFFFFF" />
-                <Text style={styles.footerCallText}>1800 889 8791</Text>
-              </Pressable>
+              <View>
+                <Text style={styles.footerBrandName}>evegah</Text>
+                <Text style={styles.footerBrandTagline}>
+                  Smart Electric Mobility
+                </Text>
+              </View>
             </View>
 
-            <Text style={styles.footerDescLight}>
-              Evegah is India&apos;s trusted full-stack electric scooter rental
-              and last-mile fleet mobility platform. Our mission is to make
-              urban commuting and hyperlocal deliveries 100% electric,
-              affordable, and hassle-free.
-            </Text>
+            <Pressable onPress={handleCallSupport} style={styles.footerCallBtn}>
+              <Ionicons name="call" size={14} color="#FFFFFF" />
+              <Text style={styles.footerCallText}>727-727-7275</Text>
+            </Pressable>
+          </View>
 
-            {/* Social Media Pills */}
-            <View style={styles.footerSocialRow}>
-              {[
-                { icon: 'logo-instagram', label: 'Instagram' },
-                { icon: 'logo-linkedin', label: 'LinkedIn' },
-                { icon: 'logo-facebook', label: 'Facebook' },
-                { icon: 'logo-twitter', label: 'X' },
-              ].map((s) => (
-                <Pressable key={s.icon} style={styles.footerSocialLightBtn}>
-                  <Ionicons name={s.icon} size={16} color={PURPLE_PRIMARY} />
+          {/* Footer Description Paragraph */}
+          <Text style={styles.footerDesc}>
+            Evegah is India&apos;s trusted full-stack electric scooter rental and
+            last-mile fleet mobility platform. Our mission is to make urban
+            commuting and hyperlocal deliveries 100% electric, affordable, and
+            hassle-free.
+          </Text>
+
+          {/* Social Media Icons Row */}
+          <View style={styles.footerSocialRow}>
+            {['logo-instagram', 'logo-linkedin', 'logo-facebook', 'logo-twitter'].map(
+              (iconName) => (
+                <Pressable key={iconName} style={styles.footerSocialBtn}>
+                  <Ionicons name={iconName} size={17} color="#FFFFFF" />
+                </Pressable>
+              )
+            )}
+          </View>
+
+          {/* Two-Column ABOUT Links (Matches video4.mp4) */}
+          <Text style={styles.footerHeading}>ABOUT</Text>
+
+          <View style={styles.footerLinksGrid}>
+            <View style={styles.footerLinksCol}>
+              {FOOTER_LINKS_LEFT.map((link) => (
+                <Pressable key={link} style={styles.footerLinkItem}>
+                  <Text style={styles.footerLinkText}>{link}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={styles.footerLinksCol}>
+              {FOOTER_LINKS_RIGHT.map((link) => (
+                <Pressable key={link} style={styles.footerLinkItem}>
+                  <Text style={styles.footerLinkText}>{link}</Text>
                 </Pressable>
               ))}
             </View>
           </View>
 
-          <View style={styles.footerBottomMeta}>
-            <Text style={styles.footerCopyrightLight}>
-              © {new Date().getFullYear()} Evegah Mobility Pvt. Ltd. All rights
-              reserved.
-            </Text>
-            <Text style={styles.footerMadeWithLove}>
-              Crafted for cleaner Indian cities 🌿
-            </Text>
-          </View>
+          <View style={styles.footerBottomDivider} />
+
+          <Text style={styles.footerCopyright}>
+            © {new Date().getFullYear()} Evegah Mobility Pvt. Ltd. All rights
+            reserved.
+          </Text>
         </LinearGradient>
       </ScrollView>
     </View>
@@ -994,10 +670,8 @@ export default function AboutScreen({ onBack, onExplore }) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: PAGE_BG,
+    backgroundColor: '#FFFFFF',
   },
-
-  /* Top Light Header */
   topHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1006,83 +680,49 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: BORDER_LIGHT,
+    borderBottomColor: '#F1ECF8',
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    backgroundColor: PURPLE_TINT,
-    borderWidth: 1,
-    borderColor: '#E2D6FA',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#F6F2FA',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  topCenterCol: {
-    alignItems: 'center',
-  },
   topHeaderTitle: {
     fontSize: 17,
-    fontWeight: '900',
-    color: TEXT_INK,
-    letterSpacing: -0.3,
-  },
-  topSubRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginTop: 2,
-  },
-  liveGreenDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#10B981',
-  },
-  topHeaderSub: {
-    fontSize: 9.5,
     fontWeight: '800',
-    color: TEXT_MUTED,
-    letterSpacing: 0.9,
+    color: PURPLE_DARK,
+    letterSpacing: -0.2,
   },
   headerLogoPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: '#F6F1FC',
     borderWidth: 1,
-    borderColor: BORDER_LIGHT,
+    borderColor: '#E9D5FF',
   },
   headerLogoImg: {
-    width: 62,
-    height: 20,
+    width: 66,
+    height: 22,
   },
-
   scroll: {
     flex: 1,
   },
   scrollContent: {
     paddingTop: 16,
-    gap: 18,
   },
-
-  /* 1. Editorial Hero Story Card */
-  heroCardOuter: {
-    marginHorizontal: 16,
-    backgroundColor: CARD_BG,
-    borderRadius: 26,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: BORDER_LIGHT,
-    shadowColor: '#240646',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.05,
-    shadowRadius: 18,
-    elevation: 3,
+  heroStorySection: {
+    paddingHorizontal: 18,
+    paddingBottom: 22,
   },
   heroImageFrame: {
     width: '100%',
-    height: 220,
+    height: 215,
+    borderRadius: 16,
+    overflow: 'hidden',
     backgroundColor: '#EDE9FE',
     position: 'relative',
   },
@@ -1090,209 +730,85 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  heroTopLeftPill: {
-    position: 'absolute',
-    top: 14,
-    left: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(255, 255, 255, 0.94)',
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  heroTopLeftPillText: {
-    fontSize: 11.5,
-    fontWeight: '900',
-    color: TEXT_INK,
+  heroImageGradient: {
+    ...StyleSheet.absoluteFillObject,
   },
   heroLogoWatermark: {
     position: 'absolute',
-    top: 14,
-    right: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    top: 12,
+    right: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 10,
   },
   heroWatermarkImg: {
-    width: 58,
-    height: 18,
-  },
-  floatingQuoteBadge: {
-    position: 'absolute',
-    right: 18,
-    bottom: -18,
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: PURPLE_VIOLET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    shadowColor: PURPLE_VIOLET,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-    zIndex: 10,
-  },
-  heroCardBody: {
-    padding: 18,
-    paddingTop: 20,
-  },
-  riderSpotlightTag: {
-    alignSelf: 'flex-start',
-    backgroundColor: PURPLE_TINT,
-    paddingHorizontal: 9,
-    paddingVertical: 3.5,
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  riderSpotlightTagText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: PURPLE_VIOLET,
-    letterSpacing: 0.7,
+    width: 64,
+    height: 20,
   },
   heroStoryTitle: {
-    fontSize: 20,
-    lineHeight: 27,
-    fontWeight: '900',
-    color: TEXT_INK,
+    marginTop: 18,
+    fontSize: 21,
+    lineHeight: 28,
+    fontWeight: '800',
+    color: PURPLE_DARK,
     letterSpacing: -0.3,
-  },
-  quoteAccentBlock: {
-    marginTop: 12,
-    paddingLeft: 12,
-    borderLeftWidth: 3,
-    borderLeftColor: '#DDD6FE',
   },
   heroStoryQuote: {
+    marginTop: 10,
     fontSize: 13.5,
     lineHeight: 21,
-    color: TEXT_SLATE,
-    fontStyle: 'italic',
+    color: '#3F3356',
+    fontWeight: '400',
   },
-  heroAuthorFooter: {
-    marginTop: 16,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: '#F3EFFA',
+  heroStoryAuthor: {
+    marginTop: 10,
+    fontSize: 12.5,
+    color: '#7C6F94',
+    fontWeight: '600',
+  },
+  loveStoriesLinkRow: {
+    marginTop: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 3,
   },
-  authorAvatarCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: PURPLE_TINT,
-    borderWidth: 1,
-    borderColor: '#DDD6FE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  authorAvatarInitials: {
-    fontSize: 13,
-    fontWeight: '900',
-    color: PURPLE_PRIMARY,
-  },
-  heroStoryAuthorName: {
-    fontSize: 13.5,
-    fontWeight: '800',
-    color: TEXT_INK,
-  },
-  heroStoryAuthorRole: {
-    fontSize: 11.5,
-    fontWeight: '500',
-    color: TEXT_MUTED,
-    marginTop: 1,
-  },
-  loveStoriesPillBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: PURPLE_TINT,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-  },
-  loveStoriesPillText: {
-    fontSize: 12,
+  loveStoriesLinkText: {
+    fontSize: 14,
     fontWeight: '800',
     color: PURPLE_PRIMARY,
   },
-
-  /* Shared Section Layouts */
-  sectionBlock: {
-    paddingHorizontal: 16,
+  sectionDivider: {
+    height: 1,
+    backgroundColor: '#EFEAF6',
+    marginHorizontal: 18,
   },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  sectionHeaderRowPadded: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  sectionKickerPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 5,
-    backgroundColor: PURPLE_TINT,
-    paddingHorizontal: 9,
-    paddingVertical: 3.5,
-    borderRadius: 8,
-    marginBottom: 6,
-  },
-  sectionKickerText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: PURPLE_VIOLET,
-    letterSpacing: 0.7,
+  sectionWrap: {
+    paddingHorizontal: 18,
+    paddingVertical: 24,
   },
   sectionMainHeading: {
-    fontSize: 21,
-    lineHeight: 27,
-    fontWeight: '900',
-    color: TEXT_INK,
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '800',
+    color: PURPLE_DARK,
     letterSpacing: -0.3,
+    marginBottom: 16,
   },
-
-  /* 2. Values Stack */
-  valuesCardsStack: {
-    gap: 12,
+  valueBlock: {
+    marginTop: 18,
   },
-  valueInteractiveCard: {
-    backgroundColor: CARD_BG,
-    borderRadius: 22,
-    padding: 16,
-    borderWidth: 1.2,
-    borderColor: BORDER_LIGHT,
-    shadowColor: '#240646',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  valueCardTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    marginBottom: 10,
+  valueArtBox: {
+    marginBottom: 12,
+    alignItems: 'flex-start',
   },
   valueArtCircle: {
-    width: 58,
-    height: 58,
+    width: 62,
+    height: 62,
     borderRadius: 18,
+    backgroundColor: '#F3E8FF',
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -1310,147 +826,41 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#FFFFFF',
   },
-  valueHeaderMeta: {
-    flex: 1,
-  },
-  valueChipRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  valueStepNum: {
-    fontSize: 10.5,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-  },
-  valueFeatureChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  valueFeatureChipText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-  },
   valueTitle: {
     fontSize: 17,
-    fontWeight: '900',
-    color: TEXT_INK,
-    letterSpacing: -0.2,
+    fontWeight: '800',
+    color: PURPLE_DARK,
+    marginBottom: 6,
   },
   valueBody: {
     fontSize: 13.5,
-    lineHeight: 20,
-    color: TEXT_SLATE,
-  },
-
-  /* 3. Squad Evegah Card */
-  whiteFeatureCard: {
-    backgroundColor: CARD_BG,
-    borderRadius: 26,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: BORDER_LIGHT,
-    shadowColor: '#240646',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.04,
-    shadowRadius: 14,
-    elevation: 2,
+    lineHeight: 21,
+    color: '#4B3E63',
   },
   squadPhotoWrap: {
     width: '100%',
-    height: 205,
-    borderRadius: 18,
+    height: 210,
+    borderRadius: 16,
     overflow: 'hidden',
-    marginBottom: 16,
+    marginBottom: 18,
     backgroundColor: '#EDE9FE',
-    position: 'relative',
   },
   squadPhoto: {
     width: '100%',
     height: '100%',
   },
-  squadPhotoOverlay: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    padding: 12,
-  },
-  squadBadgePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.22)',
-    paddingHorizontal: 10,
-    paddingVertical: 4.5,
-    borderRadius: 10,
-  },
-  squadBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 0.7,
-  },
   squadParagraph: {
     fontSize: 13.5,
     lineHeight: 21,
-    color: TEXT_SLATE,
-    marginTop: 8,
-  },
-  milestoneStrip: {
-    marginTop: 18,
-    backgroundColor: '#F8F7FC',
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: BORDER_LIGHT,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  milestoneCol: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  milestoneYear: {
-    fontSize: 15,
-    fontWeight: '900',
-    color: PURPLE_PRIMARY,
-  },
-  milestoneTitle: {
-    fontSize: 11.5,
-    fontWeight: '800',
-    color: TEXT_INK,
-    marginTop: 2,
-  },
-  milestoneDesc: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: TEXT_MUTED,
-  },
-  milestoneDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: '#E2D6FA',
-  },
-
-  /* 4. Culture Carousel */
-  cultureHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
+    color: '#3F3356',
   },
   cultureCarousel: {
-    borderRadius: 18,
+    borderRadius: 16,
     overflow: 'hidden',
   },
   cultureSlideFrame: {
-    height: 200,
-    borderRadius: 18,
+    height: 205,
+    borderRadius: 16,
     overflow: 'hidden',
     position: 'relative',
     backgroundColor: '#EDE9FE',
@@ -1458,21 +868,6 @@ const styles = StyleSheet.create({
   cultureSlideImg: {
     width: '100%',
     height: '100%',
-  },
-  cultureTopBadge: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
-    paddingHorizontal: 10,
-    paddingVertical: 4.5,
-    borderRadius: 8,
-  },
-  cultureTopBadgeText: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: PURPLE_PRIMARY,
-    letterSpacing: 0.6,
   },
   cultureCaptionGrad: {
     position: 'absolute',
@@ -1484,277 +879,182 @@ const styles = StyleSheet.create({
   },
   cultureCaptionText: {
     fontSize: 12.5,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#FFFFFF',
   },
   cultureDashRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 14,
+    marginBottom: 18,
   },
   cultureDash: {
-    width: 14,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#DDD6FE',
+    width: 18,
+    height: 3.5,
+    borderRadius: 2,
+    backgroundColor: '#D8B4FE',
   },
   cultureDashActive: {
-    width: 26,
+    width: 28,
     backgroundColor: PURPLE_PRIMARY,
   },
-  careerBannerBtn: {
-    marginTop: 16,
-    backgroundColor: PURPLE_TINT,
-    borderRadius: 16,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#DDD6FE',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  careerBannerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flex: 1,
-  },
-  careerIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  careerBannerTitle: {
-    fontSize: 13.5,
-    fontWeight: '800',
-    color: TEXT_INK,
-  },
-  careerBannerSub: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: TEXT_SLATE,
-    marginTop: 1,
-  },
-
-  /* 5. Fleet & Delivery Partners Light Card */
-  partnersLightCard: {
-    borderRadius: 26,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#E2D6FA',
+  partnersSection: {
+    backgroundColor: PURPLE_SOFT,
+    paddingVertical: 26,
+    paddingHorizontal: 18,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#EADFF8',
   },
   partnersSubtext: {
-    marginTop: 4,
-    marginBottom: 14,
+    marginTop: -8,
+    marginBottom: 16,
     fontSize: 13,
     lineHeight: 19,
-    color: TEXT_SLATE,
+    color: '#5B4B73',
   },
   fleetBannerCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 12,
+    borderRadius: 16,
+    padding: 10,
     borderWidth: 1,
-    borderColor: BORDER_LIGHT,
-    shadowColor: '#240646',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    elevation: 2,
+    borderColor: '#E5D5F8',
+    shadowColor: '#2E0E56',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+    marginBottom: 16,
   },
   fleetBannerImage: {
     width: '100%',
     height: 125,
   },
-  partnerTagsRow: {
-    paddingTop: 12,
-    gap: 8,
+  partnerCardsScroll: {
+    gap: 12,
+    paddingRight: 8,
   },
-  partnerCategoryPill: {
+  partnerDualCard: {
+    width: 215,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#E2D6FA',
+    borderColor: '#E9DDF7',
+    justifyContent: 'space-between',
   },
-  partnerCategoryPillText: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    color: PURPLE_PRIMARY,
+  partnerHalf: {
+    alignItems: 'center',
+    paddingVertical: 6,
   },
-
-  /* 6. Media Coverage Light Cards */
+  partnerBrandText: {
+    fontSize: 15,
+    fontWeight: '900',
+    letterSpacing: -0.2,
+    textAlign: 'center',
+  },
+  partnerRoleSub: {
+    marginTop: 4,
+    fontSize: 11,
+    lineHeight: 15,
+    color: '#6B5E82',
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  partnerCardDivider: {
+    height: 1,
+    backgroundColor: '#F1ECF8',
+    marginVertical: 10,
+  },
   mediaScrollContent: {
     gap: 14,
-    paddingRight: 16,
+    paddingRight: 18,
   },
-  mediaLightCard: {
-    width: 254,
-    backgroundColor: CARD_BG,
-    borderRadius: 22,
+  mediaCard: {
+    width: 245,
+    height: 245,
+    borderRadius: 16,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: BORDER_LIGHT,
-    shadowColor: '#240646',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 2,
-  },
-  mediaThumbWrap: {
-    width: '100%',
-    height: 132,
-    backgroundColor: '#EDE9FE',
+    backgroundColor: '#240646',
     position: 'relative',
   },
-  mediaThumbImg: {
+  mediaCardImg: {
     width: '100%',
     height: '100%',
   },
-  mediaTagBadge: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.94)',
-    paddingHorizontal: 8,
-    paddingVertical: 3.5,
-    borderRadius: 7,
+  mediaCardOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    padding: 16,
   },
-  mediaTagBadgeText: {
-    fontSize: 9.5,
-    fontWeight: '900',
-    color: PURPLE_PRIMARY,
-    letterSpacing: 0.5,
+  mediaCardHeadline: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: 'rgba(255, 255, 255, 0.88)',
+    fontWeight: '500',
+    marginBottom: 8,
   },
-  mediaCardBody: {
-    padding: 14,
-    justifyContent: 'space-between',
-    flex: 1,
-  },
-  mediaMetaTop: {
+  mediaOutletRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
   },
-  mediaOutletPill: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: PURPLE_VIOLET,
-  },
-  mediaReadTime: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: TEXT_MUTED,
-  },
-  mediaHeadlineLight: {
-    fontSize: 13.5,
-    lineHeight: 19,
-    fontWeight: '700',
-    color: TEXT_INK,
-  },
-  mediaReadArticleRow: {
-    marginTop: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  mediaReadArticleText: {
-    fontSize: 12,
+  mediaOutletName: {
+    fontSize: 17,
     fontWeight: '800',
-    color: PURPLE_PRIMARY,
-  },
-
-  /* 7. Solid Evegah Stats Light Pastel Cards */
-  replayStatsPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: BORDER_LIGHT,
-  },
-  replayStatsText: {
-    fontSize: 11.5,
-    fontWeight: '800',
-    color: PURPLE_PRIMARY,
+    color: '#FFFFFF',
   },
   statsScrollContent: {
     gap: 14,
-    paddingRight: 16,
+    paddingRight: 18,
   },
-  solidStatLightCard: {
-    width: 254,
-    minHeight: 158,
-    borderRadius: 22,
-    borderWidth: 1.2,
-    padding: 16,
+  solidStatCard: {
+    width: 255,
+    minHeight: 148,
+    borderRadius: 16,
+    backgroundColor: '#F3E8FF',
+    borderWidth: 1,
+    borderColor: '#E2CEF8',
+    padding: 18,
+    position: 'relative',
+    overflow: 'hidden',
     justifyContent: 'space-between',
   },
-  solidStatTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  solidStatLabelPill: {
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  solidStatLabelText: {
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 0.6,
-  },
-  solidStatIconCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+  solidStatCopy: {
+    paddingRight: 44,
   },
   solidStatValue: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '900',
-    letterSpacing: -0.6,
-    marginTop: 8,
+    color: PURPLE_PRIMARY,
+    letterSpacing: -0.5,
   },
   solidStatSub: {
-    marginTop: 4,
-    fontSize: 12.5,
-    lineHeight: 18,
-    color: TEXT_SLATE,
-    fontWeight: '600',
-  },
-
-  /* 8. Pure Light Brand Footer */
-  lightFooterContainer: {
     marginTop: 8,
-    paddingTop: 22,
-    paddingHorizontal: 16,
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    borderTopWidth: 1,
-    borderTopColor: '#DDD6FE',
+    fontSize: 13,
+    lineHeight: 19,
+    color: PURPLE_DARK,
+    fontWeight: '500',
   },
-  footerWhiteCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#E2D6FA',
-    shadowColor: '#240646',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.04,
-    shadowRadius: 14,
-    elevation: 2,
+  solidStatMascot: {
+    position: 'absolute',
+    right: -8,
+    bottom: -8,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.55)',
+  },
+  footerContainer: {
+    marginTop: 10,
+    paddingTop: 28,
+    paddingHorizontal: 20,
   },
   footerTopRow: {
     flexDirection: 'row',
@@ -1762,68 +1062,101 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
+  footerBrandWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   footerLogoBadge: {
-    backgroundColor: PURPLE_TINT,
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderWidth: 1,
-    borderColor: '#E2D6FA',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   footerLogoImg: {
-    width: 72,
+    width: 68,
     height: 24,
+  },
+  footerBrandName: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.4,
+  },
+  footerBrandTagline: {
+    fontSize: 11,
+    color: '#D8B4FE',
+    fontWeight: '500',
   },
   footerCallBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: PURPLE_PRIMARY,
+    backgroundColor: PURPLE_ACCENT,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.22)',
   },
   footerCallText: {
     fontSize: 13,
     fontWeight: '800',
     color: '#FFFFFF',
   },
-  footerDescLight: {
-    marginTop: 14,
+  footerDesc: {
+    marginTop: 18,
     fontSize: 12.5,
     lineHeight: 19,
-    color: TEXT_SLATE,
+    color: 'rgba(255, 255, 255, 0.78)',
   },
   footerSocialRow: {
-    marginTop: 16,
+    marginTop: 18,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 14,
   },
-  footerSocialLightBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: PURPLE_TINT,
-    borderWidth: 1,
-    borderColor: '#E2D6FA',
+  footerSocialBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  footerBottomMeta: {
-    marginTop: 16,
-    alignItems: 'center',
-    gap: 4,
+  footerHeading: {
+    marginTop: 26,
+    marginBottom: 12,
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.8,
   },
-  footerCopyrightLight: {
+  footerLinksGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  footerLinksCol: {
+    flex: 1,
+    gap: 10,
+  },
+  footerLinkItem: {
+    paddingVertical: 2,
+  },
+  footerLinkText: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontWeight: '500',
+  },
+  footerBottomDivider: {
+    marginTop: 24,
+    marginBottom: 14,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
+  },
+  footerCopyright: {
     fontSize: 11.5,
-    fontWeight: '700',
-    color: TEXT_SLATE,
+    color: 'rgba(255, 255, 255, 0.6)',
     textAlign: 'center',
-  },
-  footerMadeWithLove: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: PURPLE_PRIMARY,
   },
 });

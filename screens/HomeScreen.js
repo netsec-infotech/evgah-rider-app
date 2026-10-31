@@ -786,10 +786,6 @@ function CustomerReviewCard({ item, index }) {
   const stampOpacity = useSharedValue(0);
   const stampPulse = useSharedValue(1);
 
-  const badgeTranslateY = useSharedValue(12);
-  const badgeOpacity = useSharedValue(0);
-  const badgeScale = useSharedValue(1);
-
   useEffect(() => {
     const baseDelay = (index % 5) * 100 + 150;
 
@@ -815,29 +811,7 @@ function CustomerReviewCard({ item, index }) {
         true
       )
     );
-
-    // Bottom badge entrance & continuous pulse
-    badgeTranslateY.value = withDelay(
-      baseDelay + 180,
-      withSpring(0, { damping: 12, stiffness: 180 })
-    );
-    badgeOpacity.value = withDelay(
-      baseDelay + 180,
-      withTiming(1, { duration: 220 })
-    );
-
-    badgeScale.value = withDelay(
-      baseDelay + 550,
-      withRepeat(
-        withSequence(
-          withTiming(1.06, { duration: 1400, easing: Easing.inOut(Easing.ease) }),
-          withTiming(1.0, { duration: 1400, easing: Easing.inOut(Easing.ease) })
-        ),
-        -1,
-        true
-      )
-    );
-  }, [index, stampScale, stampOpacity, stampPulse, badgeTranslateY, badgeOpacity, badgeScale]);
+  }, [index, stampScale, stampOpacity, stampPulse]);
 
   const stampAnimStyle = useAnimatedStyle(() => ({
     opacity: stampOpacity.value,
@@ -847,59 +821,52 @@ function CustomerReviewCard({ item, index }) {
     ],
   }));
 
-  const badgeAnimStyle = useAnimatedStyle(() => ({
-    opacity: badgeOpacity.value,
-    transform: [
-      { translateY: badgeTranslateY.value },
-      { scale: badgeScale.value },
-    ],
-  }));
-
   return (
     <View style={styles.customerReviewCard}>
-      <Image
-        source={{ uri: item.image }}
-        style={styles.customerReviewImage}
-        contentFit="cover"
-      />
+      <View style={styles.customerReviewImageWrap}>
+        <Image
+          source={{ uri: item.image }}
+          style={styles.customerReviewImage}
+          contentFit="cover"
+        />
+        <LinearGradient
+          colors={['transparent', 'rgba(20, 19, 26, 0.55)', '#14131A']}
+          locations={[0.45, 0.78, 1]}
+          style={styles.customerReviewImageFade}
+        />
 
-      <LinearGradient
-        colors={[
-          'rgba(0, 0, 0, 0)',
-          'rgba(0, 0, 0, 0.05)',
-          'rgba(14, 10, 24, 0.70)',
-          'rgba(10, 7, 18, 0.95)',
-        ]}
-        locations={[0, 0.35, 0.66, 0.96]}
-        style={StyleSheet.absoluteFillObject}
-        pointerEvents="none"
-      />
-
-      {/* Animated Stamp Badge */}
-      <Animated.View style={[styles.soldStampOuter, stampAnimStyle]} pointerEvents="none">
-        <View style={styles.soldStampInner}>
-          <Text style={styles.soldStampStars}>★ ★ ★</Text>
-          <View style={styles.soldStampBand}>
-            <Text style={styles.soldStampText}>RENT</Text>
+        {/* Animated Stamp Badge */}
+        <Animated.View style={[styles.soldStampOuter, stampAnimStyle]} pointerEvents="none">
+          <View style={styles.soldStampInner}>
+            <Text style={styles.soldStampStars}>★ ★ ★</Text>
+            <View style={styles.soldStampBand}>
+              <Text style={styles.soldStampText}>RENT</Text>
+            </View>
+            <Text style={styles.soldStampStars}>★ ★ ★</Text>
           </View>
-          <Text style={styles.soldStampStars}>★ ★ ★</Text>
-        </View>
-      </Animated.View>
+        </Animated.View>
+      </View>
 
-      <View style={styles.customerReviewBottomContent}>
-        <Text style={styles.customerReviewName} numberOfLines={1}>
-          {item.name}
-        </Text>
-        <Text style={styles.customerReviewCity} numberOfLines={1}>
-          {item.city}
-        </Text>
-        <Text style={styles.customerReviewQuote} numberOfLines={4}>
-          {item.quote}
-        </Text>
+      <View style={styles.customerReviewBody}>
+        <View>
+          <Text style={styles.customerReviewName} numberOfLines={1}>
+            {item.name}
+          </Text>
+          <Text style={styles.customerReviewCity} numberOfLines={1}>
+            {item.city}
+          </Text>
+          <Text style={styles.customerReviewQuote} numberOfLines={3}>
+            {item.quote}
+          </Text>
+          <Text style={styles.customerReviewReadMore}>read more.</Text>
+        </View>
+
         {item.badge ? (
-          <Animated.View style={[styles.customerSoldBadge, badgeAnimStyle]}>
-            <Text style={styles.customerSoldBadgeText}>{item.badge}</Text>
-          </Animated.View>
+          <View style={styles.customerSoldBadge}>
+            <Text style={styles.customerSoldBadgeText} numberOfLines={1}>
+              {item.badge}
+            </Text>
+          </View>
         ) : null}
       </View>
     </View>
@@ -3926,119 +3893,117 @@ const styles = StyleSheet.create({
   customerReviewCard: {
     width: REVIEW_CARD_W,
     height: REVIEW_CARD_H,
-    borderRadius: 24,
+    borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: '#1E172B',
+    backgroundColor: '#14131A',
     position: 'relative',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.16,
-    shadowRadius: 14,
-    elevation: 6,
+  },
+  customerReviewImageWrap: {
+    width: '100%',
+    height: Math.round(REVIEW_CARD_H * 0.54),
+    position: 'relative',
+    backgroundColor: '#1E1C26',
   },
   customerReviewImage: {
-    ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
   },
-  soldStampOuter: {
-    position: 'absolute',
-    top: 14,
-    right: 14,
-    width: 74,
-    height: 74,
-    borderRadius: 37,
-    borderWidth: 1.8,
-    borderColor: 'rgba(255, 255, 255, 0.44)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    transform: [{ rotate: '-18deg' }],
-    zIndex: 3,
-  },
-  soldStampInner: {
-    width: 63,
-    height: 63,
-    borderRadius: 31.5,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 1.5,
-  },
-  soldStampStars: {
-    color: 'rgba(255, 255, 255, 0.50)',
-    fontSize: 6.5,
-    letterSpacing: 2,
-  },
-  soldStampBand: {
-    width: 68,
-    paddingVertical: 1.5,
-    borderTopWidth: 1.2,
-    borderBottomWidth: 1.2,
-    borderColor: 'rgba(255, 255, 255, 0.48)',
-    backgroundColor: 'rgba(20, 16, 28, 0.24)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  soldStampText: {
-    color: 'rgba(255, 255, 255, 0.70)',
-    fontSize: 14,
-    fontWeight: '900',
-    letterSpacing: 1.8,
-  },
-  customerReviewBottomContent: {
+  customerReviewImageFade: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    paddingHorizontal: 16,
-    paddingBottom: 20,
-    paddingTop: 12,
-    zIndex: 4,
+    height: 68,
+  },
+  soldStampOuter: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.42)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ rotate: '-18deg' }],
+    zIndex: 2,
+  },
+  soldStampInner: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.34)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 1,
+  },
+  soldStampStars: {
+    color: 'rgba(255, 255, 255, 0.48)',
+    fontSize: 6.5,
+    letterSpacing: 1.5,
+  },
+  soldStampBand: {
+    width: 62,
+    paddingVertical: 1.5,
+    borderTopWidth: 1.2,
+    borderBottomWidth: 1.2,
+    borderColor: 'rgba(255, 255, 255, 0.48)',
+    backgroundColor: 'rgba(20, 19, 26, 0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  soldStampText: {
+    color: 'rgba(255, 255, 255, 0.62)',
+    fontSize: 13.5,
+    fontWeight: '900',
+    letterSpacing: 1.6,
+  },
+  customerReviewBody: {
+    flex: 1,
+    backgroundColor: '#14131A',
+    paddingHorizontal: 14,
+    paddingTop: 2,
+    paddingBottom: 14,
+    justifyContent: 'space-between',
   },
   customerReviewName: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '800',
     color: '#FFFFFF',
     letterSpacing: -0.2,
   },
   customerReviewCity: {
-    marginTop: 2,
-    fontSize: 13,
+    marginTop: 1,
+    fontSize: 11.5,
     fontWeight: '500',
     color: 'rgba(255, 255, 255, 0.78)',
   },
   customerReviewQuote: {
-    marginTop: 10,
-    fontSize: 13,
-    lineHeight: 18.5,
-    fontWeight: '400',
-    color: 'rgba(255, 255, 255, 0.94)',
+    marginTop: 6,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: 'rgba(255, 255, 255, 0.92)',
   },
   customerReviewReadMore: {
     marginTop: 1,
-    fontSize: 12.5,
+    fontSize: 11.5,
     fontWeight: '800',
     color: '#FFFFFF',
   },
   customerSoldBadge: {
-    marginTop: 14,
+    marginTop: 8,
     alignSelf: 'flex-start',
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.14,
-    shadowRadius: 4,
-    elevation: 3,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   customerSoldBadgeText: {
-    fontSize: 12.5,
+    fontSize: 11,
     fontWeight: '700',
-    color: '#1B1726',
-    letterSpacing: -0.1,
+    color: '#1E0E33',
   },
     socialSection: {
     marginTop: 10,

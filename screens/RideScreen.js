@@ -17,7 +17,7 @@ import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import MapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE, UrlTile } from 'react-native-maps';
 import * as Location from 'expo-location';
 import Animated, {
   Easing,
@@ -761,12 +761,16 @@ export default function RideScreen({
           rotateEnabled={false}
           pitchEnabled={false}
           showsCompass={false}
+          loadingEnabled
+          loadingBackgroundColor="#ECEFF4"
           onMapReady={() => {
-            if (activeScooterCoord?.latitude && activeScooterCoord?.longitude) {
+            const targetLat = activeScooterCoord?.latitude || startCoord.latitude;
+            const targetLng = activeScooterCoord?.longitude || startCoord.longitude;
+            if (targetLat && targetLng) {
               mapRef.current?.animateToRegion(
                 {
-                  latitude: activeScooterCoord.latitude,
-                  longitude: activeScooterCoord.longitude,
+                  latitude: targetLat,
+                  longitude: targetLng,
                   latitudeDelta: 0.014,
                   longitudeDelta: 0.014,
                 },
@@ -778,6 +782,13 @@ export default function RideScreen({
             console.warn('Native Google Maps error:', err?.nativeEvent || err);
           }}
         >
+          {/* OpenStreetMap / Carto Voyager Leaflet Tile Layer for reliable production loading */}
+          <UrlTile
+            urlTemplate="https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
+            maximumZ={19}
+            flipY={false}
+            tileSize={256}
+          />
 
           {/* Origin Zone Zone Halo */}
           <Circle
@@ -883,6 +894,11 @@ export default function RideScreen({
             </View>
           </Marker>
         </MapView>
+
+        {/* Leaflet / OpenStreetMap Attribution Badge */}
+        <View style={styles.osmBadge} pointerEvents="none">
+          <Text style={styles.osmBadgeText}>Leaflet · © OpenStreetMap</Text>
+        </View>
 
         {/* Top Floating Cockpit HUD Bar */}
         <View style={[styles.topHudBar, { top: insets.top + 8 }]}>
@@ -1703,6 +1719,21 @@ const styles = StyleSheet.create({
     position: 'relative',
     backgroundColor: '#E2E8F0',
     overflow: 'hidden',
+  },
+  osmBadge: {
+    position: 'absolute',
+    left: 12,
+    bottom: 28,
+    backgroundColor: 'rgba(255,255,255,0.86)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    zIndex: 10,
+  },
+  osmBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748B',
   },
 
   /* Map Markers */
