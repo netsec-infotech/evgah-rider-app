@@ -7,6 +7,7 @@ const LAN_IP = '192.168.10.13';
 const TOKEN_KEY = 'evegah_rider_auth_token';
 const RIDER_KEY = 'evegah_rider_profile';
 const ONBOARDING_KEY = 'evegah_has_seen_onboarding';
+const WALLET_INTRO_KEY = 'evegah_wallet_intro_seen';
 
 export async function hasSeenOnboarding() {
   try {
@@ -22,6 +23,23 @@ export async function setHasSeenOnboarding() {
     await SecureStore.setItemAsync(ONBOARDING_KEY, 'true');
   } catch (err) {
     console.warn('Could not persist onboarding state:', err);
+  }
+}
+
+export async function hasSeenWalletIntro() {
+  try {
+    const val = await SecureStore.getItemAsync(WALLET_INTRO_KEY);
+    return val === 'true';
+  } catch (err) {
+    return false;
+  }
+}
+
+export async function setHasSeenWalletIntro() {
+  try {
+    await SecureStore.setItemAsync(WALLET_INTRO_KEY, 'true');
+  } catch (err) {
+    console.warn('Could not persist wallet intro state:', err);
   }
 }
 

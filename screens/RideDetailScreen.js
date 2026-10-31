@@ -1,604 +1,357 @@
-import React, { useState } from 'react';
-import {
-  Alert,
-  Linking,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
-import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
-import Animated from 'react-native-reanimated';
+import { StatusBar } from 'expo-status-bar';
+import { Ionicons } from '@expo/vector-icons';
+import Animated, {
+  Easing,
+  Extrapolation,
+  interpolate,
+  ReduceMotion,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { cardEnter } from '../utils/cardEnter';
+import { cancelReservation } from '../services/api';
 
-const BRAND_PURPLE = '#240B4C';
-const BRAND_PURPLE_ACCENT = '#5B21B6';
-const BRAND_VIOLET = '#7C3AED';
+const PURPLE = '#4A168C';
+const HERO_BG = require('../assets/rides/detail-hero.jpg');
+const ROUTE_MAP = require('../assets/rides/route-map.png');
 
-const STATUS_THEME = {
-  ongoing: {
-    bg: '#ECFDF5',
-    border: '#A7F3D0',
-    text: '#059669',
-    dot: '#10B981',
-    icon: 'flash',
-  },
-  upcoming: {
-    bg: '#F5F3FF',
-    border: '#DDD6FE',
-    text: '#6D28D9',
-    dot: '#7C3AED',
-    icon: 'time',
-  },
-  completed: {
-    bg: '#DCFCE7',
-    border: '#BBF7D0',
-    text: '#15803D',
-    dot: '#16A34A',
-    icon: 'checkmark-circle',
-  },
-};
+const BILL_ROWS = [
+  { key: 'plan', icon: 'document-text-outline', label: 'Plan' },
+  { key: 'fare', icon: 'cash-outline', label: 'Ride fare' },
+  { key: 'deposit', icon: 'shield-checkmark-outline', label: 'Security deposit' },
+  { key: 'method', icon: 'card-outline', label: 'Paid with' },
+  { key: 'helmet', icon: 'person-outline', label: 'Helmet' },
+];
 
 function rupee(amount) {
   return `₹${Math.abs(Math.round(amount || 0)).toLocaleString('en-IN')}`;
 }
 
+function invoiceHtml(ride) {
+  const rows = [
+    ['Plan', ride.plan || 'Daily'],
+    ['Ride fare', rupee(ride.fare)],
+    ['Security deposit', ride.depositBack ? 'Returned' : rupee(ride.deposit)],
+    ['Paid with', ride.method || 'UPI'],
+    ['Helmet', 'Included'],
+    ['Total paid', rupee(ride.fare)],
+  ];
+  const lines = rows.map(([label, value]) => `<tr><td>${label}</td><td>${value}</td></tr>`).join('');
+  return `<!DOCTYPE html><html><head><style>
+    body{font-family:sans-serif;padding:28px;color:#1c1c1c}
+    td{padding:8px 0;border-bottom:1px solid #eee}
+    td:last-child{text-align:right;font-weight:700}
+  </style></head><body>
+    <p style="letter-spacing:2px;color:#6d28d9;font-size:12px;font-weight:700">EVEGAH</p>
+    <h1 style="margin:8px 0 4px">${ride.vehicle || 'Ride'}</h1>
+    <p style="margin:0;color:#6e6878">${ride.line || ''}</p>
+    <p style="margin:12px 0 20px;font-weight:700">${ride.id || ''}</p>
+    <p><strong>Pickup</strong><br/>${ride.pickup || ''}<br/>${ride.pickupWhen || ''}</p>
+    <p><strong>Drop</strong><br/>${ride.drop || ''}<br/>${ride.dropWhen || ''}</p>
+    <table style="width:100%;border-collapse:collapse;margin-top:12px">${lines}</table>
+  </body></html>`;
+}
+
 export default function RideDetailScreen({ ride, onBack }) {
   const insets = useSafeAreaInsets();
-  const [copiedTx, setCopiedTx] = useState(false);
-  const [invoiceDownloaded, setInvoiceDownloaded] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [lifted, setLifted] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const glide = useSharedValue(0);
+  const btnWidth = useSharedValue(300);
+  const fillStyle = useAnimatedStyle(() => ({
+    width: btnWidth.value * 3,
+    transform: [{ translateX: btnWidth.value * -1.6 * (1 - glide.value) }],
+  }));
+  const shineStyle = useAnimatedStyle(() => {
+    const width = btnWidth.value;
+    return {
+      width: width * 2,
+      opacity: interpolate(glide.value, [0, 0.12, 0.5, 0.88, 1], [0, 0, 0.4, 0, 0], Extrapolation.CLAMP),
+      transform: [
+        { translateX: interpolate(glide.value, [0, 1], [width * -2.2, width * 1.25]) },
+        { skewX: '-20deg' },
+      ],
+    };
+  });
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 800);
-  };
+  useEffect(() => {
+    glide.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1600, easing: Easing.linear, reduceMotion: ReduceMotion.Never }),
+        withDelay(700, withTiming(1, { duration: 0, reduceMotion: ReduceMotion.Never })),
+        withTiming(0, { duration: 0, reduceMotion: ReduceMotion.Never }),
+      ),
+      -1,
+      false,
+      undefined,
+      ReduceMotion.Never,
+    );
+  }, [glide]);
 
   if (!ride) return null;
 
-  const theme = STATUS_THEME[ride.status] || STATUS_THEME.completed;
-  const txId = `TXN_${ride.id || 'EVG89421'}`;
-
-  const copyTxId = async () => {
-    await Clipboard.setStringAsync(txId);
-    setCopiedTx(true);
-    setTimeout(() => setCopiedTx(false), 1800);
+  const values = {
+    plan: ride.plan || 'Daily',
+    fare: rupee(ride.fare),
+    deposit: ride.depositBack ? 'Returned' : rupee(ride.deposit),
+    method: ride.method || 'UPI',
+    helmet: 'Included',
   };
 
-  const handleDownloadInvoice = () => {
-    setInvoiceDownloaded(true);
-    const invoiceId = ride.reservation_id || ride.booking_id || ride.id || 'EVG89421';
-    const receiptUrl = `https://evegah.cloud/api/receipts/${invoiceId}`;
-    Linking.openURL(receiptUrl).catch(() => {});
-    Alert.alert(
-      'Official Tax Invoice',
-      `Tax Invoice #${invoiceId} has been opened for download and print.`,
-      [{ text: 'OK' }]
-    );
+  const copyId = async () => {
+    try {
+      await Clipboard.setStringAsync(String(ride.id || ''));
+    } catch {}
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
   };
 
-  const handleSupport = () => {
+  const openMap = () => {
+    const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(ride.pickup || '')}&destination=${encodeURIComponent(ride.drop || '')}`;
+    Linking.openURL(url).catch(() => {});
+  };
+
+  const downloadInvoice = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const invoiceId = ride.reservation_id || ride.booking_id || ride.id || 'EVG89421';
+      const receiptUrl = `https://evegah.cloud/api/receipts/${invoiceId}`;
+      let handled = false;
+      try {
+        const Print = require('expo-print');
+        const Sharing = require('expo-sharing');
+        if (Print?.printToFileAsync && Sharing?.shareAsync) {
+          const file = await Print.printToFileAsync({ html: invoiceHtml(ride), width: 360, height: 900 });
+          const canShare = await Sharing.isAvailableAsync?.();
+          if (canShare) {
+            await Sharing.shareAsync(file.uri, {
+              mimeType: 'application/pdf',
+              UTI: 'com.adobe.pdf',
+              dialogTitle: 'Download invoice',
+            });
+            handled = true;
+          }
+        }
+      } catch (err) {
+        // Fallback to web receipt URL
+      }
+      if (!handled) {
+        await Linking.openURL(receiptUrl).catch(() => {});
+        Alert.alert('Invoice Ready', `Official tax invoice #${invoiceId} has been opened for download and print.`);
+      }
+    } catch {
+      Alert.alert('Could not save the invoice', 'Try the download again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const isUpcoming =
+    String(ride.status || '').toLowerCase() === 'upcoming' ||
+    String(ride.status || '').toLowerCase() === 'reserved';
+
+  const handleCancelReservation = () => {
     Alert.alert(
-      'Ride Support',
-      'Evegah 24/7 Helpline: 1800 889 8791\nOur support team is ready to assist you with this booking.',
-      [{ text: 'Close' }]
+      'Cancel Reservation',
+      'Are you sure you want to cancel this booking? Any pre-paid amount will be refunded to your Evegah wallet.',
+      [
+        { text: 'Keep Booking', style: 'cancel' },
+        {
+          text: 'Yes, Cancel',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const res = await cancelReservation(ride.id);
+              Alert.alert('Booking Cancelled', res?.message || 'Your reservation has been cancelled.');
+              onBack?.();
+            } catch (e) {
+              Alert.alert('Notice', e?.message || 'Unable to cancel this reservation right now.');
+            }
+          },
+        },
+      ]
     );
   };
 
   return (
     <View style={styles.root}>
-      <StatusBar style="light" />
-
+      <StatusBar style={lifted ? 'dark' : 'light'} />
       <ScrollView
-        style={styles.scroll}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#D8B4FE"
-            colors={['#7C3AED', '#250952']}
-            progressBackgroundColor="#FFFFFF"
-          />
-        }
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: insets.bottom + 100 },
-        ]}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        scrollEventThrottle={16}
+        onScroll={(event) => {
+          const next = event.nativeEvent.contentOffset.y > 48;
+          setLifted((prev) => (prev === next ? prev : next));
+        }}
       >
-        {/* Seamless Top Overscroll Anchor */}
-        <View style={styles.topOverscrollAnchor} pointerEvents="none" />
-
-        {/* Deep Purple Hero Header */}
         <LinearGradient
-          colors={['#120529', '#250952', '#3B0F7A']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[styles.heroHeader, { paddingTop: insets.top + 10 }]}
+          colors={['#3B0764', '#4A168C', '#5B21B6']}
+          locations={[0, 0.55, 1]}
+          style={[styles.hero, { paddingTop: insets.top + 6 }]}
         >
-          {/* Ambient Glow Orbs */}
-          <View style={styles.glowOrbTop} pointerEvents="none" />
-          <View style={styles.glowOrbRight} pointerEvents="none" />
-
-          {/* Top Navigation Row */}
+          <Image
+            pointerEvents="none"
+            source={HERO_BG}
+            style={styles.heroBg}
+            contentFit="cover"
+            contentPosition="right bottom"
+          />
           <View style={styles.topBar}>
-            <Pressable
-              hitSlop={10}
-              onPress={onBack}
-              style={({ pressed }) => [
-                styles.topIconBtn,
-                pressed && { opacity: 0.75 },
-              ]}
-            >
-              <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
+            <Pressable hitSlop={8} style={styles.round} onPress={onBack}>
+              <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
             </Pressable>
-
-            <View style={styles.topCenterCol}>
-              <Text style={styles.topBarTitle}>Ride Summary</Text>
-              <Text style={styles.topBarSub}>BOOKING #{ride.id}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {isUpcoming ? (
+                <Pressable
+                  hitSlop={8}
+                  style={[styles.round, { backgroundColor: 'rgba(239, 68, 68, 0.35)' }]}
+                  onPress={handleCancelReservation}
+                >
+                  <Ionicons name="trash-outline" size={17} color="#FCA5A5" />
+                </Pressable>
+              ) : null}
+              <Pressable hitSlop={8} style={styles.round} onPress={downloadInvoice}>
+                <Ionicons name="download-outline" size={18} color="#FFFFFF" />
+              </Pressable>
             </View>
+          </View>
 
-            <Pressable
-              hitSlop={10}
-              onPress={handleDownloadInvoice}
-              style={({ pressed }) => [
-                styles.topIconBtn,
-                pressed && { opacity: 0.75 },
-              ]}
-            >
-              <Ionicons
-                name={invoiceDownloaded ? 'checkmark-done' : 'download-outline'}
-                size={20}
-                color="#FFFFFF"
-              />
-            </Pressable>
+          <View style={styles.heroRow}>
+            <View style={styles.heroCopy}>
+              <Text style={styles.kicker}>VEHICLE DETAILS</Text>
+              <Text style={styles.name}>{ride.vehicle}</Text>
+              <Text style={styles.line}>{ride.line}</Text>
+              <Pressable style={styles.idRow} onPress={copyId}>
+                <Text style={styles.id}>{ride.id}</Text>
+                <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={14} color="rgba(255,255,255,0.85)" />
+              </Pressable>
+            </View>
+            {ride.image ? (
+              <View style={styles.vehicleFrame} pointerEvents="none">
+                <Image source={ride.image} style={styles.vehicle} contentFit="contain" />
+              </View>
+            ) : null}
           </View>
         </LinearGradient>
 
-        {/* Floating Vehicle & Telemetry Showcase Card */}
-        <Animated.View entering={cardEnter(0)} style={styles.heroCardWrap}>
-          <View style={styles.heroVehicleCard}>
-            {/* Top Status & Plan Strip */}
-            <View style={styles.heroCardTopStrip}>
-              <View style={styles.planPill}>
-                <Ionicons name="sparkles" size={12} color={BRAND_VIOLET} />
-                <Text style={styles.planPillText}>
-                  {ride.plan || 'Daily'} Pass
-                </Text>
-              </View>
-
-              <View
-                style={[
-                  styles.statusBadge,
-                  { backgroundColor: theme.bg, borderColor: theme.border },
-                ]}
-              >
-                <View
-                  style={[styles.statusDot, { backgroundColor: theme.dot }]}
-                />
-                <Text style={[styles.statusBadgeText, { color: theme.text }]}>
-                  {ride.statusLabel}
-                </Text>
-              </View>
+        <View style={styles.body}>
+          <View style={styles.stats}>
+            <View style={styles.stat}>
+              <Ionicons name="navigate" size={16} color={PURPLE} />
+              <Text style={styles.statValue}>{ride.distance || '—'}</Text>
+              <Text style={styles.statLabel}>Distance</Text>
             </View>
-
-            {/* Main Vehicle Identity Row */}
-            <View style={styles.vehicleMainRow}>
-              <View style={styles.vehicleTextCol}>
-                <Text style={styles.vehicleTitle} numberOfLines={1}>
-                  {ride.vehicle}
-                </Text>
-                <Text style={styles.vehicleTagline}>
-                  {ride.line || 'Smart Electric Scooter'}
-                </Text>
-                <View style={styles.verifiedZoneTag}>
-                  <Ionicons
-                    name="shield-checkmark-outline"
-                    size={13}
-                    color="#059669"
-                  />
-                  <Text style={styles.verifiedZoneText}>
-                    Evegah Verified Mobility
-                  </Text>
-                </View>
-              </View>
-
-              <View
-                style={[
-                  styles.vehicleImageBox,
-                  { backgroundColor: ride.tint || '#F5F3FF' },
-                ]}
-              >
-                <Image
-                  source={ride.image}
-                  style={styles.vehicleImage}
-                  contentFit="contain"
-                />
-              </View>
+            <View style={styles.statRule} />
+            <View style={styles.stat}>
+              <Ionicons name="time-outline" size={16} color="#7C3AED" />
+              <Text style={styles.statValue}>{ride.span || '—'}</Text>
+              <Text style={styles.statLabel}>Duration</Text>
             </View>
+            <View style={styles.statRule} />
+            <View style={styles.stat}>
+              <Ionicons name="battery-charging" size={16} color="#7C3AED" />
+              <Text style={styles.statValue}>{ride.battery || '—'}</Text>
+              <Text style={styles.statLabel}>Battery</Text>
+            </View>
+          </View>
 
-            {/* 3-Column Telemetry Strip */}
-            <View style={styles.telemetryGrid}>
-              <View style={styles.telemetryBox}>
-                <View
-                  style={[
-                    styles.telemetryIconCircle,
-                    { backgroundColor: '#FEF9C3' },
-                  ]}
-                >
-                  <Ionicons name="speedometer-outline" size={15} color="#CA8A04" />
+          <View style={styles.card}>
+            <View style={styles.cardHead}>
+              <View style={styles.cardTitle}>
+                <Ionicons name="git-branch-outline" size={16} color={PURPLE} />
+                <Text style={styles.cardHeading}>Route</Text>
+              </View>
+              <Pressable style={styles.mapLink} onPress={openMap}>
+                <Ionicons name="map-outline" size={14} color={PURPLE} />
+                <Text style={styles.mapLinkText}>View on Map</Text>
+                <Ionicons name="chevron-forward" size={14} color={PURPLE} />
+              </Pressable>
+            </View>
+            <View style={styles.routeRow}>
+              <View style={styles.stops}>
+                <View style={styles.stop}>
+                  <View style={styles.rail}>
+                    <View style={styles.dotFill} />
+                    <View style={styles.railLine} />
+                  </View>
+                  <View>
+                    <Text style={styles.stopKicker}>Pickup</Text>
+                    <Text style={styles.stopPlace}>{ride.pickup}</Text>
+                    <Text style={styles.stopWhen}>{ride.pickupWhen}</Text>
+                  </View>
                 </View>
-                <View>
-                  <Text style={styles.telemetryLabel}>RANGE</Text>
-                  <Text style={styles.telemetryVal}>
-                    {ride.range || '80-90 km'}
-                  </Text>
+                <View style={styles.stop}>
+                  <View style={styles.rail}>
+                    <View style={styles.dotRing} />
+                  </View>
+                  <View>
+                    <Text style={styles.stopKicker}>Drop</Text>
+                    <Text style={styles.stopPlace}>{ride.drop}</Text>
+                    <Text style={styles.stopWhen}>{ride.dropWhen}</Text>
+                  </View>
                 </View>
               </View>
-
-              <View style={styles.telemetryDivider} />
-
-              <View style={styles.telemetryBox}>
-                <View
-                  style={[
-                    styles.telemetryIconCircle,
-                    { backgroundColor: '#F3E8FF' },
-                  ]}
-                >
-                  <Ionicons name="flash-outline" size={14} color={BRAND_VIOLET} />
-                </View>
-                <View>
-                  <Text style={styles.telemetryLabel}>TOP SPEED</Text>
-                  <Text style={styles.telemetryVal}>
-                    {ride.topSpeed || '45 km/h'}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.telemetryDivider} />
-
-              <View style={styles.telemetryBox}>
-                <View
-                  style={[
-                    styles.telemetryIconCircle,
-                    { backgroundColor: '#E0F2FE' },
-                  ]}
-                >
-                  <Ionicons name="time" size={15} color="#0284C7" />
-                </View>
-                <View>
-                  <Text style={styles.telemetryLabel}>DURATION</Text>
-                  <Text style={styles.telemetryVal}>
-                    {ride.span || 'Daily'}
-                  </Text>
-                </View>
+              <View style={styles.routeFrame} pointerEvents="none">
+                <Image source={ROUTE_MAP} style={styles.routeArt} contentFit="contain" />
               </View>
             </View>
           </View>
-        </Animated.View>
 
-        <View style={styles.bodyContainer}>
-          {/* Route & Station Schedule Card */}
-          <Animated.View entering={cardEnter(1)} style={styles.sectionCard}>
-            <View style={styles.sectionHeaderRow}>
-              <View style={styles.sectionTitleGroup}>
-                <View
-                  style={[
-                    styles.sectionIconBox,
-                    { backgroundColor: '#F5F3FF' },
-                  ]}
-                >
-                  <Ionicons
-                    name="git-pull-request-outline"
-                    size={17}
-                    color={BRAND_VIOLET}
-                  />
-                </View>
-                <View>
-                  <Text style={styles.sectionTitle}>Route & Schedule</Text>
-                  <Text style={styles.sectionSubtitle}>
-                    Pickup & drop-off station logs
-                  </Text>
-                </View>
-              </View>
+          <View style={styles.card}>
+            <View style={styles.cardTitle}>
+              <Ionicons name="receipt-outline" size={16} color={PURPLE} />
+              <Text style={styles.cardHeading}>Bill Details</Text>
             </View>
-
-            <View style={styles.routeTimelineWrap}>
-              {/* Pickup Station Block */}
-              <View style={styles.stationRow}>
-                <View style={styles.timelineRail}>
-                  <View style={styles.pickupOuterRing}>
-                    <View style={styles.pickupInnerDot} />
-                  </View>
-                  <View style={styles.railConnector} />
+            {BILL_ROWS.map((row, index) => (
+              <View key={row.key} style={[styles.billRow, index > 0 && styles.billRule]}>
+                <View style={styles.billIcon}>
+                  <Ionicons name={row.icon} size={15} color="#6D28D9" />
                 </View>
-
-                <View style={styles.stationCard}>
-                  <View style={styles.stationCardTop}>
-                    <View style={styles.stationTagPickup}>
-                      <Text style={styles.stationTagPickupText}>PICKUP Zone</Text>
-                    </View>
-                    <View style={styles.timestampWrap}>
-                      <Ionicons
-                        name="calendar-outline"
-                        size={12}
-                        color="#64748B"
-                      />
-                      <Text style={styles.timestampText}>{ride.pickupWhen}</Text>
-                    </View>
-                  </View>
-
-                  <Text style={styles.stationName}>{ride.pickup} Station</Text>
-                  <Text style={styles.stationAddress}>
-                    Evegah Mobility Zone · {ride.pickup}, Vadodara
-                  </Text>
-                </View>
+                <Text style={styles.billLabel}>{row.label}</Text>
+                <Text style={styles.billValue}>{values[row.key]}</Text>
               </View>
-
-              {/* Drop-off Station Block */}
-              <View style={styles.stationRow}>
-                <View style={styles.timelineRail}>
-                  <View style={styles.dropSquareNode} />
-                </View>
-
-                <View style={[styles.stationCard, { marginBottom: 0 }]}>
-                  <View style={styles.stationCardTop}>
-                    <View style={styles.stationTagDrop}>
-                      <Text style={styles.stationTagDropText}>DROP-OFF Zone</Text>
-                    </View>
-                    <View style={styles.timestampWrap}>
-                      <Ionicons
-                        name="calendar-outline"
-                        size={12}
-                        color="#64748B"
-                      />
-                      <Text style={styles.timestampText}>{ride.dropWhen}</Text>
-                    </View>
-                  </View>
-
-                  <Text style={styles.stationName}>{ride.drop} Station</Text>
-                  <Text style={styles.stationAddress}>
-                    Evegah Mobility Zone · {ride.drop}, Vadodara
-                  </Text>
-                </View>
-              </View>
+            ))}
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>Total paid</Text>
+              <Text style={styles.totalValue}>{rupee(ride.fare)}</Text>
             </View>
-          </Animated.View>
-
-          {/* Digital Tax Receipt & Payment Summary Card */}
-          <Animated.View entering={cardEnter(2)} style={styles.sectionCard}>
-            <View style={styles.sectionHeaderRow}>
-              <View style={styles.sectionTitleGroup}>
-                <View
-                  style={[
-                    styles.sectionIconBox,
-                    { backgroundColor: '#ECFDF5' },
-                  ]}
-                >
-                  <Ionicons name="receipt-outline" size={17} color="#059669" />
-                </View>
-                <View>
-                  <Text style={styles.sectionTitle}>Payment Summary</Text>
-                  <Text style={styles.sectionSubtitle}>
-                    Inclusive of taxes & security deposit
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.paymentMethodPill}>
-                <Ionicons name="flash" size={11} color={BRAND_PURPLE_ACCENT} />
-                <Text style={styles.paymentMethodPillText}>
-                  {ride.method || 'UPI'}
-                </Text>
-              </View>
-            </View>
-
-            {/* Line Items */}
-            <View style={styles.billTable}>
-              <View style={styles.billLine}>
-                <Text style={styles.billLabel}>
-                  Base Rental Plan ({ride.plan || 'Daily'})
-                </Text>
-                <Text style={styles.billAmount}>{rupee(ride.fare)}</Text>
-              </View>
-
-              <View style={styles.billLine}>
-                <Text style={styles.billLabel}>Platform & Taxes</Text>
-                <Text style={styles.billIncludedTag}>Included</Text>
-              </View>
-
-              <View style={styles.billLine}>
-                <View style={styles.depositLabelGroup}>
-                  <Text style={styles.billLabel}>Security Deposit</Text>
-                  <View
-                    style={[
-                      styles.depositMiniPill,
-                      (Number(ride.deposit) === 0 || ride.depositBack)
-                        ? styles.depositMiniReturned
-                        : styles.depositMiniHeld,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.depositMiniText,
-                        { color: (Number(ride.deposit) === 0 || ride.depositBack) ? '#15803D' : '#B45309' },
-                      ]}
-                    >
-                      {Number(ride.deposit) === 0 ? 'Waived (₹0)' : (ride.depositBack ? 'Refunded' : 'Refundable')}
-                    </Text>
-                  </View>
-                </View>
-                <Text
-                  style={[
-                    styles.billAmount,
-                    (Number(ride.deposit) === 0 || ride.depositBack) && { color: '#15803D' },
-                  ]}
-                >
-                  {ride.depositBack ? '₹0' : rupee(ride.deposit != null ? Number(ride.deposit) : 0)}
-                </Text>
-              </View>
-            </View>
-
-            {/* Perforated Ticket Divider */}
-            <View style={styles.ticketDividerRow}>
-              <View style={styles.ticketNotchLeft} />
-              <View style={styles.ticketDashedLine} />
-              <View style={styles.ticketNotchRight} />
-            </View>
-
-            {/* Grand Total Row */}
-            <View style={styles.grandTotalRow}>
-              <View>
-                <Text style={styles.grandTotalLabel}>Total Fare Paid</Text>
-                <Text style={styles.grandTotalSub}>
-                  Paid via {ride.method || 'UPI (Verified)'}
-                </Text>
-              </View>
-              <Text style={styles.grandTotalAmount}>{rupee(ride.fare)}</Text>
-            </View>
-
-            {/* Copyable Transaction ID Bar */}
-            <Pressable
-              onPress={copyTxId}
-              style={({ pressed }) => [
-                styles.txBar,
-                pressed && { backgroundColor: '#F1F5F9' },
-              ]}
-            >
-              <View style={styles.txBarLeft}>
-                <View style={styles.txIconCircle}>
-                  <Ionicons
-                    name="finger-print-outline"
-                    size={15}
-                    color="#64748B"
-                  />
-                </View>
-                <View>
-                  <Text style={styles.txKicker}>TRANSACTION ID</Text>
-                  <Text style={styles.txCodeText}>{txId}</Text>
-                </View>
-              </View>
-
-              <View
-                style={[
-                  styles.copyChip,
-                  copiedTx && styles.copyChipSuccess,
-                ]}
-              >
-                <Ionicons
-                  name={copiedTx ? 'checkmark-circle' : 'copy-outline'}
-                  size={14}
-                  color={copiedTx ? '#15803D' : BRAND_PURPLE_ACCENT}
-                />
-                <Text
-                  style={[
-                    styles.copyChipText,
-                    copiedTx && { color: '#15803D' },
-                  ]}
-                >
-                  {copiedTx ? 'Copied' : 'Copy'}
-                </Text>
-              </View>
-            </Pressable>
-          </Animated.View>
-
-          {/* 2-Column Quick Support & Invoice Actions */}
-          <Animated.View entering={cardEnter(3)} style={styles.quickActionsGrid}>
-            <Pressable
-              onPress={handleDownloadInvoice}
-              style={({ pressed }) => [
-                styles.quickActionCard,
-                pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
-              ]}
-            >
-              <View
-                style={[
-                  styles.quickActionIcon,
-                  { backgroundColor: '#F5F3FF' },
-                ]}
-              >
-                <Ionicons
-                  name={
-                    invoiceDownloaded
-                      ? 'checkmark-circle'
-                      : 'document-text-outline'
-                  }
-                  size={20}
-                  color={BRAND_VIOLET}
-                />
-              </View>
-              <Text style={styles.quickActionTitle}>
-                {invoiceDownloaded ? 'Saved Receipt' : 'Tax Invoice'}
-              </Text>
-              <Text style={styles.quickActionSub}>Download PDF</Text>
-            </Pressable>
-
-            <Pressable
-              onPress={handleSupport}
-              style={({ pressed }) => [
-                styles.quickActionCard,
-                pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
-              ]}
-            >
-              <View
-                style={[
-                  styles.quickActionIcon,
-                  { backgroundColor: '#FEF2F2' },
-                ]}
-              >
-                <Ionicons name="headset-outline" size={20} color="#DC2626" />
-              </View>
-              <Text style={styles.quickActionTitle}>24/7 Helpline</Text>
-              <Text style={styles.quickActionSub}>Get Ride Support</Text>
-            </Pressable>
-          </Animated.View>
-
-          {ride.status === 'upcoming' ? (
-            <Animated.View entering={cardEnter(4)} style={styles.stationNoticeCard}>
-              <View style={styles.stationNoticeIconBox}>
-                <Ionicons name="shield-checkmark" size={20} color="#7C3AED" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.stationNoticeTitle}>Physical KYC & Handover Pending</Text>
-                <Text style={styles.stationNoticeSub}>
-                  Physical KYC verification and vehicle/battery assignment are completed in person at the Evegah station. Once handed over by station admin, your ride status will activate.
-                </Text>
-              </View>
-            </Animated.View>
-          ) : null}
+          </View>
         </View>
       </ScrollView>
 
-      {/* Sticky Bottom Dock CTA */}
-      <View
-        style={[
-          styles.bottomDock,
-          { paddingBottom: Math.max(insets.bottom, 14) },
-        ]}
-      >
-        <Pressable
-          onPress={onBack}
-          style={({ pressed }) => [
-            styles.primaryBottomBtn,
-            pressed && { opacity: 0.92, transform: [{ scale: 0.99 }] },
-          ]}
-        >
-          <LinearGradient
-            colors={['#5B21B6', '#3B0F7A']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.primaryBottomGradient}
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+        <Pressable onPress={downloadInvoice} disabled={saving}>
+          <Animated.View
+            style={styles.download}
+            onLayout={(event) => {
+              btnWidth.value = event.nativeEvent.layout.width;
+            }}
           >
-            <Ionicons name="bicycle-outline" size={20} color="#FFFFFF" />
-            <Text style={styles.primaryBottomText}>Back to My Rides</Text>
-          </LinearGradient>
+            <Animated.View pointerEvents="none" style={[styles.downloadFill, fillStyle]}>
+              <LinearGradient
+                colors={['#7C1FFF', '#7C1FFF', '#D8B4FE', '#7C1FFF', '#7C1FFF']}
+                locations={[0, 0.36, 0.44, 0.52, 1]}
+                start={{ x: 0.79, y: 0.91 }}
+                end={{ x: 0.21, y: 0.09 }}
+                style={StyleSheet.absoluteFill}
+              />
+            </Animated.View>
+            <Ionicons name="document-text-outline" size={16} color="#FFFFFF" />
+            <Text style={styles.downloadText}>{saving ? 'Saving…' : 'Download Invoice'}</Text>
+            <Animated.View pointerEvents="none" style={[styles.downloadShine, shineStyle]} />
+          </Animated.View>
         </Pressable>
       </View>
     </View>
@@ -608,664 +361,298 @@ export default function RideDetailScreen({ ride, onBack }) {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#F4F6FB',
+    backgroundColor: '#F7F6FB',
   },
-  scroll: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 110,
-  },
-
-  topOverscrollAnchor: {
-    position: 'absolute',
-    top: -600,
-    left: 0,
-    right: 0,
-    height: 600,
-    backgroundColor: '#120529',
-  },
-
-  /* Hero Header */
-  heroHeader: {
-    paddingHorizontal: 18,
-    paddingBottom: 76,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
+  hero: {
     overflow: 'hidden',
-    position: 'relative',
+    paddingHorizontal: 16,
+    paddingBottom: 28,
   },
-  glowOrbTop: {
+  heroBg: {
     position: 'absolute',
-    top: -60,
-    left: -30,
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: 'rgba(139, 92, 246, 0.18)',
-  },
-  glowOrbRight: {
-    position: 'absolute',
-    bottom: -40,
-    right: -30,
-    width: 210,
-    height: 210,
-    borderRadius: 105,
-    backgroundColor: 'rgba(168, 85, 247, 0.22)',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: -24,
   },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  topIconBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.18)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  topCenterCol: {
-    alignItems: 'center',
-  },
-  topBarTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: -0.2,
-  },
-  topBarSub: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    color: 'rgba(255, 255, 255, 0.68)',
-    letterSpacing: 1,
-    marginTop: 2,
-  },
-
-  /* Floating Hero Vehicle Card */
-  heroCardWrap: {
-    paddingHorizontal: 16,
-    marginTop: -56,
-    zIndex: 20,
-  },
-  heroVehicleCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 20,
-    elevation: 6,
-  },
-  heroCardTopStrip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  planPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#F5F3FF',
-    paddingHorizontal: 10,
-    paddingVertical: 4.5,
-    borderRadius: 10,
-  },
-  planPillText: {
-    fontSize: 11.5,
-    fontWeight: '800',
-    color: BRAND_VIOLET,
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 11,
-    paddingVertical: 5,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  statusDot: {
-    width: 6.5,
-    height: 6.5,
-    borderRadius: 3.5,
-  },
-  statusBadgeText: {
-    fontSize: 11.5,
-    fontWeight: '800',
-  },
-  vehicleMainRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  vehicleTextCol: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  vehicleTitle: {
-    fontSize: 23,
-    fontWeight: '900',
-    color: '#0F172A',
-    letterSpacing: -0.4,
-  },
-  vehicleTagline: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#64748B',
-    marginTop: 2,
-  },
-  verifiedZoneTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginTop: 10,
-  },
-  verifiedZoneText: {
-    fontSize: 11.5,
-    fontWeight: '700',
-    color: '#059669',
-  },
-  vehicleImageBox: {
-    width: 96,
-    height: 86,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  vehicleImage: {
-    width: 84,
-    height: 72,
-  },
-
-  /* 3-Column Telemetry Strip */
-  telemetryGrid: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    paddingVertical: 11,
-    paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-  },
-  telemetryBox: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  telemetryIconCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  telemetryLabel: {
-    fontSize: 9.5,
-    fontWeight: '800',
-    color: '#94A3B8',
-    letterSpacing: 0.5,
-  },
-  telemetryVal: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginTop: 1,
-  },
-  telemetryDivider: {
-    width: 1,
-    height: 26,
-    backgroundColor: '#E2E8F0',
-  },
-
-  /* Main Body Container */
-  bodyContainer: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    gap: 14,
-  },
-
-  /* Section Cards */
-  sectionCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#E8EDF5',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    elevation: 2,
-    overflow: 'hidden',
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  sectionTitleGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 11,
-  },
-  sectionIconBox: {
+  round: {
     width: 38,
     height: 38,
-    borderRadius: 12,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.16)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0F172A',
-    letterSpacing: -0.2,
-  },
-  sectionSubtitle: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#64748B',
-    marginTop: 1,
-  },
-
-  /* Route Timeline */
-  routeTimelineWrap: {
-    paddingLeft: 2,
-  },
-  stationRow: {
+  heroRow: {
+    marginTop: 8,
     flexDirection: 'row',
-    alignItems: 'stretch',
+    alignItems: 'flex-end',
   },
-  timelineRail: {
-    width: 22,
-    alignItems: 'center',
-    marginRight: 10,
-    paddingTop: 14,
-  },
-  pickupOuterRing: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#EDE9FE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pickupInnerDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: BRAND_VIOLET,
-  },
-  railConnector: {
-    width: 2,
+  heroCopy: {
     flex: 1,
-    backgroundColor: '#DDD6FE',
-    marginVertical: 4,
+    paddingBottom: 8,
+    zIndex: 2,
   },
-  dropSquareNode: {
-    width: 13,
-    height: 13,
-    borderRadius: 4,
-    borderWidth: 2.5,
-    borderColor: '#0F172A',
-    backgroundColor: '#FFFFFF',
-  },
-  stationCard: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    padding: 13,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-  },
-  stationCardTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 6,
-  },
-  stationTagPickup: {
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 7,
-    paddingVertical: 2.5,
-    borderRadius: 6,
-  },
-  stationTagPickupText: {
-    fontSize: 9.5,
+  kicker: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 11,
     fontWeight: '800',
-    color: '#15803D',
-    letterSpacing: 0.5,
+    letterSpacing: 1.1,
   },
-  stationTagDrop: {
-    backgroundColor: '#EDE9FE',
-    paddingHorizontal: 7,
-    paddingVertical: 2.5,
-    borderRadius: 6,
-  },
-  stationTagDropText: {
-    fontSize: 9.5,
+  name: {
+    marginTop: 6,
+    color: '#FFFFFF',
+    fontSize: 30,
     fontWeight: '800',
-    color: '#6D28D9',
-    letterSpacing: 0.5,
+    letterSpacing: -0.4,
   },
-  timestampWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  timestampText: {
-    fontSize: 11.5,
-    fontWeight: '600',
-    color: '#64748B',
-  },
-  stationName: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  stationAddress: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#64748B',
+  line: {
     marginTop: 2,
-  },
-
-  /* Payment & Receipt Card */
-  paymentMethodPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#F5F3FF',
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 10,
-  },
-  paymentMethodPillText: {
-    fontSize: 11.5,
-    fontWeight: '800',
-    color: BRAND_PURPLE_ACCENT,
-  },
-  billTable: {
-    gap: 11,
-  },
-  billLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  billLabel: {
-    fontSize: 13.5,
-    fontWeight: '600',
-    color: '#475569',
-  },
-  billAmount: {
+    color: 'rgba(255,255,255,0.82)',
     fontSize: 14,
-    fontWeight: '800',
-    color: '#0F172A',
   },
-  billIncludedTag: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#059669',
-    backgroundColor: '#ECFDF5',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  depositLabelGroup: {
+  idRow: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  depositMiniPill: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
+  id: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
   },
-  depositMiniReturned: {
-    backgroundColor: '#DCFCE7',
+  vehicleFrame: {
+    width: 156,
+    height: 118,
+    overflow: 'hidden',
   },
-  depositMiniHeld: {
-    backgroundColor: '#FEF3C7',
+  vehicle: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 156,
+    height: 118,
   },
-  depositMiniText: {
-    fontSize: 10,
+  body: {
+    marginTop: -24,
+    paddingHorizontal: 16,
+  },
+  stats: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#1C1230',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+  stat: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
+  },
+  statValue: {
+    marginTop: 4,
+    color: '#1C1C1C',
+    fontSize: 15,
     fontWeight: '800',
   },
-
-  /* Perforated Ticket Divider */
-  ticketDividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 16,
-    marginHorizontal: -18,
+  statLabel: {
+    color: '#8A8496',
+    fontSize: 11,
+    fontWeight: '600',
   },
-  ticketNotchLeft: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#F4F6FB',
-    marginLeft: -9,
-    borderWidth: 1,
-    borderColor: '#E8EDF5',
+  statRule: {
+    width: 1,
+    height: 36,
+    backgroundColor: '#EFEAF6',
   },
-  ticketDashedLine: {
-    flex: 1,
-    height: 1,
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderStyle: 'dashed',
-    marginHorizontal: 10,
+  card: {
+    marginTop: 14,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    padding: 16,
   },
-  ticketNotchRight: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#F4F6FB',
-    marginRight: -9,
-    borderWidth: 1,
-    borderColor: '#E8EDF5',
-  },
-
-  /* Grand Total Row */
-  grandTotalRow: {
+  cardHead: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
   },
-  grandTotalLabel: {
+  cardTitle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cardHeading: {
+    color: '#1C1C1C',
     fontSize: 16,
-    fontWeight: '900',
-    color: '#0F172A',
+    fontWeight: '800',
   },
-  grandTotalSub: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#64748B',
-    marginTop: 2,
-  },
-  grandTotalAmount: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: BRAND_PURPLE_ACCENT,
-  },
-
-  /* Transaction ID Copy Box */
-  txBar: {
+  mapLink: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    gap: 4,
   },
-  txBarLeft: {
+  mapLinkText: {
+    color: PURPLE,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  routeRow: {
+    marginTop: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  stops: {
+    flex: 1,
+  },
+  stop: {
+    flexDirection: 'row',
+  },
+  rail: {
+    width: 18,
+    alignItems: 'center',
+  },
+  dotFill: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#7C3AED',
+    marginTop: 4,
+  },
+  railLine: {
+    width: 2,
+    flex: 1,
+    minHeight: 28,
+    marginVertical: 2,
+    backgroundColor: '#E9D5FF',
+  },
+  dotRing: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderColor: '#7C3AED',
+    marginTop: 4,
+  },
+  stopKicker: {
+    color: '#8A8496',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  stopPlace: {
+    marginTop: 1,
+    color: '#1C1C1C',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  stopWhen: {
+    marginTop: 1,
+    marginBottom: 8,
+    color: '#8A8496',
+    fontSize: 12,
+  },
+  routeFrame: {
+    width: 124,
+    height: 112,
+    overflow: 'hidden',
+  },
+  routeArt: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: 124,
+    height: 112,
+  },
+  billRow: {
+    paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
-  txIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  txKicker: {
-    fontSize: 9.5,
-    fontWeight: '800',
-    color: '#94A3B8',
-    letterSpacing: 0.6,
-  },
-  txCodeText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#1E293B',
-    marginTop: 1,
-  },
-  copyChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  copyChipSuccess: {
-    borderColor: '#BBF7D0',
-    backgroundColor: '#F0FDF4',
-  },
-  copyChipText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: BRAND_PURPLE_ACCENT,
-  },
-
-  /* 2-Column Quick Support & Invoice Grid */
-  quickActionsGrid: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  quickActionCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 15,
-    borderWidth: 1,
-    borderColor: '#E8EDF5',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    elevation: 1.5,
-  },
-  quickActionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  quickActionTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  quickActionSub: {
-    fontSize: 11.5,
-    fontWeight: '500',
-    color: '#64748B',
-    marginTop: 2,
-  },
-
-  stationNoticeCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#F5F3FF',
-    borderWidth: 1.2,
-    borderColor: '#DDD6FE',
-    borderRadius: 20,
-    padding: 16,
-    marginTop: 14,
-  },
-  stationNoticeIconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#EDE9FE',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stationNoticeTitle: {
-    fontSize: 13.5,
-    fontWeight: '800',
-    color: '#5B21B6',
-    marginBottom: 3,
-  },
-  stationNoticeSub: {
-    fontSize: 12,
-    lineHeight: 16,
-    color: '#6D28D9',
-  },
-
-  /* Sticky Bottom Bar */
-  bottomDock: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.94)',
-    paddingHorizontal: 16,
-    paddingTop: 12,
+  billRule: {
     borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
+    borderTopColor: '#F3F0F7',
   },
-  primaryBottomBtn: {
-    borderRadius: 18,
-    overflow: 'hidden',
-    shadowColor: BRAND_PURPLE_ACCENT,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 5,
+  billIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#F6F1FC',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  primaryBottomGradient: {
+  billLabel: {
+    flex: 1,
+    color: '#3C3846',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  billValue: {
+    color: '#1C1C1C',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  totalRow: {
+    marginTop: 16,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#F1EEF6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  totalLabel: {
+    color: '#1C1C1C',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  totalValue: {
+    color: PURPLE,
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  footer: {
+    backgroundColor: '#F7F6FB',
+    paddingTop: 12,
+    paddingHorizontal: 16,
+  },
+  download: {
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: '#7C1FFF',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    height: 54,
+    overflow: 'hidden',
   },
-  primaryBottomText: {
-    fontSize: 15.5,
-    fontWeight: '800',
+  downloadFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+  },
+  downloadShine: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    height: '100%',
+    backgroundColor: 'rgba(255,255,255,0.4)',
+  },
+  downloadText: {
     color: '#FFFFFF',
-    letterSpacing: 0.2,
+    fontSize: 16,
+    fontWeight: '800',
   },
 });

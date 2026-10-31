@@ -1,88 +1,75 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
-import { WebView } from 'react-native-webview';
-import { apiPost } from '../services/api';
-import { apiGet, getStoredRider, last10, rupee, shortDate } from '../services/api';
+import { apiGet, apiPost, last10, rupee, shortDate } from '../services/api';
 
-const BRAND_PURPLE = '#240B4C';
-const BRAND_PURPLE_ACCENT = '#5B21B6';
-const BRAND_VIOLET = '#7C3AED';
-const PAGE = '#F4F6FB';
-
+const PURPLE = '#4A168C';
+const PURPLE_DARK = '#25084A';
+const PAGE = '#F7F7F8';
+const WALLET_HERO = require('../assets/wallet/wallet-hero.png');
+const WALLET_CARD = require('../assets/wallet/wallet-card.png');
+const OFFER_BG = require('../assets/wallet/offer-bg.png');
+const OFFER_SCOOTER = require('../assets/home/vehicle-mink.png');
 const AMOUNTS = [100, 250, 500, 1000];
 
-const TX_FILTERS = [
-  { id: 'all', label: 'All Activity' },
-  { id: 'credit', label: 'Added / Refunds' },
-  { id: 'debit', label: 'Ride Fares' },
+const ACTIONS = [
+  { id: 'add', icon: 'add', label: 'Add Money' },
+  { id: 'out', icon: 'arrow-down', label: 'Withdraw' },
+  { id: 'history', icon: 'time-outline', label: 'History' },
 ];
 
 const TRANSACTIONS = [
   {
-    id: 'TXN_TOPUP_882',
+    id: 'topup',
     title: 'Wallet Top-Up',
     detail: 'Razorpay UPI Payment',
-    date: '28 Aug 2026 · 10:15 AM',
-    amount: '+₹500.00',
+    date: '28 Aug 2026',
+    amount: '',
     credit: true,
     method: 'Razorpay UPI',
     status: 'Completed',
-    booking: 'EVG_TOPUP_882',
-    note: 'Added to main balance via Google Pay.',
   },
   {
-    id: 'TXN_DEP_412',
-    title: 'Security Deposit Held',
+    id: 'deposit',
+    title: 'Security Deposit Add',
     detail: 'Refundable Security Deposit',
-    date: '27 Aug 2026 · 02:30 PM',
+    date: '27 Aug 2026',
     amount: '+₹250.00',
     credit: true,
-    method: 'Wallet Deposit',
+    method: 'Wallet',
     status: 'Completed',
-    booking: 'EVG270826',
-    note: '₹250 refundable security deposit.',
+    note: '₹250 is refundable.',
   },
   {
-    id: 'TXN_RIDE_991',
-    title: 'EV Ride Reservation',
-    detail: 'Gotri Zone · Evegah Mink',
-    date: '28 Aug 2026 · 06:00 PM',
-    amount: '−₹199.00',
-    credit: false,
-    method: 'UPI AutoPay',
-    status: 'Completed',
-    booking: 'EVG141026',
-    note: 'Evegah Mink · Gotri to Manjalpur',
-  },
-  {
-    id: 'TXN_RIDE_120',
-    title: 'EV Ride Fare',
-    detail: 'Alkapuri Zone · Evegah City',
-    date: '12 Oct 2024 · 06:20 PM',
-    amount: '−₹146.00',
+    id: 'ride',
+    title: 'EV Ride Reservation Payment',
+    detail: 'Gotri Zone · Evegah EV',
+    date: '28 Aug 2026',
+    amount: '−₹120.00',
     credit: false,
     method: 'UPI',
     status: 'Completed',
-    booking: 'EVG121026',
-    note: 'Evegah City · Alkapuri to Vasna',
+    booking: 'EVG280826',
+    note: 'Evegah City · Gotri to Gotri',
   },
 ];
+
+function txLook(item) {
+  const text = `${item.title || ''} ${item.detail || ''}`.toLowerCase();
+  if (text.includes('offer') || text.includes('bonus')) {
+    return { icon: 'pricetag', bg: '#FFF4EC', color: '#F97316', pill: 'Credited', pillBg: '#E8F8EF', pillFg: '#16A34A' };
+  }
+  if (text.includes('ride') || text.includes('scooter')) {
+    return { icon: 'bicycle', bg: '#F3EEFB', color: '#7C3AED', pill: 'Paid', pillBg: '#F4F1F7', pillFg: '#6E6878' };
+  }
+  return { icon: 'add', bg: '#E8F8EF', color: '#16A34A', pill: item.credit ? 'Success' : 'Paid', pillBg: item.credit ? '#E8F8EF' : '#F4F1F7', pillFg: item.credit ? '#16A34A' : '#6E6878' };
+}
 
 function moneyLabel(value) {
   return `₹${Math.abs(Math.round(Number(value) || 0)).toLocaleString('en-IN')}`;
@@ -95,6 +82,7 @@ export default function WalletScreen({
   onOpenProfile,
   onOffers,
   onOpenTx,
+  onOpenHistory,
   phone,
   enterCards = true,
 }) {
@@ -102,964 +90,386 @@ export default function WalletScreen({
   const enter = (index) => (enterCards ? cardEnter(index) : undefined);
   const scrollRef = useRef(null);
   const [rows, setRows] = useState(TRANSACTIONS);
-  const [txFilter, setTxFilter] = useState('all');
   const [balance, setBalance] = useState(null);
   const [added, setAdded] = useState(0);
-  const [sheet, setSheet] = useState(null); // 'add' | 'out' | null
+  const [sheet, setSheet] = useState(null);
   const [picked, setPicked] = useState(250);
   const [custom, setCustom] = useState('');
 
   useEffect(() => {
-    let active = true;
-    async function loadData() {
-      let mobile = last10(phone);
-      if (!mobile) {
-        try {
-          const stored = await getStoredRider();
-          mobile = last10(stored?.mobile || stored?.phone);
-        } catch (_) {}
-      }
-      if (!mobile) return;
-      apiGet(`/wallet/balance?mobile=${mobile}`)
-        .then((body) => {
-          if (active && body?.data) setBalance(body.data);
-        })
-        .catch(() => {});
-      apiGet(`/wallet/transactions?mobile=${mobile}`)
-        .then((body) => {
-          if (!active) return;
-          const list = body?.data || [];
-          if (!list.length) return;
-          const seenKeys = new Set();
-          const mapped = [];
-          for (let i = 0; i < list.length; i++) {
-            const item = list[i];
-            const rawId = item.transaction_id || item.id || `TXN_${i}`;
-            const kind = String(item.type || '').toLowerCase();
-            const credit = kind === 'credit' || kind.includes('add');
-            if (!seenKeys.has(String(rawId))) {
-              seenKeys.add(String(rawId));
-              mapped.push({
-                id: String(rawId),
-                title: item.title,
-                detail: item.subtitle || item.payment_method || '',
-                date: shortDate(item.created_at),
-                amount: rupee(item.amount, credit),
-                credit,
-                method: item.payment_method || 'UPI',
-                status: item.status || 'Completed',
-                booking: item.reservation_id || '',
-                note: item.note || '',
-              });
-            }
-          }
-          if (mapped.length > 0) setRows(mapped);
-        })
-        .catch(() => {});
-    }
-    loadData();
-    return () => {
-      active = false;
-    };
+    const mobile = last10(phone);
+    if (!mobile) return;
+    apiGet(`/wallet/balance?mobile=${mobile}`)
+      .then((body) => {
+        if (body?.data) setBalance(body.data);
+      })
+      .catch(() => {});
+    apiGet(`/wallet/transactions?mobile=${mobile}`)
+      .then((body) => {
+        const list = body?.data || [];
+        if (!list.length) return;
+        setRows(list.map((item) => {
+          const kind = String(item.type || '').toLowerCase();
+          const credit = kind === 'credit' || kind.includes('add') || kind.includes('deposit');
+          return {
+            id: String(item.transaction_id || item.id),
+            title: item.title,
+            detail: item.subtitle || item.payment_method || '',
+            date: shortDate(item.created_at),
+            amount: rupee(item.amount, credit),
+            credit,
+            method: item.payment_method || '',
+            status: item.status || 'Completed',
+          };
+        }));
+      })
+      .catch(() => {});
   }, [phone]);
 
-  const mainNum = Number(balance?.main_balance || 350) + added;
-  const bonusNum = Number(balance?.bonus_balance || 150);
-  const totalNum = mainNum + bonusNum;
+  const mainNum = Number(balance?.main_balance || 0) + added;
+  const bonusNum = Number(balance?.bonus_balance || 0);
+  const totalNum = (balance ? Number(balance.total_balance || 0) : 0) + added;
   const main = moneyLabel(mainNum);
   const bonus = moneyLabel(bonusNum);
   const total = moneyLabel(totalNum);
-  const amount = custom.trim()
-    ? Math.max(0, Math.round(Number(custom) || 0))
-    : picked;
-
-  const filteredRows = useMemo(() => {
-    if (txFilter === 'credit') return rows.filter((r) => r.credit);
-    if (txFilter === 'debit') return rows.filter((r) => !r.credit);
-    return rows;
-  }, [rows, txFilter]);
+  const amount = custom.trim() ? Math.max(0, Math.round(Number(custom) || 0)) : picked;
 
   const openSheet = (mode) => {
-    if (mode === 'out') {
-      Alert.alert(
-        'Withdrawals Temporarily Paused',
-        'Wallet withdrawals to external bank accounts are temporarily paused for scheduled banking gateway maintenance. Your complete balance remains 100% secure and available for all EV rides and battery swaps.',
-        [{ text: 'Understood', style: 'default' }]
-      );
-      return;
-    }
     setPicked(250);
     setCustom('');
     setSheet(mode);
   };
 
-  const closeSheet = () => {
-    setSheet(null);
-    setCustom('');
-  };
-
-  // PayU Real Gateway Checkout States
-  const [payuModalVisible, setPayuModalVisible] = useState(false);
-  const [payuCheckoutUrl, setPayuCheckoutUrl] = useState(null);
-  const [payuTxnId, setPayuTxnId] = useState(null);
-  const [payuLoading, setPayuLoading] = useState(true);
-  const [payuPendingAmount, setPayuPendingAmount] = useState(0);
-  const payuPollRef = useRef(null);
-
-  const fetchWalletData = async () => {
-    let mobile = last10(phone);
-    if (!mobile) {
-      try {
-        const stored = await getStoredRider();
-        mobile = last10(stored?.mobile || stored?.phone);
-      } catch (_) {}
-    }
-    if (!mobile) return;
-    try {
-      const bRes = await apiGet(`/wallet/balance?mobile=${mobile}`);
-      if (bRes?.data) setBalance(bRes.data);
-    } catch (_) {}
-    try {
-      const txRes = await apiGet(`/wallet/transactions?mobile=${mobile}`);
-      const list = txRes?.data || [];
-      if (list.length > 0) {
-        const seenKeys = new Set();
-        const mapped = [];
-        for (let i = 0; i < list.length; i++) {
-          const t = list[i];
-          const rawId = t.transaction_id || t.id || `TXN_${i}`;
-          if (!seenKeys.has(String(rawId))) {
-            seenKeys.add(String(rawId));
-            mapped.push({
-              id: String(rawId),
-              title: t.title || 'Wallet Top-Up',
-              detail: t.subtitle || t.description || 'PayU India Secure Payment',
-              date: shortDate(t.created_at || t.timestamp),
-              amount: `${String(t.type || '').toLowerCase().includes('credit') ? '+' : '−'}₹${Math.abs(Number(t.amount || 0)).toFixed(2)}`,
-              credit: String(t.type || '').toLowerCase().includes('credit'),
-              method: t.payment_method || 'PayU India',
-              status: t.status || 'Completed',
-              booking: t.transaction_id || String(rawId),
-              note: t.subtitle || 'Credited to Evegah wallet',
-            });
-          }
-        }
-        if (mapped.length > 0) setRows(mapped);
-      }
-    } catch (_) {}
-  };
-
-  const handlePayuSuccess = (confirmedTxnId) => {
-    if (payuPollRef.current) clearInterval(payuPollRef.current);
-    setPayuModalVisible(false);
-    fetchWalletData();
-    Alert.alert(
-      'Wallet Top-Up Successful! 🎉',
-      `₹${payuPendingAmount} has been successfully added to your Evegah Wallet via PayU.`
-    );
-  };
-
-  const handlePayuFailure = (errMsg) => {
-    if (payuPollRef.current) clearInterval(payuPollRef.current);
-    setPayuModalVisible(false);
-    Alert.alert(
-      'Payment Incomplete',
-      errMsg || 'Transaction could not be completed with PayU. No amount was deducted.'
-    );
-  };
-
-  const handleCancelPayuModal = () => {
-    Alert.alert(
-      'Cancel Payment?',
-      'Are you sure you want to cancel the ongoing PayU top-up session?',
-      [
-        { text: 'Continue Payment', style: 'cancel' },
-        {
-          text: 'Cancel',
-          style: 'destructive',
-          onPress: () => {
-            if (payuPollRef.current) clearInterval(payuPollRef.current);
-            setPayuModalVisible(false);
-          },
-        },
-      ]
-    );
-  };
-
-  const onWebViewMessage = (event) => {
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'PAYU_PAYMENT_RESPONSE') {
-        if (String(data.status || '').toLowerCase() === 'success') {
-          handlePayuSuccess(data.txnid || payuTxnId);
-        } else {
-          handlePayuFailure(data.message || 'Payment was cancelled or failed.');
-        }
-      }
-    } catch (_) {}
-  };
-
-  const onWebViewNavigationStateChange = (navState) => {
-    const { url } = navState;
-    if (url && (url.includes('/payments/payu/response') || url.includes('/response'))) {
-      if (url.includes('status=failed') || url.includes('status=failure') || url.includes('error=')) {
-        handlePayuFailure('Payment was cancelled or failed.');
-      } else if (url.includes('status=success') || url.includes('status=SUCCESS')) {
-        handlePayuSuccess(payuTxnId);
-      }
-    }
-  };
-
-  const startPayuStatusPolling = (txnId) => {
-    if (payuPollRef.current) clearInterval(payuPollRef.current);
-    let attempts = 0;
-    payuPollRef.current = setInterval(async () => {
-      attempts++;
-      if (attempts > 50) {
-        clearInterval(payuPollRef.current);
-        return;
-      }
-      try {
-        const stRes = await apiGet(`/payments/payu/status/${txnId}`);
-        if (stRes?.status === 'success' && stRes?.data) {
-          const pStatus = (stRes.data.status || '').toLowerCase();
-          if (pStatus === 'success') {
-            clearInterval(payuPollRef.current);
-            handlePayuSuccess(txnId);
-          } else if (pStatus === 'failed' || pStatus === 'failure') {
-            clearInterval(payuPollRef.current);
-            handlePayuFailure(stRes.data.error_message || 'Payment failed.');
-          }
-        }
-      } catch (_) {}
-    }, 3000);
-  };
-
-  const handleInitiatePayUWalletTopUp = async (topUpAmount) => {
-    closeSheet();
-    setPayuPendingAmount(topUpAmount);
-    setPayuLoading(true);
-    setPayuModalVisible(true);
-
-    try {
-      let mobile = last10(phone);
-      let riderName = 'Evegah Rider';
-      let riderEmail = '';
-      try {
-        const stored = await getStoredRider();
-        if (stored) {
-          mobile = last10(stored.mobile || stored.phone) || mobile;
-          riderName = stored.rider_name || stored.name || riderName;
-          riderEmail = stored.email || '';
-        }
-      } catch (_) {}
-
-      const initRes = await apiPost('/payments/payu/initiate', {
-        amount: topUpAmount,
-        rider_name: riderName,
-        phone: mobile || '9999999999',
-        mobile: mobile || '9999999999',
-        email: riderEmail || `rider_${mobile || 'topup'}@evegah.com`,
-        purpose: 'wallet_topup',
-      });
-
-      if (!initRes || initRes.status !== 'success' || !initRes.data) {
-        setPayuModalVisible(false);
-        Alert.alert(
-          'Payment Notice',
-          initRes?.message || 'Could not initiate PayU checkout session. Please check your connection.'
-        );
-        return;
-      }
-
-      const { txnid, tx_id, checkout_url } = initRes.data;
-      const finalTxnId = txnid || tx_id;
-      const finalCheckoutUrl = checkout_url || `https://evegah.cloud/api/payments/payu/checkout/${finalTxnId}`;
-
-      setPayuTxnId(finalTxnId);
-      setPayuCheckoutUrl(finalCheckoutUrl);
-      setPayuLoading(false);
-
-      startPayuStatusPolling(finalTxnId);
-    } catch (err) {
-      setPayuModalVisible(false);
-      Alert.alert('Payment Error', err.message || 'Could not connect to payment gateway.');
+  const handleOpenHistory = () => {
+    if (onOpenHistory) {
+      onOpenHistory();
+    } else if (onOpenTx) {
+      onOpenTx(null);
+    } else {
+      scrollRef.current?.scrollToEnd({ animated: true });
     }
   };
 
   const confirmSheet = () => {
     if (!amount) return;
+    const mobile = last10(phone);
     if (sheet === 'add') {
-      handleInitiatePayUWalletTopUp(amount);
+      if (mobile) {
+        // Initiate live payment gateway session via dynamic gateway config
+        apiPost('/wallet/create-payment-link', {
+          amount,
+          mobile,
+          name: 'Evegah Rider',
+        })
+          .then((res) => {
+            const checkoutUrl = res?.payment_url || res?.upi_string || res?.data?.checkout_url;
+            if (checkoutUrl) {
+              Linking.openURL(checkoutUrl).catch(() => {});
+            }
+          })
+          .catch(() => {
+            // Fallback to direct PayU initiation
+            apiPost('/payments/payu/initiate', {
+              amount,
+              mobile,
+              rider_name: 'Evegah Rider',
+              email: `rider_${mobile}@evegah.com`,
+              purpose: 'wallet',
+            })
+              .then((res) => {
+                const checkoutUrl = res?.data?.checkout_url || res?.data?.action_url;
+                if (checkoutUrl) {
+                  Linking.openURL(checkoutUrl).catch(() => {});
+                }
+              })
+              .catch(() => {});
+          });
+
+        apiPost('/wallet/add-money', {
+          mobile,
+          amount,
+          payment_method: 'PayU India',
+          title: 'Wallet Top-Up',
+        }).catch(() => {});
+      }
+      setAdded((value) => value + amount);
+      setRows((current) => [
+        {
+          id: `add-${Date.now()}`,
+          title: 'Wallet Top-Up',
+          detail: 'PayU India Checkout',
+          date: 'Today',
+          amount: rupee(amount, true),
+          credit: true,
+          method: 'PayU India',
+          status: 'Completed',
+        },
+        ...current,
+      ]);
     } else {
       const take = Math.min(amount, mainNum);
       if (take > 0) {
+        if (mobile) {
+          apiPost('/wallet/withdraw', {
+            mobile,
+            amount: take,
+            title: 'Withdrawal to Bank',
+          }).catch(() => {});
+        }
         setAdded((value) => value - take);
-        const newTx = {
-          id: `TXN_WDR_${Date.now().toString().slice(-6)}`,
-          title: 'Wallet Withdrawal',
-          detail: 'Transferred to UPI Bank Account',
-          date: 'Today · Just now',
-          amount: `−${moneyLabel(take)}`,
-          credit: false,
-          method: 'Direct Bank UPI',
-          status: 'Completed',
-          booking: `EVG_WDR_${Date.now().toString().slice(-4)}`,
-          note: `Withdrawn ${moneyLabel(take)} to linked bank account.`,
-        };
-        setRows((current) => [newTx, ...current]);
-        Alert.alert(
-          'Withdrawal Initiated',
-          `${moneyLabel(take)} is being transferred to your linked UPI bank account.`
-        );
+        setRows((current) => [
+          {
+            id: `out-${Date.now()}`,
+            title: 'Withdrawal',
+            detail: 'Refund to bank account',
+            date: 'Today',
+            amount: rupee(take, false),
+            credit: false,
+            method: 'Bank Transfer',
+            status: 'Completed',
+          },
+          ...current,
+        ]);
       }
-      closeSheet();
     }
+    setSheet(null);
   };
 
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
-
       <ScrollView
         ref={scrollRef}
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={{ paddingBottom: 12 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Deep Purple Hero Header */}
         <LinearGradient
-          colors={['#120529', '#250952', '#3B0F7A']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[styles.heroHeader, { paddingTop: insets.top + 10 }]}
+          colors={['#3B0764', '#5B21B6', '#7C3AED', '#E9D5FF', PAGE]}
+          locations={[0, 0.28, 0.48, 0.72, 1]}
+          style={[styles.hero, { paddingTop: insets.top + 4 }]}
         >
-          {/* Ambient Glow Orbs */}
-          <View style={styles.glowOrbTop} pointerEvents="none" />
-          <View style={styles.glowOrbRight} pointerEvents="none" />
-
-          {/* Top Navigation Row */}
           <View style={styles.topBar}>
-            <Pressable
-              hitSlop={10}
-              onPress={onOpenHome}
-              style={({ pressed }) => [
-                styles.topIconBtn,
-                pressed && { opacity: 0.75 },
-              ]}
-            >
-              <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
+            <Pressable hitSlop={8} style={styles.round} onPress={onOpenHome}>
+              <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
             </Pressable>
-
-            <View style={styles.topCenterCol}>
-              <Text style={styles.topBarTitle}>Evegah Pay</Text>
-              <Text style={styles.topBarSub}>DIGITAL MOBILITY WALLET</Text>
-            </View>
-
-            <Pressable
-              hitSlop={10}
-              onPress={() =>
-                scrollRef.current?.scrollToEnd({ animated: true })
-              }
-              style={({ pressed }) => [
-                styles.topIconBtn,
-                pressed && { opacity: 0.75 },
-              ]}
-            >
-              <Ionicons name="receipt-outline" size={19} color="#FFFFFF" />
+            <Pressable hitSlop={8} style={styles.historyBtn} onPress={handleOpenHistory}>
+              <Ionicons name="time-outline" size={14} color="#FFFFFF" />
+              <Text style={styles.historyText}>History</Text>
             </Pressable>
           </View>
 
-          {/* Glassmorphism Balance Card */}
-          <View style={styles.glassBalanceCard}>
-            <View style={styles.balanceHeaderRow}>
-              <View>
-                <Text style={styles.balanceKicker}>TOTAL AVAILABLE BALANCE</Text>
-                <Text style={styles.balanceHeroValue}>{total}</Text>
-              </View>
-
-              <View style={styles.insuredBadge}>
-                <View style={styles.insuredDot} />
-                <Ionicons name="shield-checkmark" size={13} color="#34D399" />
-                <Text style={styles.insuredBadgeText}>RBI Compliant</Text>
-              </View>
+          <View style={styles.heroRow}>
+            <View style={styles.heroCopy}>
+              <Text style={styles.kicker}>EVEGAH WALLET</Text>
+              <Text style={styles.title}>Ready for{'\n'}the next ride</Text>
+              <Text style={styles.heroSub}>Add money, unlock rides and{'\n'}enjoy exclusive offers.</Text>
             </View>
+            <Image source={WALLET_HERO} style={styles.heroArt} contentFit="contain" pointerEvents="none" />
+          </View>
 
-            {/* 3-Column Sub-Balance Telemetry Strip */}
-            <View style={styles.subBalanceStrip}>
-              <View style={styles.subBalanceCol}>
-                <View style={styles.subBalanceLabelRow}>
-                  <Ionicons name="wallet-outline" size={13} color="#C4B5FD" />
-                  <Text style={styles.subBalanceLabel}>Withdrawable</Text>
-                </View>
-                <Text style={styles.subBalanceVal}>{main}</Text>
+          <View style={styles.balanceCard}>
+            <View style={styles.balanceTop}>
+              <View style={styles.balanceCopy}>
+                <Text style={styles.balanceLabel}>Total balance</Text>
+                <Text style={styles.balanceValue}>{total}</Text>
+                <Pressable onPress={() => openSheet('add')} style={styles.addFace}>
+                  <Ionicons name="add" size={14} color="#FFFFFF" />
+                  <Text style={styles.addText}>Add money</Text>
+                </Pressable>
               </View>
-
-              <View style={styles.subBalanceDivider} />
-
-              <View style={styles.subBalanceCol}>
-                <View style={styles.subBalanceLabelRow}>
-                  <Ionicons name="sparkles-outline" size={13} color="#FDE047" />
-                  <Text style={styles.subBalanceLabel}>Ride Bonus</Text>
+              <Image source={WALLET_CARD} style={styles.cardArt} contentFit="contain" />
+            </View>
+            <View style={styles.cardRule} />
+            <View style={styles.statsBar}>
+              <View style={styles.statCol}>
+                <View style={styles.statIcon}>
+                  <Ionicons name="wallet-outline" size={13} color={PURPLE} />
                 </View>
-                <Text style={[styles.subBalanceVal, { color: '#FEF08A' }]}>
-                  {bonus}
-                </Text>
+                <Text style={styles.statValue}>{main}</Text>
+                <Text style={styles.statLabel}>Main{'\n'}Balance</Text>
               </View>
-
-              <View style={styles.subBalanceDivider} />
-
-              <View style={styles.subBalanceCol}>
-                <View style={styles.subBalanceLabelRow}>
-                  <Ionicons
-                    name="lock-closed-outline"
-                    size={13}
-                    color="#6EE7B7"
-                  />
-                  <Text style={styles.subBalanceLabel}>Deposit Held</Text>
+              <View style={styles.statRule} />
+              <View style={styles.statCol}>
+                <View style={styles.statIcon}>
+                  <Ionicons name="gift-outline" size={13} color={PURPLE} />
                 </View>
-                <Text style={[styles.subBalanceVal, { color: '#A7F3D0' }]}>
-                  ₹250
-                </Text>
+                <Text style={styles.statValue}>{bonus}</Text>
+                <Text style={styles.statLabel}>Bonus</Text>
+              </View>
+              <View style={styles.statRule} />
+              <View style={styles.statCol}>
+                <View style={styles.statIcon}>
+                  <Ionicons name="stats-chart-outline" size={13} color={PURPLE} />
+                </View>
+                <Text style={styles.statValue}>{total}</Text>
+                <Text style={styles.statLabel}>Total</Text>
               </View>
             </View>
           </View>
         </LinearGradient>
 
-        {/* Floating Quick Actions Dock overlapping the header curve */}
-        <Animated.View entering={enter(0)} style={styles.floatingActionsWrap}>
-          <View style={styles.actionsDockCard}>
-            <Pressable
-              onPress={() => openSheet('add')}
-              style={({ pressed }) => [
-                styles.actionItem,
-                pressed && { opacity: 0.75, transform: [{ scale: 0.96 }] },
-              ]}
-            >
-              <View
-                style={[styles.actionIconBox, { backgroundColor: '#F5F3FF' }]}
+        <View style={styles.sheet}>
+          <View style={styles.actions}>
+            {ACTIONS.map((item) => (
+              <Pressable
+                key={item.id}
+                style={styles.action}
+                onPress={() => {
+                  if (item.id === 'add') openSheet('add');
+                  else if (item.id === 'out') openSheet('out');
+                  else handleOpenHistory();
+                }}
               >
-                <Ionicons
-                  name="add-circle"
-                  size={22}
-                  color={BRAND_PURPLE_ACCENT}
-                />
-              </View>
-              <Text style={styles.actionLabel}>Add Money</Text>
-            </Pressable>
-
-            <View style={styles.actionDockDivider} />
-
-            <Pressable
-              onPress={() => openSheet('out')}
-              style={({ pressed }) => [
-                styles.actionItem,
-                { opacity: 0.72 },
-                pressed && { opacity: 0.5, transform: [{ scale: 0.96 }] },
-              ]}
-            >
-              <View
-                style={[styles.actionIconBox, { backgroundColor: '#F1F5F9' }]}
-              >
-                <Ionicons
-                  name="arrow-up-circle-outline"
-                  size={22}
-                  color="#64748B"
-                />
-              </View>
-              <Text style={[styles.actionLabel, { color: '#64748B' }]}>Withdraw</Text>
-            </Pressable>
-
-            <View style={styles.actionDockDivider} />
-
-            <Pressable
-              onPress={onOffers}
-              style={({ pressed }) => [
-                styles.actionItem,
-                pressed && { opacity: 0.75, transform: [{ scale: 0.96 }] },
-              ]}
-            >
-              <View
-                style={[styles.actionIconBox, { backgroundColor: '#FEF3C7' }]}
-              >
-                <Ionicons name="pricetag-outline" size={20} color="#D97706" />
-              </View>
-              <Text style={styles.actionLabel}>Vouchers</Text>
-            </Pressable>
-
-            <View style={styles.actionDockDivider} />
-
-            <Pressable
-              onPress={() =>
-                scrollRef.current?.scrollToEnd({ animated: true })
-              }
-              style={({ pressed }) => [
-                styles.actionItem,
-                pressed && { opacity: 0.75, transform: [{ scale: 0.96 }] },
-              ]}
-            >
-              <View
-                style={[styles.actionIconBox, { backgroundColor: '#ECFDF5' }]}
-              >
-                <Ionicons
-                  name="document-text-outline"
-                  size={20}
-                  color="#059669"
-                />
-              </View>
-              <Text style={styles.actionLabel}>Statement</Text>
-            </Pressable>
-          </View>
-        </Animated.View>
-
-        <View style={styles.bodyContainer}>
-          {/* Cashback / Bonus Offer Card */}
-          <Animated.View entering={enter(1)}>
-            <Pressable
-              onPress={() => openSheet('add')}
-              style={({ pressed }) => [
-                styles.promoBannerOuter,
-                pressed && { opacity: 0.94, transform: [{ scale: 0.99 }] },
-              ]}
-            >
-              <LinearGradient
-                colors={['#2E1065', '#4C1D95', '#6D28D9']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.promoBannerGrad}
-              >
-                <View style={styles.promoBadgeBox}>
-                  <Ionicons name="flash" size={20} color="#FDE047" />
-                </View>
-
-                <View style={styles.promoContentCol}>
-                  <View style={styles.promoTagRow}>
-                    <Text style={styles.promoTagText}>INSTANT REWARD</Text>
-                  </View>
-                  <Text style={styles.promoTitle}>
-                    Get 10% Extra Ride Credits
-                  </Text>
-                  <Text style={styles.promoSub}>
-                    Top up ₹500 or more & unlock zero-deposit fast unlocking.
-                  </Text>
-                </View>
-
-                <View style={styles.promoCtaCircle}>
+                <View style={styles.actionIcon}>
                   <Ionicons
-                    name="arrow-forward"
-                    size={16}
-                    color={BRAND_PURPLE}
+                    name={item.id === 'out' ? 'arrow-up' : item.icon}
+                    size={15}
+                    color={PURPLE}
+                    style={item.id === 'out' ? styles.arrowUpRight : undefined}
                   />
                 </View>
-              </LinearGradient>
-            </Pressable>
+                <Text style={styles.actionLabel}>{item.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Animated.View entering={enter(2)} style={styles.offer}>
+            <Image source={OFFER_BG} style={styles.offerBg} contentFit="cover" pointerEvents="none" />
+            <View style={styles.offerCopy}>
+              <Text style={styles.offerKicker}>OFFERS</Text>
+              <Text style={styles.offerTitle}>Ride more,{'\n'}save more</Text>
+              <Text style={styles.offerSub}>Unlock exclusive offers on{'\n'}every Evegah ride.</Text>
+              <Pressable hitSlop={6} onPress={onOffers} style={styles.offerLink}>
+                <Text style={styles.offerLinkText}>View all offers</Text>
+                <Ionicons name="arrow-forward" size={14} color="#3B0764" />
+              </Pressable>
+            </View>
+            <Image source={OFFER_SCOOTER} style={styles.scooter} contentFit="contain" pointerEvents="none" />
           </Animated.View>
 
-          {/* Passbook Header & Filter Pills */}
-          <View style={styles.passbookHeaderSection}>
-            <View style={styles.passbookTitleRow}>
-              <View>
-                <Text style={styles.passbookTitle}>Passbook & History</Text>
-                <Text style={styles.passbookSub}>
-                  All UPI top-ups, ride fares & deposit logs
-                </Text>
-              </View>
-              <View style={styles.recordCountPill}>
-                <Text style={styles.recordCountText}>
-                  {filteredRows.length} entries
-                </Text>
-              </View>
-            </View>
+          <View style={styles.sectionRow}>
+            <Text style={styles.section}>Recent Transactions</Text>
+            <Pressable hitSlop={8} onPress={handleOpenHistory} style={styles.seeAll}>
+              <Text style={styles.link}>See all</Text>
+              <Ionicons name="chevron-forward" size={14} color="#8A8496" />
+            </Pressable>
+          </View>
+          <Animated.View entering={enter(3)} style={styles.list}>
+            {rows.map((item, index) => {
+              const look = txLook(item);
+              return (
+                <Pressable key={item.id} onPress={() => onOpenTx?.(item)} style={[styles.tx, index > 0 && styles.txLine]}>
+                  <View style={[styles.txIcon, { backgroundColor: look.bg }]}>
+                    <Ionicons name={look.icon} size={14} color={look.color} />
+                  </View>
+                  <View style={styles.txMain}>
+                    <Text style={styles.txTitle} numberOfLines={1}>{item.title}</Text>
+                    <Text style={styles.txDetail}>{item.date}</Text>
+                  </View>
+                  <View style={styles.txSide}>
+                    {item.amount ? (
+                      <Text style={[styles.txAmount, item.credit ? styles.credit : styles.debit]}>
+                        {item.amount}
+                      </Text>
+                    ) : null}
+                    <View style={[styles.pill, { backgroundColor: look.pillBg }]}>
+                      <Text style={[styles.pillText, { color: look.pillFg }]}>{look.pill}</Text>
+                    </View>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </Animated.View>
+        </View>
+      </ScrollView>
 
-            {/* Filter Chips */}
-            <View style={styles.filterPillsRow}>
-              {TX_FILTERS.map((f) => {
-                const active = txFilter === f.id;
+      <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+        <Pressable style={styles.tab} onPress={onOpenHome}>
+          <Ionicons name="home-outline" size={22} color="#8A8A8A" />
+          <Text style={styles.tabLabel}>Home</Text>
+        </Pressable>
+        <Pressable style={styles.tab} onPress={onOpenMyRide}>
+          <Ionicons name="bicycle-outline" size={22} color="#8A8A8A" />
+          <Text style={styles.tabLabel}>My Rides</Text>
+        </Pressable>
+        <Pressable style={styles.tab} onPress={onOpenScan}>
+          <View style={styles.scanButton}>
+            <Ionicons name="scan-outline" size={26} color="#FFFFFF" />
+            <Ionicons name="qr-code" size={12} color="#FFFFFF" style={styles.scanQr} />
+          </View>
+          <Text style={styles.tabLabel}>Scan</Text>
+        </Pressable>
+        <Pressable style={styles.tab}>
+          <Ionicons name="wallet" size={22} color={PURPLE} />
+          <Text style={[styles.tabLabel, styles.tabLabelActive]}>Wallet</Text>
+        </Pressable>
+        <Pressable style={styles.tab} onPress={onOpenProfile}>
+          <Ionicons name="person-outline" size={22} color="#8A8A8A" />
+          <Text style={styles.tabLabel}>Profile</Text>
+        </Pressable>
+      </View>
+
+      {sheet ? (
+        <View style={styles.shade}>
+          <Pressable style={styles.shadeFill} onPress={() => setSheet(null)} />
+          <View style={[styles.money, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+            <View style={styles.moneyHandle} />
+            <View style={styles.moneyHeaderRow}>
+              <View style={styles.moneyTitleWrap}>
+                <Text style={styles.moneyTitle}>{sheet === 'add' ? 'Add money' : 'Withdraw'}</Text>
+                <Text style={styles.moneySub}>
+                  {sheet === 'add'
+                    ? 'Choose an amount to keep in your wallet.'
+                    : 'Main balance can be withdrawn. The ₹250 deposit stays refundable.'}
+                </Text>
+              </View>
+              <Pressable
+                hitSlop={10}
+                onPress={() => setSheet(null)}
+                style={styles.moneyCloseBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+              >
+                <Ionicons name="close" size={20} color="#25084A" />
+              </Pressable>
+            </View>
+            <View style={styles.amountRow}>
+              {AMOUNTS.map((value) => {
+                const active = !custom.trim() && picked === value;
                 return (
                   <Pressable
-                    key={f.id}
-                    onPress={() => setTxFilter(f.id)}
-                    style={[
-                      styles.txFilterChip,
-                      active && styles.txFilterChipActive,
-                    ]}
+                    key={value}
+                    onPress={() => {
+                      setCustom('');
+                      setPicked(value);
+                    }}
+                    style={[styles.amountChip, active && styles.amountChipOn]}
                   >
-                    <Text
-                      style={[
-                        styles.txFilterChipText,
-                        active && styles.txFilterChipTextActive,
-                      ]}
-                    >
-                      {f.label}
-                    </Text>
+                    <Text style={[styles.amountText, active && styles.amountTextOn]}>₹{value}</Text>
                   </Pressable>
                 );
               })}
             </View>
-          </View>
-
-          {/* Transactions List */}
-          <View style={styles.txList}>
-            {filteredRows.map((item, index) => {
-              const isCredit = item.credit;
-              return (
-                <Animated.View key={`${item.id}_${index}`} entering={enter(index + 2)}>
-                  <Pressable
-                    onPress={() => onOpenTx?.(item)}
-                    style={({ pressed }) => [
-                      styles.txCard,
-                      pressed && styles.txCardPressed,
-                    ]}
-                  >
-                    {/* Left Icon */}
-                    <View
-                      style={[
-                        styles.txIconBox,
-                        isCredit
-                          ? {
-                              backgroundColor: '#ECFDF5',
-                              borderColor: '#A7F3D0',
-                            }
-                          : {
-                              backgroundColor: '#F5F3FF',
-                              borderColor: '#DDD6FE',
-                            },
-                      ]}
-                    >
-                      <Ionicons
-                        name={
-                          isCredit
-                            ? 'arrow-down-outline'
-                            : 'bicycle-outline'
-                        }
-                        size={20}
-                        color={isCredit ? '#059669' : BRAND_VIOLET}
-                      />
-                    </View>
-
-                    {/* Center Details */}
-                    <View style={styles.txDetailsCol}>
-                      <View style={styles.txTopRow}>
-                        <Text style={styles.txTitle} numberOfLines={1}>
-                          {item.title}
-                        </Text>
-                      </View>
-
-                      <Text style={styles.txSubtitle} numberOfLines={1}>
-                        {item.detail || item.method}
-                      </Text>
-
-                      <View style={styles.txMetaRow}>
-                        <Text style={styles.txDate}>{item.date}</Text>
-                        {item.booking ? (
-                          <>
-                            <View style={styles.txMetaDot} />
-                            <Text style={styles.txBookingTag}>
-                              #{item.booking}
-                            </Text>
-                          </>
-                        ) : null}
-                      </View>
-                    </View>
-
-                    {/* Right Amount & Status */}
-                    <View style={styles.txRightCol}>
-                      <Text
-                        style={[
-                          styles.txAmount,
-                          isCredit
-                            ? styles.txAmountCredit
-                            : styles.txAmountDebit,
-                        ]}
-                      >
-                        {item.amount}
-                      </Text>
-                      <View style={styles.txMethodMiniRow}>
-                        <Text style={styles.txMethodMiniText}>
-                          {item.method}
-                        </Text>
-                        <Ionicons
-                          name="chevron-forward"
-                          size={13}
-                          color="#94A3B8"
-                        />
-                      </View>
-                    </View>
-                  </Pressable>
-                </Animated.View>
-              );
-            })}
-          </View>
-        </View>
-      </ScrollView>
-
-      {/* Modern Docked Bottom Navigation */}
-      <View
-        style={[
-          styles.tabBarWrap,
-          { paddingBottom: Math.max(insets.bottom, 10) },
-        ]}
-      >
-        <View style={styles.tabBar}>
-          <Pressable style={styles.tabItem} onPress={onOpenHome}>
-            <Ionicons name="home-outline" size={21} color="#94A3B8" />
-            <Text style={styles.tabLabel}>Home</Text>
-          </Pressable>
-
-          <Pressable style={styles.tabItem} onPress={onOpenMyRide}>
-            <Ionicons name="bicycle-outline" size={22} color="#94A3B8" />
-            <Text style={styles.tabLabel}>My Rides</Text>
-          </Pressable>
-
-          <Pressable style={styles.scanTabItem} onPress={onOpenScan}>
-            <LinearGradient
-              colors={['#6D28D9', '#4C1D95']}
-              style={styles.scanFloatingBtn}
-            >
-              <Ionicons name="qr-code-outline" size={24} color="#FFFFFF" />
-            </LinearGradient>
-            <Text style={styles.scanTabLabel}>Scan</Text>
-          </Pressable>
-
-          <Pressable style={styles.tabItem}>
-            <View style={styles.activeTabIndicator} />
-            <Ionicons name="wallet" size={21} color={BRAND_PURPLE_ACCENT} />
-            <Text style={[styles.tabLabel, styles.tabLabelActive]}>Wallet</Text>
-          </Pressable>
-
-          <Pressable style={styles.tabItem} onPress={onOpenProfile}>
-            <Ionicons name="person-outline" size={21} color="#94A3B8" />
-            <Text style={styles.tabLabel}>Profile</Text>
-          </Pressable>
-        </View>
-      </View>
-
-      {/* Add / Withdraw Bottom Sheet Modal */}
-      {sheet ? (
-        <Modal
-          visible={Boolean(sheet)}
-          transparent
-          animationType="slide"
-          statusBarTranslucent
-          onRequestClose={closeSheet}
-        >
-          <View style={styles.modalBackdrop}>
-            <Pressable style={styles.modalTouchDismiss} onPress={closeSheet} />
-
-            <View
-              style={[
-                styles.modalSheet,
-                { paddingBottom: Math.max(insets.bottom, 22) },
-              ]}
-            >
-              {/* Drag Handle */}
-              <View style={styles.sheetHandle} />
-
-              {/* Header */}
-              <View style={styles.modalHeaderRow}>
-                <View style={styles.modalTitleCol}>
-                  <View style={styles.modalKickerPill}>
-                    <Ionicons
-                      name={
-                        sheet === 'add'
-                          ? 'flash-outline'
-                          : 'arrow-up-circle-outline'
-                      }
-                      size={12}
-                      color={BRAND_VIOLET}
-                    />
-                    <Text style={styles.modalKickerText}>
-                      {sheet === 'add' ? 'INSTANT TOP-UP' : 'BANK TRANSFER'}
-                    </Text>
-                  </View>
-                  <Text style={styles.modalTitle}>
-                    {sheet === 'add'
-                      ? 'Add Money to Wallet'
-                      : 'Withdraw to Bank'}
-                  </Text>
-                  <Text style={styles.modalSub}>
-                    {sheet === 'add'
-                      ? 'Zero convenience fees • Instant ride credits'
-                      : `Available withdrawable balance: ${main}`}
-                  </Text>
-                </View>
-
-                <Pressable
-                  hitSlop={12}
-                  onPress={closeSheet}
-                  style={styles.modalCloseBtn}
-                >
-                  <Ionicons name="close" size={20} color="#0F172A" />
-                </Pressable>
-              </View>
-
-              {/* Amount Input Display Box */}
-              <View style={styles.amountInputContainer}>
-                <Text style={styles.currencySymbol}>₹</Text>
-                <TextInput
-                  value={custom}
-                  onChangeText={setCustom}
-                  keyboardType="number-pad"
-                  placeholder={String(picked)}
-                  placeholderTextColor="#0F172A"
-                  style={styles.amountInput}
-                />
-                {custom.length > 0 ? (
-                  <Pressable hitSlop={10} onPress={() => setCustom('')}>
-                    <Ionicons name="close-circle" size={20} color="#94A3B8" />
-                  </Pressable>
-                ) : (
-                  <View style={styles.selectedTagPill}>
-                    <Text style={styles.selectedTagText}>Selected</Text>
-                  </View>
-                )}
-              </View>
-
-              {/* Quick Preset Chips with Bonus Badges */}
-              <View style={styles.presetChipsRow}>
-                {AMOUNTS.map((val) => {
-                  const isActive = !custom.trim() && picked === val;
-                  const hasBonus = sheet === 'add' && val >= 500;
-                  return (
-                    <Pressable
-                      key={val}
-                      onPress={() => {
-                        setCustom('');
-                        setPicked(val);
-                      }}
-                      style={[
-                        styles.presetChip,
-                        isActive && styles.presetChipActive,
-                      ]}
-                    >
-                      {hasBonus && (
-                        <View style={styles.bonusMiniRibbon}>
-                          <Text style={styles.bonusMiniRibbonText}>+10%</Text>
-                        </View>
-                      )}
-                      <Text
-                        style={[
-                          styles.presetChipText,
-                          isActive && styles.presetChipTextActive,
-                        ]}
-                      >
-                        +₹{val}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
-              {/* Security Guarantee Strip */}
-              <View style={styles.securityBanner}>
-                <Ionicons
-                  name="shield-checkmark-outline"
-                  size={16}
-                  color="#059669"
-                />
-                <Text style={styles.securityBannerText}>
-                  {sheet === 'add'
-                    ? '256-bit Encrypted UPI Payment • Powered by PayU'
-                    : 'Direct IMPS/UPI settlement to your verified bank account'}
-                </Text>
-              </View>
-
-              {/* Primary Confirm CTA */}
-              <Pressable
-                onPress={confirmSheet}
-                style={({ pressed }) => [
-                  styles.modalPrimaryBtn,
-                  pressed && { opacity: 0.92, transform: [{ scale: 0.99 }] },
-                ]}
-              >
-                <LinearGradient
-                  colors={['#5B21B6', '#3B0F7A']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.modalPrimaryGrad}
-                >
-                  <Ionicons
-                    name={
-                      sheet === 'add'
-                        ? 'shield-checkmark-outline'
-                        : 'paper-plane-outline'
-                    }
-                    size={19}
-                    color="#FFFFFF"
-                  />
-                  <Text style={styles.modalPrimaryText}>
-                    {sheet === 'add'
-                      ? `Proceed to Add ${moneyLabel(amount)}`
-                      : `Withdraw ${moneyLabel(amount)}`}
-                  </Text>
-                </LinearGradient>
-              </Pressable>
-            </View>
-          </View>
-        </Modal>
-      ) : null}
-
-      {/* PayU Wallet Top-Up In-App Checkout Modal */}
-      <Modal
-        visible={payuModalVisible}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={handleCancelPayuModal}
-      >
-        <View style={styles.payuModalContainer}>
-          <StatusBar style="dark" />
-          <View style={[styles.payuHeader, { paddingTop: insets.top + 8 }]}>
-            <View style={styles.payuHeaderLeft}>
-              <View style={styles.payuLogoBadge}>
-                <Ionicons name="card" size={18} color="#4A168C" />
-              </View>
-              <View>
-                <Text style={styles.payuHeaderTitle}>Add Money to Wallet</Text>
-                <Text style={styles.payuHeaderSubtitle}>Secure 256-bit SSL encrypted</Text>
-              </View>
-            </View>
-            <View style={styles.payuHeaderRight}>
-              <View style={styles.payuAmountPill}>
-                <Text style={styles.payuAmountText}>₹{payuPendingAmount}</Text>
-              </View>
-              <Pressable
-                onPress={handleCancelPayuModal}
-                style={styles.payuCloseBtn}
-                hitSlop={8}
-              >
-                <Ionicons name="close" size={20} color="#334155" />
-              </Pressable>
-            </View>
-          </View>
-
-          {payuLoading && (
-            <View style={styles.payuLoadingBar}>
-              <ActivityIndicator size="small" color="#4A168C" />
-              <Text style={styles.payuLoadingText}>Connecting to Payment Gateway...</Text>
-            </View>
-          )}
-
-          {payuCheckoutUrl ? (
-            <WebView
-              source={{ uri: payuCheckoutUrl }}
-              style={styles.payuWebView}
-              javaScriptEnabled
-              domStorageEnabled
-              startInLoadingState
-              renderLoading={() => (
-                <View style={styles.payuWebLoader}>
-                  <ActivityIndicator size="large" color="#4A168C" />
-                  <Text style={styles.payuWebLoaderText}>Loading PayU Payment Interface...</Text>
-                </View>
-              )}
-              onLoadStart={() => setPayuLoading(true)}
-              onLoadEnd={() => setPayuLoading(false)}
-              onNavigationStateChange={onWebViewNavigationStateChange}
-              onMessage={onWebViewMessage}
+            <TextInput
+              value={custom}
+              onChangeText={setCustom}
+              keyboardType="number-pad"
+              placeholder="Other amount"
+              placeholderTextColor="#A39BB0"
+              style={styles.amountInput}
             />
-          ) : null}
+            <Pressable style={styles.moneyBtn} onPress={confirmSheet}>
+              <Text style={styles.moneyBtnText}>
+                {sheet === 'add' ? `Add ${moneyLabel(amount)}` : `Withdraw ${moneyLabel(amount)}`}
+              </Text>
+            </Pressable>
+            <Pressable style={styles.moneyCancelBtn} onPress={() => setSheet(null)}>
+              <Text style={styles.moneyCancelText}>Cancel</Text>
+            </Pressable>
+          </View>
         </View>
-      </Modal>
+      ) : null}
     </View>
   );
 }
@@ -1072,785 +482,584 @@ const styles = StyleSheet.create({
   scroll: {
     flex: 1,
   },
-  scrollContent: {
-    paddingBottom: 118,
-  },
-
-  /* Hero Header */
-  heroHeader: {
-    paddingHorizontal: 18,
-    paddingBottom: 52,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
+  hero: {
+    paddingHorizontal: 16,
+    paddingBottom: 2,
     overflow: 'hidden',
-    position: 'relative',
-  },
-  glowOrbTop: {
-    position: 'absolute',
-    top: -70,
-    left: -40,
-    width: 220,
-    height: 220,
-    borderRadius: 110,
-    backgroundColor: 'rgba(139, 92, 246, 0.18)',
-  },
-  glowOrbRight: {
-    position: 'absolute',
-    bottom: -30,
-    right: -40,
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    backgroundColor: 'rgba(168, 85, 247, 0.22)',
   },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 18,
   },
-  topIconBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.18)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  topCenterCol: {
-    alignItems: 'center',
-  },
-  topBarTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: -0.2,
-  },
-  topBarSub: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: 'rgba(255, 255, 255, 0.65)',
-    letterSpacing: 1.1,
-    marginTop: 2,
-  },
-
-  /* Glassmorphism Balance Card */
-  glassBalanceCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.11)',
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    padding: 18,
-  },
-  balanceHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 18,
-  },
-  balanceKicker: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    color: 'rgba(255, 255, 255, 0.72)',
-    letterSpacing: 1,
-  },
-  balanceHeroValue: {
-    fontSize: 34,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: -0.6,
-    marginTop: 3,
-  },
-  insuredBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(16, 185, 129, 0.16)',
-    borderWidth: 1,
-    borderColor: 'rgba(52, 211, 153, 0.35)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 14,
-  },
-  insuredDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#34D399',
-  },
-  insuredBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#D1FAE5',
-  },
-  subBalanceStrip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.28)',
-    borderRadius: 16,
-    paddingVertical: 11,
-    paddingHorizontal: 8,
-  },
-  subBalanceCol: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  subBalanceLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 3,
-  },
-  subBalanceLabel: {
-    fontSize: 10.5,
-    fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.72)',
-  },
-  subBalanceVal: {
-    fontSize: 15,
-    fontWeight: '900',
-    color: '#FFFFFF',
-  },
-  subBalanceDivider: {
-    width: 1,
-    height: 26,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-  },
-
-  /* Floating Quick Actions Dock */
-  floatingActionsWrap: {
-    paddingHorizontal: 16,
-    marginTop: -30,
-    zIndex: 20,
-  },
-  actionsDockCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    paddingVertical: 13,
-    paddingHorizontal: 8,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.07,
-    shadowRadius: 16,
-    elevation: 5,
-  },
-  actionItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  actionIconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  actionLabel: {
-    fontSize: 11.5,
-    fontWeight: '800',
-    color: '#1E293B',
-  },
-  actionDockDivider: {
-    width: 1,
-    height: 34,
-    backgroundColor: '#F1F5F9',
-  },
-
-  /* Main Body */
-  bodyContainer: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-  },
-
-  /* Cashback / Bonus Offer Card */
-  promoBannerOuter: {
-    borderRadius: 22,
-    overflow: 'hidden',
-    shadowColor: BRAND_PURPLE_ACCENT,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    elevation: 3,
-    marginBottom: 20,
-  },
-  promoBannerGrad: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-  },
-  promoBadgeBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  promoContentCol: {
-    flex: 1,
-    paddingRight: 8,
-  },
-  promoTagRow: {
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(253, 224, 71, 0.2)',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    marginBottom: 4,
-  },
-  promoTagText: {
-    fontSize: 9.5,
-    fontWeight: '900',
-    color: '#FDE047',
-    letterSpacing: 0.7,
-  },
-  promoTitle: {
-    fontSize: 15,
-    fontWeight: '900',
-    color: '#FFFFFF',
-  },
-  promoSub: {
-    fontSize: 11.5,
-    fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginTop: 2,
-    lineHeight: 16,
-  },
-  promoCtaCircle: {
+  round: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255,255,255,0.16)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  /* Passbook Header & Filters */
-  passbookHeaderSection: {
-    marginBottom: 14,
-  },
-  passbookTitleRow: {
+  historyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  passbookTitle: {
-    fontSize: 17,
-    fontWeight: '900',
-    color: '#0F172A',
-    letterSpacing: -0.3,
-  },
-  passbookSub: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#64748B',
-    marginTop: 1,
-  },
-  recordCountPill: {
-    backgroundColor: '#E2E8F0',
+    gap: 6,
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.16)',
   },
-  recordCountText: {
+  historyText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  heroRow: {
+    marginTop: 6,
+    paddingRight: 96,
+    justifyContent: 'center',
+  },
+  heroCopy: {
+    flex: 1,
+    zIndex: 1,
+  },
+  kicker: {
+    color: 'rgba(255,255,255,0.78)',
     fontSize: 11,
     fontWeight: '800',
-    color: '#475569',
+    letterSpacing: 1.1,
   },
-  filterPillsRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  txFilterChip: {
-    backgroundColor: '#FFFFFF',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  txFilterChipActive: {
-    backgroundColor: BRAND_PURPLE,
-    borderColor: BRAND_PURPLE,
-  },
-  txFilterChipText: {
-    fontSize: 12.5,
-    fontWeight: '700',
-    color: '#475569',
-  },
-  txFilterChipTextActive: {
+  title: {
+    marginTop: 3,
     color: '#FFFFFF',
-  },
-
-  /* Transaction Cards */
-  txList: {
-    gap: 11,
-  },
-  txCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E8EDF5',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.03,
-    shadowRadius: 8,
-    elevation: 1.5,
-  },
-  txCardPressed: {
-    opacity: 0.94,
-    transform: [{ scale: 0.992 }],
-  },
-  txIconBox: {
-    width: 46,
-    height: 46,
-    borderRadius: 15,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  txDetailsCol: {
-    flex: 1,
-    paddingRight: 8,
-  },
-  txTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  txTitle: {
-    fontSize: 14.5,
+    fontSize: 23,
+    lineHeight: 27,
     fontWeight: '800',
-    color: '#0F172A',
+    letterSpacing: -0.4,
   },
-  txSubtitle: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#64748B',
-    marginTop: 2,
-  },
-  txMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  heroSub: {
     marginTop: 5,
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 12,
+    lineHeight: 15,
   },
-  txDate: {
+  heroArt: {
+    position: 'absolute',
+    right: -6,
+    bottom: -20,
+    width: 104,
+    height: 90,
+    opacity: 0.46,
+    zIndex: 1,
+  },
+  balanceCard: {
+    marginTop: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingTop: 10,
+    paddingBottom: 0,
+    overflow: 'hidden',
+    zIndex: 2,
+  },
+  balanceTop: {
+    paddingLeft: 14,
+    paddingRight: 100,
+    minHeight: 82,
+    justifyContent: 'center',
+  },
+  balanceCopy: {
+    flex: 1,
+  },
+  balanceLabel: {
+    color: '#8A8496',
     fontSize: 11,
     fontWeight: '600',
-    color: '#94A3B8',
   },
-  txMetaDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: '#CBD5E1',
-    marginHorizontal: 6,
-  },
-  txBookingTag: {
-    fontSize: 10.5,
+  balanceValue: {
+    marginTop: 0,
+    color: '#1C1430',
+    fontSize: 26,
     fontWeight: '800',
-    color: BRAND_VIOLET,
+    letterSpacing: -0.5,
   },
-  txRightCol: {
-    alignItems: 'flex-end',
+  addFace: {
+    marginTop: 7,
+    alignSelf: 'flex-start',
+    height: 30,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    backgroundColor: '#6D28D9',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
-  txAmount: {
-    fontSize: 15.5,
-    fontWeight: '900',
+  addText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
   },
-  txAmountCredit: {
-    color: '#059669',
+  cardArt: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 120,
+    height: 78,
+    opacity: 0.78,
   },
-  txAmountDebit: {
-    color: '#0F172A',
+  cardRule: {
+    marginTop: 6,
+    height: 1,
+    backgroundColor: '#F1EEF6',
   },
-  txMethodMiniRow: {
+  statsBar: {
+    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cardOuter: {
+    marginTop: 18,
+    position: 'relative',
+  },
+  ledge: {
+    position: 'absolute',
+    left: 10,
+    right: 10,
+    bottom: -7,
+    height: 34,
+    borderRadius: 28,
+    backgroundColor: '#D8B4FE',
+  },
+  shell: {
+    borderRadius: 26,
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: '#EDE9FE',
+  },
+  showcase: {
+    minHeight: 168,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  showcaseCopy: {
+    flex: 1,
+    paddingRight: 6,
+  },
+  sheet: {
+    paddingHorizontal: 16,
+    paddingTop: 6,
+  },
+  split: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingVertical: 14,
+  },
+  splitItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  splitValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#141414',
+  },
+  splitLabel: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#8A8496',
+    fontWeight: '600',
+  },
+  splitRule: {
+    width: 1,
+    height: 24,
+    backgroundColor: '#EDE9FE',
+  },
+  section: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#1C1430',
+  },
+  seeAll: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
-    marginTop: 4,
   },
-  txMethodMiniText: {
-    fontSize: 10.5,
+  link: {
+    fontSize: 13,
     fontWeight: '700',
-    color: '#94A3B8',
+    color: '#8A8496',
   },
-
-  /* Bottom Navigation Dock */
-  tabBarWrap: {
+  sectionRow: {
+    marginTop: 14,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  link: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#8A8496',
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: 9,
+  },
+  statCol: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
+  },
+  statIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#F6F1FC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+  },
+  statValue: {
+    color: PURPLE,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  statLabel: {
+    color: '#8A8496',
+    fontSize: 11,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 12,
+  },
+  statRule: {
+    width: 1,
+    height: 22,
+    backgroundColor: '#EDE9FE',
+  },
+  action: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingTop: 10,
+    paddingBottom: 8,
+    shadowColor: '#2A1848',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  actionIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#F3EEF8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  arrowUpRight: {
+    transform: [{ rotate: '45deg' }],
+  },
+  actionLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#1A1A1A',
+    textAlign: 'center',
+  },
+  offer: {
+    marginTop: 12,
+    borderRadius: 18,
+    backgroundColor: '#2A0A5C',
+    paddingLeft: 14,
+    paddingRight: 112,
+    paddingVertical: 12,
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  offerBg: {
     position: 'absolute',
-    left: 14,
-    right: 14,
+    top: 0,
+    right: 0,
     bottom: 0,
+    left: 0,
+  },
+  offerCopy: {
+    zIndex: 1,
+  },
+  offerKicker: {
+    color: '#E9D5FF',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  offerTitle: {
+    marginTop: 3,
+    fontSize: 19,
+    lineHeight: 22,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  offerSub: {
+    marginTop: 3,
+    fontSize: 12,
+    lineHeight: 15,
+    color: 'rgba(255,255,255,0.78)',
+  },
+  offerLink: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  offerLinkText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#3B0764',
+  },
+  scooter: {
+    position: 'absolute',
+    right: -12,
+    bottom: -4,
+    width: 136,
+    height: 122,
+    zIndex: 1,
+  },
+  list: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+  },
+  tx: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 10,
+  },
+  txLine: {
+    borderTopWidth: 1,
+    borderTopColor: '#F4F0FA',
+  },
+  txIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  txIconIn: {
+    backgroundColor: '#E7F6EC',
+  },
+  txIconOut: {
+    backgroundColor: '#FDECEC',
+  },
+  txMain: {
+    flex: 1,
+  },
+  txTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1C1C1C',
+  },
+  txDetail: {
+    marginTop: 1,
+    fontSize: 11,
+    color: '#8A8A8A',
+  },
+  txSide: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  pill: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  pillText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  txAmount: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  credit: {
+    color: '#1F8A4C',
+  },
+  debit: {
+    color: '#A33B3B',
+  },
+  txDate: {
+    marginTop: 2,
+    fontSize: 11,
+    color: '#8A8A8A',
   },
   tabBar: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
+    justifyContent: 'space-around',
     backgroundColor: '#FFFFFF',
-    borderRadius: 26,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+    paddingTop: 8,
   },
-  tabItem: {
+  tab: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 4,
-    position: 'relative',
-  },
-  activeTabIndicator: {
-    position: 'absolute',
-    top: -8,
-    width: 20,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: BRAND_PURPLE_ACCENT,
+    gap: 4,
   },
   tabLabel: {
-    fontSize: 10.5,
-    fontWeight: '600',
-    color: '#94A3B8',
-    marginTop: 3,
+    fontSize: 11,
+    color: '#8A8A8A',
+    fontWeight: '500',
   },
   tabLabelActive: {
-    color: BRAND_PURPLE_ACCENT,
-    fontWeight: '800',
+    color: PURPLE,
+    fontWeight: '700',
   },
-  scanTabItem: {
-    flex: 1,
+  scanButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: PURPLE,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  scanFloatingBtn: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: -24,
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    shadowColor: BRAND_PURPLE_ACCENT,
+    marginTop: -16,
+    shadowColor: PURPLE,
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.28,
     shadowRadius: 8,
     elevation: 6,
   },
-  scanTabLabel: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: '#475569',
-    marginTop: 3,
-  },
-
-  /* Modal Bottom Sheet */
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.58)',
-    justifyContent: 'flex-end',
-  },
-  modalTouchDismiss: {
-    flex: 1,
-  },
-  modalSheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-  },
-  sheetHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#CBD5E1',
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  modalHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 18,
-  },
-  modalTitleCol: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  modalKickerPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 4,
-    backgroundColor: '#F5F3FF',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    marginBottom: 6,
-  },
-  modalKickerText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: BRAND_VIOLET,
-    letterSpacing: 0.6,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: '#0F172A',
-    letterSpacing: -0.3,
-  },
-  modalSub: {
-    fontSize: 12.5,
-    fontWeight: '500',
-    color: '#64748B',
-    marginTop: 2,
-  },
-  modalCloseBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  /* Amount Input Box */
-  amountInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#CBD5E1',
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    height: 58,
-    marginBottom: 14,
-  },
-  currencySymbol: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: '#0F172A',
-    marginRight: 6,
-  },
-  amountInput: {
-    flex: 1,
-    fontSize: 22,
-    fontWeight: '900',
-    color: '#0F172A',
-    paddingVertical: 0,
-  },
-  selectedTagPill: {
-    backgroundColor: '#EDE9FE',
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  selectedTagText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: BRAND_VIOLET,
-  },
-
-  /* Preset Chips */
-  presetChipsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 18,
-  },
-  presetChip: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderWidth: 1.2,
-    borderColor: '#E2E8F0',
-    position: 'relative',
-  },
-  presetChipActive: {
-    backgroundColor: '#F5F3FF',
-    borderColor: BRAND_VIOLET,
-  },
-  bonusMiniRibbon: {
+  scanQr: {
     position: 'absolute',
-    top: -8,
-    backgroundColor: '#10B981',
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: 6,
+    top: 15,
+    left: 15,
   },
-  bonusMiniRibbonText: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: '#FFFFFF',
-  },
-  presetChipText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#475569',
-  },
-  presetChipTextActive: {
-    color: BRAND_PURPLE_ACCENT,
-  },
-
-  /* Security Banner */
-  securityBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#ECFDF5',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-    marginBottom: 18,
-  },
-  securityBannerText: {
-    flex: 1,
-    fontSize: 11.5,
-    fontWeight: '600',
-    color: '#065F46',
-  },
-
-  /* Modal Primary Button */
-  modalPrimaryBtn: {
-    borderRadius: 18,
-    overflow: 'hidden',
-    shadowColor: BRAND_PURPLE_ACCENT,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 5,
-  },
-  modalPrimaryGrad: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    height: 54,
-  },
-  modalPrimaryText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-
-  /* PayU Checkout Styles */
-  payuModalContainer: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  payuHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 14,
-    backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  payuHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  payuLogoBadge: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: BRAND_PURPLE_ACCENT,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  payuHeaderTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  payuHeaderSubtitle: {
-    fontSize: 11,
-    color: '#64748B',
-    marginTop: 1,
-  },
-  payuHeaderRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  payuAmountPill: {
-    backgroundColor: '#F5F3FF',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#DDD6FE',
-  },
-  payuAmountText: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: BRAND_PURPLE_ACCENT,
-  },
-  payuCloseBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  payuLoadingBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    backgroundColor: '#F8FAFC',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
-  },
-  payuLoadingText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#475569',
-  },
-  payuWebView: {
-    flex: 1,
-  },
-  payuWebLoader: {
+  shade: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
+    zIndex: 40,
+    elevation: 40,
+    justifyContent: 'flex-end',
+  },
+  shadeFill: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(17, 20, 28, 0.28)',
+  },
+  money: {
     backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+  },
+  moneyHandle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E4DCEF',
+    marginBottom: 14,
+  },
+  moneyHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  moneyTitleWrap: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  moneyCloseBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#F3EEFB',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
   },
-  payuWebLoaderText: {
+  moneyTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#1C1C1C',
+  },
+  moneySub: {
+    marginTop: 6,
     fontSize: 13,
-    color: '#64748B',
-    fontWeight: '600',
+    lineHeight: 18,
+    color: '#8A8496',
+  },
+  amountRow: {
+    marginTop: 16,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  amountChip: {
+    flex: 1,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#F6F1FC',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  amountChipOn: {
+    backgroundColor: PURPLE,
+  },
+  amountText: {
+    color: PURPLE,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  amountTextOn: {
+    color: '#FFFFFF',
+  },
+  amountInput: {
+    marginTop: 12,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#F6F1FC',
+    paddingHorizontal: 14,
+    fontSize: 15,
+    color: '#1C1C1C',
+  },
+  moneyBtn: {
+    marginTop: 16,
+    height: 50,
+    borderRadius: 16,
+    backgroundColor: PURPLE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moneyBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  moneyCancelBtn: {
+    marginTop: 10,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F6F4F9',
+  },
+  moneyCancelText: {
+    color: '#6E6878',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

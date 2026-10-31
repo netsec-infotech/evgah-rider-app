@@ -48,6 +48,8 @@ import {
   sendRiderOtp,
   hasSeenOnboarding,
   setHasSeenOnboarding,
+  hasSeenWalletIntro,
+  setHasSeenWalletIntro,
 } from './services/api';
 
 export default function App() {
@@ -60,6 +62,7 @@ export default function App() {
   const [selectedZone, setSelectedZone] = useState(null);
   const [calendarTriggerTick, setCalendarTriggerTick] = useState(0);
   const [walletIntro, setWalletIntro] = useState(false);
+  const [walletIntroSeen, setWalletIntroSeen] = useState(false);
   const [vehicle, setVehicle] = useState(null);
   const [vehicleFrom, setVehicleFrom] = useState('home');
   const [rentFrom, setRentFrom] = useState('home');
@@ -139,6 +142,12 @@ export default function App() {
     setScreen(targetScreen);
   };
 
+  useEffect(() => {
+    hasSeenWalletIntro().then((seen) => {
+      if (seen) setWalletIntroSeen(true);
+    });
+  }, []);
+
   const openWallet = () => {
     if (!isLoggedIn) {
       setLoginReturnTo('wallet');
@@ -146,6 +155,10 @@ export default function App() {
       return;
     }
     if (walletIntro || screen === 'wallet') return;
+    if (walletIntroSeen) {
+      setScreen('wallet');
+      return;
+    }
     setWalletIntro(true);
   };
 
@@ -889,8 +902,16 @@ export default function App() {
           onOpenMyRide={() => navigateProtected('rides')}
           onOpenScan={() => navigateProtected('scan')}
           onOpenProfile={() => navigateProtected('profile')}
-          onOpen={() => setScreen('wallet')}
-          onDone={() => setWalletIntro(false)}
+          onOpen={() => {
+            setScreen('wallet');
+            setWalletIntroSeen(true);
+            setHasSeenWalletIntro();
+          }}
+          onDone={() => {
+            setWalletIntro(false);
+            setWalletIntroSeen(true);
+            setHasSeenWalletIntro();
+          }}
         />
       ) : null}
       </View>

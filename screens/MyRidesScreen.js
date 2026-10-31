@@ -162,6 +162,8 @@ const FILTERS = [
   { id: 'completed', label: 'Completed', icon: 'checkmark-done-outline' },
 ];
 
+const STATUS_RANK = { ongoing: 0, upcoming: 1, completed: 2 };
+
 const DEFAULT_RIDES = [
   {
     id: 'EVG141026',
@@ -330,6 +332,12 @@ export default function MyRidesScreen({
     });
 
     list.sort((a, b) => {
+      // Prioritize active / ongoing ride at the very top of the list
+      const aRank = STATUS_RANK[a.status] ?? 3;
+      const bRank = STATUS_RANK[b.status] ?? 3;
+      if (aRank !== bRank) {
+        return aRank - bRank;
+      }
       if (sortBy === 'newest') {
         return (new Date(b.rawCreatedAt || 0).getTime()) - (new Date(a.rawCreatedAt || 0).getTime());
       }
