@@ -1,16 +1,84 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardEnter } from '../utils/cardEnter';
+import { apiGet, getStoredRider, last10 } from '../services/api';
 
 const PURPLE = '#4A168C';
 
-export default function ScanScreen({ onOpenHome, onOpenMyRide, onOpenProfile, onOpenWallet, onFindNearby, onScan, onBluetooth }) {
+export default function ScanScreen({
+  onOpenHome,
+  onOpenMyRide,
+  onOpenProfile,
+  onOpenWallet,
+  onFindNearby,
+  onScan,
+  onBluetooth,
+  phone,
+}) {
   const insets = useSafeAreaInsets();
   const [flashOn, setFlashOn] = useState(false);
+  const [activeRide, setActiveRide] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+    async function checkActive() {
+      try {
+        let mobile = last10(phone);
+        if (!mobile) {
+          const stored = await getStoredRider();
+          mobile = last10(stored?.mobile || stored?.phone);
+        }
+        if (!mobile) return;
+        const res = await apiGet(`/reservations/active-ride?mobile=${mobile}`);
+        if (mounted && res?.has_active_ride && res?.data) {
+          setActiveRide(res.data);
+        } else if (mounted) {
+          const actRes = await apiGet(`/rides/active/${mobile}`).catch(() => null);
+          if (mounted && actRes?.data?.active_ride) {
+            setActiveRide(actRes.data.active_ride);
+          }
+        }
+      } catch (_) {}
+    }
+    checkActive();
+    return () => {
+      mounted = false;
+    };
+  }, [phone]);
+
+  const handleScanGuard = () => {
+    if (activeRide) {
+      Alert.alert(
+        'Active Ride In Progress',
+        `You currently have an active ride on vehicle ${activeRide.vehicle_number || activeRide.vehicle_id || 'EV'}. Evegah permits one active ride at a time. Please complete your current ride before unlocking another vehicle.`,
+        [
+          { text: 'View Active Ride', onPress: () => onOpenMyRide?.() },
+          { text: 'Dismiss', style: 'cancel' },
+        ]
+      );
+      return;
+    }
+    onScan?.();
+  };
+
+  const handleBluetoothGuard = () => {
+    if (activeRide) {
+      Alert.alert(
+        'Active Ride In Progress',
+        `You currently have an active ride on vehicle ${activeRide.vehicle_number || activeRide.vehicle_id || 'EV'}. Evegah permits one active ride at a time. Please complete your current ride before unlocking another vehicle.`,
+        [
+          { text: 'View Active Ride', onPress: () => onOpenMyRide?.() },
+          { text: 'Dismiss', style: 'cancel' },
+        ]
+      );
+      return;
+    }
+    onBluetooth?.();
+  };
 
   return (
     <View style={styles.root}>
@@ -33,7 +101,20 @@ export default function ScanScreen({ onOpenHome, onOpenMyRide, onOpenProfile, on
           </Pressable>
         </View>
 
-        <Pressable onPress={onScan}>
+        {activeRide && (
+          <Pressable style={styles.activeRideNotice} onPress={() => onOpenMyRide?.()}>
+            <View style={styles.activeRideNoticeDot} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.activeRideNoticeTitle}>Active Ride In Progress</Text>
+              <Text style={styles.activeRideNoticeSub}>
+                {activeRide.vehicle_number || activeRide.vehicle_id ? `Plate: ${activeRide.vehicle_number || activeRide.vehicle_id}` : 'EV ongoing ride'} · Tap to resume
+              </Text>
+            </View>
+            <Ionicons name="arrow-forward" size={16} color="#059669" />
+          </Pressable>
+        )}
+
+        <Pressable onPress={handleScanGuard}>
         <Animated.View entering={cardEnter(0)} style={styles.scanner}>
           <Text style={styles.alignText}>Align QR code within the frame</Text>
           <Text style={styles.tapHint}>Tap the frame to scan</Text>
@@ -88,7 +169,7 @@ export default function ScanScreen({ onOpenHome, onOpenMyRide, onOpenProfile, on
         </Animated.View>
 
         <Animated.View entering={cardEnter(3)}>
-          <Pressable onPress={onBluetooth} style={styles.secureCard}>
+          <Pressable onPress={handleBluetoothGuard} style={styles.secureCard}>
             <View style={styles.secureIcon}>
               <Ionicons name="bluetooth" size={20} color={PURPLE} />
             </View>
@@ -408,5 +489,38 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 15,
     left: 15,
+  },
+  activeRideNotice: {
+    marginBottom: 14,
+    backgroundColor: '#ECFDF5',
+    borderRadius: 16,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1.5,
+    borderColor: '#A7F3D0',
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  activeRideNoticeDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#10B981',
+  },
+  activeRideNoticeTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#065F46',
+  },
+  activeRideNoticeSub: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#047857',
+    marginTop: 2,
   },
 });

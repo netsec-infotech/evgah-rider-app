@@ -42,38 +42,37 @@ function artFor(name) {
 }
 
 function rideStatus(item) {
-  const status = String(item?.status || item || '').toLowerCase();
-  const hasAssignedVehicle = Boolean(
-    item?.vehicle_number &&
-    item.vehicle_number !== '—' &&
-    item.vehicle_number !== 'EV-DEFAULT' &&
-    String(item.vehicle_number).trim() !== ''
-  );
+  const rawStatus = typeof item === 'object' && item !== null ? (item.status || item.ride_status || '') : item;
+  const status = String(rawStatus || '').toLowerCase().trim();
   const isCompleted = status.includes('complet') || status.includes('end') || status.includes('return') || status.includes('clos');
   const isCancelled = status.includes('cancel');
 
   if (isCompleted) return ['completed', 'Completed'];
   if (isCancelled) return ['completed', 'Cancelled'];
 
-  // When admin assigns vehicle or marks status active/ongoing -> ONGOING
-  if (
-    status.includes('ongoing') ||
-    status.includes('active') ||
-    status.includes('start') ||
-    status.includes('in ride') ||
-    status.includes('allocated') ||
-    (hasAssignedVehicle && (status.includes('confirm') || status.includes('paid') || status.includes('upcom')))
-  ) {
+  // Only genuinely live / in-progress trips are ONGOING
+  const isOngoing =
+    status === 'active ride' ||
+    status === 'ongoing' ||
+    status === 'in ride' ||
+    status === 'in_progress' ||
+    status === 'started' ||
+    status === 'live' ||
+    status === 'active';
+
+  if (isOngoing) {
     return ['ongoing', 'Active Ride'];
   }
 
-  // Initial booking before vehicle/battery allocation -> UPCOMING
+  // Pre-trip bookings, reservations, paid, confirmed, allocated -> UPCOMING
   if (
     status.includes('upcoming') ||
     status.includes('confirm') ||
     status.includes('reserved') ||
     status.includes('paid') ||
-    status.includes('pending')
+    status.includes('pending') ||
+    status.includes('allocated') ||
+    status.includes('booked')
   ) {
     return ['upcoming', 'Reserved'];
   }
@@ -256,28 +255,77 @@ export default function MyRidesScreen({
     try {
       const body = await apiGet(`/reservations?mobile=${mobile}&limit=50`);
       let list = body?.data || [];
-      // Also check if there is an active ride in /rides/active
+      // Also check if there is an active ride in /rides/active or /reservations/active-ride
+      let activeRideItem = null;
       try {
         const actRes = await apiGet(`/rides/active/${mobile}`);
         if (actRes?.data?.active_ride) {
-          const ar = actRes.data.active_ride;
-          const alreadyInList = list.some((r) => (r.reservation_id === ar.reservation_id || r.id === ar.id));
-          if (!alreadyInList) {
-            list = [{
+          activeRideItem = actRes.data.active_ride;
+        }
+      } catch (_) {}
+
+      if (!activeRideItem) {
+        try {
+          const resAct = await apiGet(`/reservations/active-ride?mobile=${mobile}`);
+          if (resAct?.has_active_ride && resAct?.data) {
+            activeRideItem = resAct.data;
+          }
+        } catch (_) {}
+      }
+
+      if (activeRideItem) {
+        const ar = activeRideItem;
+        const arId = String(ar.reservation_id || ar.id || '');
+        const matchIdx = list.findIndex(
+          (r) => String(r.reservation_id || r.id || '') === arId
+        );
+        if (matchIdx >= 0) {
+          list[matchIdx] = {
+            ...list[matchIdx],
+            ...ar,
+            status: 'Active Ride',
+            vehicle_number: ar.vehicle_id || ar.registration_number || list[matchIdx].vehicle_number,
+            battery_id: ar.battery_id || list[matchIdx].battery_id,
+          };
+        } else {
+          list = [
+            {
               ...ar,
               reservation_id: ar.reservation_id || `RIDE_${ar.id}`,
               status: 'Active Ride',
               vehicle_number: ar.vehicle_id || ar.registration_number,
               battery_id: ar.battery_id,
-              fare: ar.rent,
-              deposit: ar.deposit,
-              package_type: ar.package_name,
-            }, ...list];
-          }
+              fare: ar.rent || ar.total_amount || 199,
+              deposit: ar.deposit || 250,
+              package_type: ar.package_name || ar.package_type || 'Daily Pass',
+            },
+            ...list,
+          ];
         }
-      } catch (_) {}
+      }
+
       if (list.length > 0) {
-        setRides(list.map(mapRide));
+        const mapped = list.map(mapRide);
+        // Enforce strict singleton active ride constraint:
+        // Exactly AT MOST ONE ride can ever be in 'ongoing' state at any given time.
+        let activeRideFound = false;
+        const singleActiveRides = mapped.map((ride) => {
+          if (ride.status === 'ongoing') {
+            if (!activeRideFound) {
+              activeRideFound = true;
+              return ride;
+            }
+            // Demote any additional / duplicate concurrent rides to upcoming
+            return {
+              ...ride,
+              status: 'upcoming',
+              statusLabel: 'Reserved',
+            };
+          }
+          return ride;
+        });
+
+        setRides(singleActiveRides);
       }
     } catch (_) {}
   }, [phone]);

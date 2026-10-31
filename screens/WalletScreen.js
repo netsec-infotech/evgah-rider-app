@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
@@ -95,19 +95,19 @@ export default function WalletScreen({
   const [sheet, setSheet] = useState(null);
   const [picked, setPicked] = useState(250);
   const [custom, setCustom] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
+  const fetchWalletData = useCallback(async () => {
     const mobile = last10(phone);
     if (!mobile) return;
-    apiGet(`/wallet/balance?mobile=${mobile}`)
-      .then((body) => {
-        if (body?.data) setBalance(body.data);
-      })
-      .catch(() => {});
-    apiGet(`/wallet/transactions?mobile=${mobile}`)
-      .then((body) => {
-        const list = body?.data || [];
-        if (!list.length) return;
+    try {
+      const [bodyBal, bodyTx] = await Promise.all([
+        apiGet(`/wallet/balance?mobile=${mobile}`).catch(() => null),
+        apiGet(`/wallet/transactions?mobile=${mobile}`).catch(() => null),
+      ]);
+      if (bodyBal?.data) setBalance(bodyBal.data);
+      const list = bodyTx?.data || [];
+      if (list.length) {
         setRows(list.map((item) => {
           const kind = String(item.type || '').toLowerCase();
           const credit = kind === 'credit' || kind.includes('add') || kind.includes('deposit');
@@ -122,9 +122,19 @@ export default function WalletScreen({
             status: item.status || 'Completed',
           };
         }));
-      })
-      .catch(() => {});
+      }
+    } catch (_) {}
   }, [phone]);
+
+  useEffect(() => {
+    fetchWalletData();
+  }, [fetchWalletData]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchWalletData();
+    setRefreshing(false);
+  }, [fetchWalletData]);
 
   const mainNum = Number(balance?.main_balance || 0) + added;
   const bonusNum = Number(balance?.bonus_balance || 0);
@@ -243,6 +253,14 @@ export default function WalletScreen({
         style={styles.scroll}
         contentContainerStyle={{ paddingBottom: 12 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#FFFFFF"
+            colors={['#7C3AED', '#3B0764']}
+          />
+        }
       >
         <LinearGradient
           colors={['#3B0764', '#5B21B6', '#7C3AED', '#E9D5FF', PAGE]}
