@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -8,6 +8,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -302,6 +303,9 @@ export default function RideScreen({
   }, [trip, vehicle]);
 
   const mapRef = useRef(null);
+  const webMapRef = useRef(null);
+  const [mapReady, setMapReady] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const btnScale = useSharedValue(1);
   const scanSpin = useSharedValue(0);
 
@@ -461,6 +465,314 @@ export default function RideScreen({
       dropStationCoord,
     ];
   }, [activeScooterCoord, dropStationCoord]);
+
+  // High-performance Leaflet Web Map loaded via WebView for 100% reliable rendering
+  const liveMapHtml = useMemo(() => {
+    const startLat = startCoord.latitude || 22.3168;
+    const startLng = startCoord.longitude || 73.1415;
+    const scooterLat = activeScooterCoord.latitude || startLat;
+    const scooterLng = activeScooterCoord.longitude || startLng;
+    const dropLat = dropStationCoord.latitude || 22.3250;
+    const dropLng = dropStationCoord.longitude || 73.1550;
+    const pName = JSON.stringify(trip?.pickupName || 'Gotri Hub');
+    const dName = JSON.stringify(trip?.dropName || 'Return Hub');
+    const routeJson = JSON.stringify(waypoints.map((w) => [w.latitude, w.longitude]));
+    const stationsJson = JSON.stringify(
+      batteryStations.map((s) => ({
+        id: s.id,
+        title: s.title,
+        count: s.count,
+        lat: s.coordinate.latitude,
+        lng: s.coordinate.longitude,
+      }))
+    );
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #map {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #ECEFF4;
+      touch-action: pan-x pan-y pinch-zoom;
+    }
+    .leaflet-control-attribution {
+      font-size: 9px !important;
+      background: rgba(255, 255, 255, 0.85) !important;
+      padding: 2px 6px !important;
+      border-radius: 4px;
+    }
+    .origin-pin {
+      width: 22px; height: 22px; border-radius: 11px;
+      background: #FFFFFF; border: 3px solid #10B981;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    .hub-pin {
+      background: linear-gradient(135deg, #240B4C, #4A168C);
+      color: #FFFFFF; font-family: -apple-system, Roboto, sans-serif;
+      font-size: 11px; font-weight: 800; padding: 4px 8px;
+      border-radius: 12px; border: 1.5px solid #FFFFFF;
+      box-shadow: 0 3px 8px rgba(74,22,140,0.35);
+      white-space: nowrap; cursor: pointer;
+    }
+    .battery-pin {
+      background: linear-gradient(135deg, #059669, #10B981);
+      color: #FFFFFF; font-family: -apple-system, Roboto, sans-serif;
+      font-size: 10px; font-weight: 700; padding: 3px 7px;
+      border-radius: 10px; border: 1.5px solid #FFFFFF;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+      white-space: nowrap; cursor: pointer;
+    }
+    .scooter-wrap {
+      width: 48px; height: 48px; position: relative;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .scooter-pulse {
+      position: absolute; width: 44px; height: 44px;
+      border-radius: 22px; background: rgba(124, 58, 237, 0.22);
+      animation: pulse 2s infinite ease-out;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.6); opacity: 1; }
+      100% { transform: scale(1.6); opacity: 0; }
+    }
+    .scooter-icon-circle {
+      width: 32px; height: 32px; border-radius: 16px;
+      background: #4A168C; border: 2.5px solid #FFFFFF;
+      box-shadow: 0 3px 8px rgba(0,0,0,0.35);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 2;
+    }
+    .turn-callout {
+      background: #FFFFFF; border: 1px solid #E2E8F0;
+      border-radius: 12px; padding: 4px 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+      font-family: -apple-system, Roboto, sans-serif;
+      font-size: 10px; font-weight: 700; color: #0F172A;
+      white-space: nowrap;
+    }
+  </style>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    var map;
+    var scooterMarker;
+    var scooterHalo;
+
+    function post(data) {
+      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+        window.ReactNativeWebView.postMessage(JSON.stringify(data));
+      }
+    }
+
+    function init() {
+      try {
+        if (typeof L === 'undefined') {
+          throw new Error('Leaflet script not yet loaded');
+        }
+
+        var startLat = ${startLat};
+        var startLng = ${startLng};
+        var scooterLat = ${scooterLat};
+        var scooterLng = ${scooterLng};
+        var dropLat = ${dropLat};
+        var dropLng = ${dropLng};
+        var pickupName = ${pName};
+        var dropName = ${dName};
+
+        map = L.map('map', {
+          center: [(startLat + scooterLat) / 2, (startLng + scooterLng) / 2],
+          zoom: 15,
+          zoomControl: false,
+          attributionControl: true
+        });
+
+        // Carto Voyager tiles with OpenStreetMap fallback
+        var tileLayer = L.tileLayer('https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+          maxZoom: 19,
+          attribution: 'Leaflet · © OpenStreetMap · © CARTO'
+        });
+        tileLayer.on('tileerror', function() {
+          L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+        });
+        tileLayer.addTo(map);
+
+        // Origin green halo and marker
+        L.circle([startLat, startLng], {
+          radius: 90,
+          color: 'rgba(16, 185, 129, 0.4)',
+          fillColor: 'rgba(16, 185, 129, 0.16)',
+          fillOpacity: 0.16,
+          weight: 1.5
+        }).addTo(map);
+
+        var originIcon = L.divIcon({
+          className: 'origin-wrap',
+          html: '<div class="origin-pin"></div>',
+          iconSize: [22, 22],
+          iconAnchor: [11, 11]
+        });
+        L.marker([startLat, startLng], { icon: originIcon }).addTo(map)
+          .on('click', function() { post({ type: 'MARKER_TAP', message: 'Pickup Station: ' + pickupName }); });
+
+        // Route polyline in Evegah Purple
+        var routePts = ${routeJson};
+        L.polyline(routePts, {
+          color: '#4A168C',
+          weight: 5,
+          lineCap: 'round',
+          lineJoin: 'round',
+          opacity: 0.95
+        }).addTo(map);
+
+        // Dynamic route path to return station
+        var livePts = [[scooterLat, scooterLng], [(scooterLat + dropLat) / 2 + 0.0015, (scooterLng + dropLng) / 2 - 0.0012], [dropLat, dropLng]];
+        L.polyline(livePts, {
+          color: '#7C3AED',
+          weight: 4,
+          dashArray: '6, 6',
+          lineCap: 'round',
+          opacity: 0.9
+        }).addTo(map);
+
+        // Destination Hub pin
+        var hubIcon = L.divIcon({
+          className: 'hub-wrap',
+          html: '<div class="hub-pin">' + dropName + '</div>',
+          iconSize: [80, 24],
+          iconAnchor: [40, 24]
+        });
+        L.marker([dropLat, dropLng], { icon: hubIcon }).addTo(map)
+          .on('click', function() { post({ type: 'MARKER_TAP', message: 'Destination Station: ' + dropName }); });
+
+        // Battery Swap Hubs
+        var stations = ${stationsJson};
+        stations.forEach(function(s) {
+          var batIcon = L.divIcon({
+            className: 'bat-wrap',
+            html: '<div class="battery-pin">' + s.count + ' Packs</div>',
+            iconSize: [70, 22],
+            iconAnchor: [35, 22]
+          });
+          L.marker([s.lat, s.lng], { icon: batIcon }).addTo(map)
+            .on('click', function() { post({ type: 'MARKER_TAP', message: s.title + ': ' + s.count + ' fresh packs ready' }); });
+        });
+
+        // Mid-route turn callout
+        var turnIcon = L.divIcon({
+          className: 'turn-wrap',
+          html: '<div class="turn-callout">2.3 km to Drop · ~8 mins</div>',
+          iconSize: [120, 24],
+          iconAnchor: [60, 24]
+        });
+        L.marker([${midCalloutCoord.latitude}, ${midCalloutCoord.longitude}], { icon: turnIcon }).addTo(map);
+
+        // Live Scooter Pulse & Marker
+        scooterHalo = L.circle([scooterLat, scooterLng], {
+          radius: 75,
+          color: 'rgba(124, 58, 237, 0.32)',
+          fillColor: 'rgba(124, 58, 237, 0.14)',
+          fillOpacity: 0.14,
+          weight: 1.5
+        }).addTo(map);
+
+        var scooterIcon = L.divIcon({
+          className: 'scooter-div',
+          html: '<div class="scooter-wrap"><div class="scooter-pulse"></div><div class="scooter-icon-circle"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.4-1.7-1.1-2.2L18 8.7V5c0-.6-.4-1-1-1h-3c-.6 0-1 .4-1 1v1h-3l-2.4-3.6C7.3 2.1 6.9 2 6.5 2H4c-.6 0-1 .4-1 1s.4 1 1 1h2.1l2.4 3.6c.2.3.5.4.9.4H13v3.2c-.6.3-1.1.8-1.5 1.4L9.2 16H6c-.6 0-1 .4-1 1s.4 1 1 1h4c.4 0 .8-.2 1-.6l2.1-3.4H17v1c0 .6.4 1 1 1h1zm-14 4c1.7 0 3-1.3 3-3s-1.3-3-3-3-3 1.3-3 3 1.3 3 3 3zm14 0c1.7 0 3-1.3 3-3s-1.3-3-3-3-3 1.3-3 3 1.3 3 3 3z" fill="#FFFFFF"/></svg></div></div>',
+          iconSize: [48, 48],
+          iconAnchor: [24, 24]
+        });
+        scooterMarker = L.marker([scooterLat, scooterLng], { icon: scooterIcon, zIndexOffset: 1000 }).addTo(map);
+
+        post({ type: 'MAP_READY' });
+      } catch (err) {
+        post({ type: 'MAP_ERROR', message: String(err) });
+      }
+    }
+
+    function tryInit(attempts) {
+      if (typeof L !== 'undefined' && L.map) {
+        init();
+      } else if ((attempts || 0) < 30) {
+        setTimeout(function() { tryInit((attempts || 0) + 1); }, 150);
+      } else {
+        post({ type: 'MAP_ERROR', message: 'Leaflet script load timeout' });
+      }
+    }
+
+    window.recenterMap = function(lat, lng) {
+      if (map && lat && lng) {
+        map.setView([Number(lat), Number(lng)], 16, { animate: true, duration: 0.5 });
+      }
+    };
+
+    window.updateScooterPos = function(lat, lng) {
+      if (scooterMarker && scooterHalo && lat && lng) {
+        var pos = [Number(lat), Number(lng)];
+        scooterMarker.setLatLng(pos);
+        scooterHalo.setLatLng(pos);
+      }
+    };
+
+    window.onload = function() {
+      tryInit(0);
+    };
+  </script>
+</body>
+</html>`;
+  }, [startCoord, activeScooterCoord, dropStationCoord, waypoints, batteryStations, midCalloutCoord, trip]);
+
+  // Dynamic scooter position updater on map
+  useEffect(() => {
+    if (activeScooterCoord?.latitude && activeScooterCoord?.longitude) {
+      webMapRef.current?.injectJavaScript(
+        `if (window.updateScooterPos) { window.updateScooterPos(${activeScooterCoord.latitude}, ${activeScooterCoord.longitude}); } true;`
+      );
+    }
+  }, [activeScooterCoord?.latitude, activeScooterCoord?.longitude]);
+
+  // Pull-to-refresh handler for live active ride
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    triggerQuickAction('Refreshing live ride telemetry & BMS...');
+    runAutoScanBms();
+    try {
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      if (loc?.coords) {
+        setLiveGpsCoord({
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+        });
+        webMapRef.current?.injectJavaScript(
+          `if (window.updateScooterPos) { window.updateScooterPos(${loc.coords.latitude}, ${loc.coords.longitude}); } if (window.recenterMap) { window.recenterMap(${loc.coords.latitude}, ${loc.coords.longitude}); } true;`
+        );
+      }
+    } catch (_) {}
+    setTimeout(() => {
+      setRefreshing(false);
+      triggerQuickAction('Telemetry & BMS Synced');
+    }, 900);
+  }, []);
+
+  const onWebMapMessage = (event) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'MAP_READY') {
+        setMapReady(true);
+      } else if (data.type === 'MARKER_TAP' && data.message) {
+        triggerQuickAction(data.message);
+      }
+    } catch (_) {}
+  };
 
   const baseDropAt = trip?.dropAt || Date.now() + 24 * 3600 * 1000;
   const effectiveDropAt = baseDropAt + extraMs;
@@ -725,7 +1037,10 @@ export default function RideScreen({
   };
 
   const recenterMap = () => {
-    mapRef.current?.animateToRegion(
+    webMapRef.current?.injectJavaScript(
+      `if (window.recenterMap) { window.recenterMap(${activeScooterCoord.latitude}, ${activeScooterCoord.longitude}); } true;`
+    );
+    mapRef.current?.animateToRegion?.(
       {
         latitude: activeScooterCoord.latitude,
         longitude: activeScooterCoord.longitude,
@@ -743,162 +1058,32 @@ export default function RideScreen({
     <View style={styles.root}>
       <StatusBar style="dark" />
 
-      {/* Full-Bleed Map Viewport */}
+      {/* Full-Bleed Map Viewport using Reliable High-Performance Web Map */}
       <View style={styles.mapContainer}>
-        <MapView
-          ref={mapRef}
-          provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+        <WebView
+          ref={webMapRef}
+          originWhitelist={['*']}
+          source={{ html: liveMapHtml, baseUrl: 'https://evegah.cloud' }}
           style={StyleSheet.absoluteFillObject}
-          initialRegion={{
-            latitude: (startCoord.latitude + activeScooterCoord.latitude) / 2,
-            longitude: (startCoord.longitude + activeScooterCoord.longitude) / 2,
-            latitudeDelta: 0.015,
-            longitudeDelta: 0.015,
-          }}
-          showsUserLocation
-          showsMyLocationButton={false}
-          toolbarEnabled={false}
-          rotateEnabled={false}
-          pitchEnabled={false}
-          showsCompass={false}
-          loadingEnabled
-          loadingBackgroundColor="#ECEFF4"
-          onMapReady={() => {
-            const targetLat = activeScooterCoord?.latitude || startCoord.latitude;
-            const targetLng = activeScooterCoord?.longitude || startCoord.longitude;
-            if (targetLat && targetLng) {
-              mapRef.current?.animateToRegion(
-                {
-                  latitude: targetLat,
-                  longitude: targetLng,
-                  latitudeDelta: 0.014,
-                  longitudeDelta: 0.014,
-                },
-                500
-              );
-            }
-          }}
-          onError={(err) => {
-            console.warn('Native Google Maps error:', err?.nativeEvent || err);
-          }}
-        >
-          {/* OpenStreetMap / Carto Voyager Leaflet Tile Layer for reliable production loading */}
-          <UrlTile
-            urlTemplate="https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png"
-            maximumZ={19}
-            flipY={false}
-            tileSize={256}
-          />
-
-          {/* Origin Zone Zone Halo */}
-          <Circle
-            center={startCoord}
-            radius={90}
-            fillColor="rgba(16, 185, 129, 0.16)"
-            strokeColor="rgba(16, 185, 129, 0.4)"
-            strokeWidth={1.5}
-          />
-
-          {/* Active Route Polyline */}
-          <Polyline
-            coordinates={waypoints}
-            strokeColor={BRAND_PURPLE}
-            strokeWidth={5}
-            lineCap="round"
-            lineJoin="round"
-          />
-
-          {/* Live Dynamic Route Path connecting Scooter to Return Station Hub */}
-          <Polyline
-            coordinates={liveRoutePath}
-            strokeColor="#7C3AED"
-            strokeWidth={4}
-            lineDashPattern={[6, 4]}
-            lineCap="round"
-          />
-
-          {/* Origin Station Pin */}
-          <Marker coordinate={startCoord} anchor={{ x: 0.5, y: 0.5 }}>
-            <View style={styles.originMarkerOuter}>
-              <View style={styles.originMarkerInner} />
+          onMessage={onWebMapMessage}
+          javaScriptEnabled
+          domStorageEnabled
+          scalesPageToFit={false}
+          scrollEnabled={false}
+          bounces={false}
+          overScrollMode="never"
+          startInLoadingState
+          mixedContentMode="always"
+          androidLayerType="hardware"
+          allowUniversalAccessFromFileURLs
+          allowFileAccess
+          renderLoading={() => (
+            <View style={[StyleSheet.absoluteFill, styles.mapLoaderCenter]}>
+              <ActivityIndicator size="large" color={BRAND_PURPLE} />
+              <Text style={styles.mapLoaderText}>Loading Live Ride Map...</Text>
             </View>
-          </Marker>
-
-          {/* Return / Destination Hub Pin */}
-          <Marker
-            coordinate={dropStationCoord}
-            anchor={{ x: 0.5, y: 0.95 }}
-            onPress={() => triggerQuickAction(`Destination Station: ${trip?.dropName || 'Gotri Hub'}`)}
-          >
-            <View style={styles.hubStationMarker}>
-              <LinearGradient colors={['#240B4C', '#4A168C']} style={styles.hubStationBadge}>
-                <Ionicons name="business" size={12} color="#FFFFFF" />
-                <Text style={styles.hubStationText}>{trip?.dropName || 'Return Hub'}</Text>
-              </LinearGradient>
-              <View style={styles.hubStationArrow} />
-            </View>
-          </Marker>
-
-          {/* Battery Swapping Station Pins */}
-          {batteryStations.map((station) => (
-            <Marker
-              key={station.id}
-              coordinate={station.coordinate}
-              anchor={{ x: 0.5, y: 0.95 }}
-              onPress={() => triggerQuickAction(`${station.title}: ${station.count} fresh batteries (${station.pct}%) ready`)}
-            >
-              <View style={styles.batteryPinWrap}>
-                <LinearGradient colors={['#059669', '#10B981']} style={styles.batteryPinBadge}>
-                  <Ionicons name="battery-charging" size={13} color="#FFFFFF" />
-                  <Text style={styles.batteryPinCount}>{station.count} Packs</Text>
-                </LinearGradient>
-                <View style={styles.batteryPinArrow} />
-              </View>
-            </Marker>
-          ))}
-
-          {/* Mid-Route Turn Navigation Pill */}
-          <Marker coordinate={midCalloutCoord} anchor={{ x: 0.5, y: 1.15 }}>
-            <View style={styles.routeCalloutBubble}>
-              <LinearGradient
-                colors={[BRAND_PURPLE, BRAND_PURPLE_LIGHT]}
-                style={styles.routeCalloutIconWrap}
-              >
-                <Ionicons name="navigate" size={12} color="#FFFFFF" />
-              </LinearGradient>
-              <View>
-                <Text style={styles.routeCalloutDist}>2.3 km to Drop</Text>
-                <Text style={styles.routeCalloutTime}>~8 mins via Gotri Rd</Text>
-              </View>
-            </View>
-          </Marker>
-
-          {/* Rider Live Pulse Halo */}
-          <Circle
-            center={activeScooterCoord}
-            radius={75}
-            fillColor="rgba(124, 58, 237, 0.14)"
-            strokeColor="rgba(124, 58, 237, 0.32)"
-            strokeWidth={1.5}
-          />
-
-          {/* Top-Down 3D Scooter Marker */}
-          <Marker coordinate={activeScooterCoord} anchor={{ x: 0.5, y: 0.5 }}>
-            <View style={styles.scooterMarkerWrap}>
-              <View style={styles.scooterMarkerHalo} />
-              <Image
-                source={getTopDownVehicleAsset(vehicle?.name)}
-                style={styles.scooterMarkerImg}
-                contentFit="contain"
-              />
-            </View>
-          </Marker>
-        </MapView>
-
-        {/* Leaflet / OpenStreetMap Attribution Badge */}
-        <View style={styles.osmBadge} pointerEvents="none">
-          <Text style={styles.osmBadgeText}>Leaflet · © OpenStreetMap</Text>
-        </View>
+          )}
+        />
 
         {/* Top Floating Cockpit HUD Bar */}
         <View style={[styles.topHudBar, { top: insets.top + 8 }]}>
@@ -1017,14 +1202,25 @@ export default function RideScreen({
         ) : null}
       </View>
 
-      {/* Bottom Ride Control Deck Sheet */}
-      <View
-        style={[
-          styles.deckSheet,
-          { paddingBottom: Math.max(insets.bottom + 8, 20) },
-        ]}
-      >
-        <View style={styles.sheetGrabber} />
+      {/* Bottom Ride Control Deck Sheet with Scroll Up Pull-To-Refresh */}
+      <View style={styles.deckSheet}>
+        <ScrollView
+          style={styles.deckScroll}
+          contentContainerStyle={[
+            styles.deckScrollContent,
+            { paddingBottom: Math.max(insets.bottom + 12, 24) },
+          ]}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={BRAND_PURPLE}
+              colors={[BRAND_PURPLE, BRAND_PURPLE_LIGHT]}
+            />
+          }
+        >
+          <View style={styles.sheetGrabber} />
 
         {/* 1. Vehicle Identity & Mode Switcher Header */}
         <View style={styles.vehicleRow}>
@@ -1367,6 +1563,7 @@ export default function RideScreen({
             </Pressable>
           </Animated.View>
         </View>
+        </ScrollView>
       </View>
 
       {/* Modal 1: Extend Ride Bottom Sheet (Inline overlay View to eliminate Android native Dialog freeze) */}
@@ -1715,10 +1912,21 @@ const styles = StyleSheet.create({
   mapContainer: {
     flex: 1,
     width: '100%',
-    minHeight: 240,
+    minHeight: 260,
     position: 'relative',
-    backgroundColor: '#E2E8F0',
+    backgroundColor: '#ECEFF4',
     overflow: 'hidden',
+  },
+  mapLoaderCenter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ECEFF4',
+    gap: 8,
+  },
+  mapLoaderText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#4A168C',
   },
   osmBadge: {
     position: 'absolute',
@@ -2059,17 +2267,24 @@ const styles = StyleSheet.create({
 
   /* Bottom Cockpit Deck Sheet */
   deckSheet: {
+    height: Math.round(SCREEN_H * 0.52),
     marginTop: -20,
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
-    paddingHorizontal: 16,
-    paddingTop: 10,
     shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: -8 },
     shadowOpacity: 0.1,
     shadowRadius: 18,
     elevation: 16,
+    overflow: 'hidden',
+  },
+  deckScroll: {
+    flex: 1,
+  },
+  deckScrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
   },
   sheetGrabber: {
     width: 38,

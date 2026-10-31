@@ -1623,7 +1623,24 @@ export default function HomeScreen({
     }
   }, [effectiveZone]);
 
+  const guardConcurrentRide = (callback) => {
+    if (activeRideData) {
+      Alert.alert(
+        'Active Ride In Progress',
+        `You currently have an active ride on vehicle ${activeRideData.vehicle_number || activeRideData.registration_number || 'EV'}. Evegah permits one active ride at a time. Please complete your current ride before booking another EV.`,
+        [
+          { text: 'View Active Ride', onPress: () => onOpenMyRide?.() },
+          { text: 'Dismiss', style: 'cancel' },
+        ]
+      );
+      return false;
+    }
+    if (callback) callback();
+    return true;
+  };
+
   const handleSearchPress = () => {
+    if (!guardConcurrentRide()) return;
     if (isRentButtonDisabled) {
       if (!isZoneSelected) {
         onOpenLocation?.();
@@ -1925,7 +1942,7 @@ export default function HomeScreen({
                 <Pressable
                   style={styles.slideSpacerCta}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 16 }}
-                  onPress={() => onOpenRent?.()}
+                  onPress={() => guardConcurrentRide(() => onOpenRent?.())}
                 />
               </View>
             ))}
@@ -1953,6 +1970,25 @@ export default function HomeScreen({
         </View>
 
         <View style={styles.sheet}>
+          {activeRideData && (
+            <Pressable
+              onPress={() => onOpenMyRide?.()}
+              style={styles.homeActiveRideStrip}
+            >
+              <View style={styles.homeActiveRideDot} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.homeActiveRideTitle}>Active Ride In Progress</Text>
+                <Text style={styles.homeActiveRideSub} numberOfLines={1}>
+                  {activeRideData.vehicle_number || activeRideData.registration_number ? `Plate: ${activeRideData.vehicle_number || activeRideData.registration_number}` : 'EV Scooter'} · Tap to resume
+                </Text>
+              </View>
+              <View style={styles.homeActiveRideResumePill}>
+                <Text style={styles.homeActiveRideResumeText}>Resume</Text>
+                <Ionicons name="arrow-forward" size={13} color="#FFFFFF" />
+              </View>
+            </Pressable>
+          )}
+
           {/* Search EV Vehicle Booking Card */}
           <Animated.View entering={cardEnter(0)} style={styles.bookingSearchCard}>
             
@@ -2105,8 +2141,8 @@ export default function HomeScreen({
                 totalCount={rideLoop.length}
                 scrollX={rideX}
                 active={index % vehicles.length === rideIndex % vehicles.length}
-                onOpenVehicle={onOpenVehicle}
-                onOpenRent={onOpenRent}
+                onOpenVehicle={(v) => guardConcurrentRide(() => onOpenVehicle?.(v))}
+                onOpenRent={(v) => guardConcurrentRide(() => onOpenRent?.(v))}
               />
             ))}
           </Animated.ScrollView>
@@ -2380,6 +2416,54 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: '#F7F7F8',
+  },
+  homeActiveRideStrip: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1.5,
+    borderColor: '#A7F3D0',
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginBottom: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  homeActiveRideDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#10B981',
+  },
+  homeActiveRideTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  homeActiveRideSub: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#047857',
+    marginTop: 2,
+  },
+  homeActiveRideResumePill: {
+    backgroundColor: '#059669',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  homeActiveRideResumeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   mainScroll: {
     flex: 1,

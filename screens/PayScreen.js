@@ -304,6 +304,18 @@ export default function PayScreen({ vehicle, trip, riderProfile, onBack, onPay }
       const riderPhone = cleanPhone || '8128251172';
       const riderEmail = riderProfile?.email || `rider_${riderPhone}@evegah.com`;
 
+      // Prevent concurrent bookings if rider already has an active ongoing ride
+      const activeCheck = await apiGet(`/reservations/active-ride?mobile=${riderPhone}`).catch(() => null);
+      if (activeCheck?.has_active_ride && activeCheck?.data) {
+        setIsProcessing(false);
+        Alert.alert(
+          'Active Ride In Progress',
+          'You already have an active ride in progress. Evegah permits one active ride at a time per account. Please end or complete your current ride before reserving another vehicle.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
       const initRes = await apiPost('/payments/payu/initiate', {
         amount: total,
         rider_name: riderName,

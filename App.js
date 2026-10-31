@@ -704,6 +704,7 @@ export default function App() {
         />
       ) : screen === 'scan' ? (
         <ScanScreen
+          phone={profile.phone}
           onOpenHome={() => setScreen('home')}
           onOpenMyRide={() => navigateProtected('rides')}
           onOpenProfile={() => navigateProtected('profile')}
