@@ -168,7 +168,7 @@ export function resolveMediaUrl(mediaPath) {
   // Normalize relative path
   const clean = s.startsWith('/') ? s : `/${s}`;
   const configuredBase = process.env.EXPO_PUBLIC_API_URL ? process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, '') : null;
-  const activeBase = configuredBase || cachedWorkingLocalBase || `http://${LAN_IP}:5000/api`;
+  const activeBase = configuredBase || cachedWorkingLocalBase || REMOTE_BASE;
 
   if (clean.startsWith('/uploads/')) {
     const hostWithApi = activeBase.endsWith('/api') ? activeBase : `${activeBase}/api`;
