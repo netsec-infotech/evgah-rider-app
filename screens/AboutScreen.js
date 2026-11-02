@@ -23,7 +23,7 @@ const PURPLE_MAIN = '#6B21A8';
 const PURPLE_DARK = '#1E1035';
 const TEXT_MUTED = '#64748B';
 
-const ABOUT_HERO_IMAGE = require('../assets/about/about-hero-full@2x.png');
+const ABOUT_HERO_IMAGE = require('../assets/about/about-hero-banner.png');
 
 export default function AboutScreen({ onBack, onExplore }) {
   const insets = useSafeAreaInsets();
