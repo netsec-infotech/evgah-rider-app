@@ -1907,7 +1907,7 @@ export default function HomeScreen({
       >
         <View style={styles.slider}>
           {homeSliderLoop.map((slide, index) => (
-            <MergeSlide key={index} index={index} slide={slide} scrollX={scrollX} />
+            <MergeSlide key={`${slide.id || index}-${slide.bg || ''}-${slide.front || ''}-${index}`} index={index} slide={slide} scrollX={scrollX} />
           ))}
           <Animated.ScrollView
             ref={scrollRef}

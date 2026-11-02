@@ -1519,7 +1519,7 @@ export default function RentScreen({
         ==================================================================== */}
         <View style={styles.sliderContainer}>
           {sliderLoop.map((slide, index) => (
-            <MergeSlide key={index} index={index} slide={slide} scrollX={slideScrollX} />
+            <MergeSlide key={`${slide.id || index}-${slide.bg || ''}-${slide.front || ''}-${index}`} index={index} slide={slide} scrollX={slideScrollX} />
           ))}
 
           {/* Swipe Touch Overlay */}
