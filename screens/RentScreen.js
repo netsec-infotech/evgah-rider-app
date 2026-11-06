@@ -93,17 +93,19 @@ const VIDEO_MARKS = [0, 1.5, 3, 4.5, 6, 7.5, 9.2];
 // FULL SLIDER CONSTANTS & SLIDES (HOMESCREEN MULTI-LAYER PARALLAX)
 // ============================================================================
 const SLIDE_WIDTH = SCREEN_W;
-const SLIDE_HEIGHT = Math.round(SCREEN_W * (340 / 401));
+const SLIDE_HEIGHT = Math.round(SCREEN_W * (375 / 390));
+const CUTOUT_W = Math.round(SCREEN_W * 0.65);
+const CUTOUT_H = Math.round(SLIDE_HEIGHT * 0.90);
 
 const RENT_SLIDES = [
   {
     kind: 'corporate',
     bg: require('../assets/rent/slider-1.png'),
     front: require('../assets/rent/slider1-bg.png'),
-    frontWidth: Math.round(SLIDE_HEIGHT * 0.52),
-    frontHeight: Math.round(SLIDE_HEIGHT * 0.85),
-    frontRight: 8,
-    frontBottom: 8,
+    frontWidth: CUTOUT_W,
+    frontHeight: CUTOUT_H,
+    frontRight: 0,
+    frontBottom: 10,
     tag: 'DAILY COMMUTE',
     lines: ['Smart Rides for', 'Corporate Pros'],
     sub: 'Zero petrol. 100% savings.',
@@ -113,9 +115,9 @@ const RENT_SLIDES = [
     kind: 'campus',
     bg: require('../assets/rent/slider-2.png'),
     front: require('../assets/rent/slider2-bg.png'),
-    frontWidth: Math.round(SLIDE_HEIGHT * 0.70),
-    frontHeight: Math.round(SLIDE_HEIGHT * 0.70),
-    frontRight: 4,
+    frontWidth: CUTOUT_W,
+    frontHeight: CUTOUT_H,
+    frontRight: 0,
     frontBottom: 10,
     tag: 'CAMPUS RIDES',
     lines: ['College Travel,', 'Made Effortless'],
@@ -126,10 +128,10 @@ const RENT_SLIDES = [
     kind: 'delivery',
     bg: require('../assets/rent/slider-3.png'),
     front: require('../assets/rent/slider3-front.png'),
-    frontWidth: Math.round(SLIDE_HEIGHT * 0.52),
-    frontHeight: Math.round(SLIDE_HEIGHT * 0.82),
-    frontRight: 8,
-    frontBottom: 8,
+    frontWidth: CUTOUT_W,
+    frontHeight: CUTOUT_H,
+    frontRight: 0,
+    frontBottom: 10,
     tag: 'DELIVERY FLEET',
     lines: ['Earn More With', 'Evegah EV Fleet'],
     sub: 'High range & zero maintenance.',
@@ -435,20 +437,25 @@ function MergeSlide({ index, slide, scrollX }) {
       </Animated.View>
 
       {/* LAYER 3: Foreground Cutout Image (Scooter & Rider) */}
-      {slide.front ? (
+      {frontSource ? (
         <Animated.View
           style={[
             styles.slideFrontWrap,
             {
-              width: slide.frontWidth,
-              height: slide.frontHeight,
+              width: slide.frontWidth || CUTOUT_W,
+              height: slide.frontHeight || CUTOUT_H,
               right: slide.frontRight ?? 0,
               bottom: slide.frontBottom ?? 10,
             },
             frontStyle,
           ]}
         >
-          <Image source={frontSource} style={styles.slideFrontImage} contentFit="contain" onError={() => setFrontErr(true)} />
+          <Image
+            source={frontSource}
+            style={styles.slideFrontImage}
+            contentFit="contain"
+            onError={() => setFrontErr(true)}
+          />
         </Animated.View>
       ) : null}
 
@@ -1203,10 +1210,10 @@ export default function RentScreen({
                 kind: s.kind || (hasCustomBg ? 'custom' : fallback.kind),
                 bg: hasCustomBg ? resolveMediaUrl(bannerImg) : fallback.bg,
                 front: hasCustomFront ? resolveMediaUrl(frontImg) : (hasCustomBg ? null : fallback.front),
-                frontWidth: s.frontWidth || fallback.frontWidth,
-                frontHeight: s.frontHeight || fallback.frontHeight,
-                frontRight: s.frontRight ?? fallback.frontRight,
-                frontBottom: s.frontBottom ?? fallback.frontBottom,
+                frontWidth: s.frontWidth || CUTOUT_W,
+                frontHeight: s.frontHeight || CUTOUT_H,
+                frontRight: s.frontRight ?? 0,
+                frontBottom: s.frontBottom ?? 10,
                 tag,
                 lines,
                 sub,

@@ -37,13 +37,15 @@ const { width: SCREEN_W } = Dimensions.get('window');
 const H_PAD = 16;
 const TAB_PURPLE = '#4A168C';
 const SLIDE_WIDTH = SCREEN_W;
-const SLIDE_HEIGHT = Math.round(SCREEN_W * (380 / 401));
-const GARBA_W = Math.round(SCREEN_W * 0.58);
-const GARBA_H = Math.round(GARBA_W * (960 / 1042));
-const SLIDER2_FRONT_W = Math.round(SCREEN_W * 0.55);
-const SLIDER2_FRONT_H = Math.round(SLIDER2_FRONT_W * (377 / 355));
-const SLIDER3_FRONT_W = Math.round(SCREEN_W * 0.58);
-const SLIDER3_FRONT_H = Math.round(SLIDER3_FRONT_W * 1.12);
+const SLIDE_HEIGHT = Math.round(SCREEN_W * (375 / 390));
+const CUTOUT_W = Math.round(SCREEN_W * 0.65);
+const CUTOUT_H = Math.round(SLIDE_HEIGHT * 0.90);
+const GARBA_W = CUTOUT_W;
+const GARBA_H = CUTOUT_H;
+const SLIDER2_FRONT_W = CUTOUT_W;
+const SLIDER2_FRONT_H = CUTOUT_H;
+const SLIDER3_FRONT_W = CUTOUT_W;
+const SLIDER3_FRONT_H = CUTOUT_H;
 const SOCIAL_CARD_W = Math.round(SCREEN_W * 0.405);
 const SOCIAL_CARD_H = Math.round(SOCIAL_CARD_W * 1.59);
 const SOCIAL_GAP = 14;
@@ -128,37 +130,43 @@ const SOCIAL_VIDEOS = [
 
 const SLIDES = [
   {
-    kind: 'navratri',
-    bg: require('../assets/home/ride-more-slide.png'),
-    front: require('../assets/home/garba.png'),
-    frontWidth: GARBA_W,
-    frontHeight: GARBA_H,
-    frontRight: -10,
-    frontBottom: 22,
-    cta: 'Rent EVs',
+    kind: 'corporate',
+    bg: require('../assets/rent/slider-1.png'),
+    front: require('../assets/rent/slider1-bg.png'),
+    frontWidth: CUTOUT_W,
+    frontHeight: CUTOUT_H,
+    frontRight: 0,
+    frontBottom: 28,
+    tag: '100% ELECTRIC',
+    lines: ['Ride Smarter,', 'Go Farther'],
+    sub: 'High-performance electric vehicles designed for daily city commute.',
+    cta: 'Rent EV Now',
   },
   {
-    kind: 'headline',
-    bg: require('../assets/home/slider2.png'),
-    front: require('../assets/home/slider2_front.png'),
-    frontWidth: SLIDER2_FRONT_W,
-    frontHeight: SLIDER2_FRONT_H,
+    kind: 'campus',
+    bg: require('../assets/rent/slider-2.png'),
+    front: require('../assets/rent/slider2-bg.png'),
+    frontWidth: CUTOUT_W,
+    frontHeight: CUTOUT_H,
     frontRight: 0,
-    frontBottom: 20,
+    frontBottom: 28,
+    tag: 'SMART SWAP',
     lines: ['Rent your EV', 'for the', 'Right price'],
+    sub: 'Never wait for charging. Fast automated battery swapping.',
     cta: 'Rent EV',
   },
   {
-    kind: 'smart',
-    bg: require('../assets/home/slider3.png'),
-    front: require('../assets/home/slider3-top.png'),
-    frontWidth: SLIDER3_FRONT_W,
-    frontHeight: SLIDER3_FRONT_H,
-    frontRight: -8,
-    frontBottom: 18,
-    lines: ['smart way', 'to ride'],
-    subLines: ['zero deposit plan', 'options'],
-    cta: 'Go With EV',
+    kind: 'delivery',
+    bg: require('../assets/rent/slider-3.png'),
+    front: require('../assets/rent/slider3-front.png'),
+    frontWidth: CUTOUT_W,
+    frontHeight: CUTOUT_H,
+    frontRight: 0,
+    frontBottom: 28,
+    tag: 'COMMERCIAL EV',
+    lines: ['Zero Emission,', 'Maximum Miles'],
+    sub: 'Reduce carbon footprint with certified green energy battery swaps.',
+    cta: 'Explore Fleet',
   },
 ];
 const LOOP = [...SLIDES, SLIDES[0]];
@@ -555,72 +563,75 @@ function SocialStatusModal({ initialIndex, onClose }) {
 }
 
 function MergeSlide({ index, slide, scrollX }) {
-  const bgStyle = useAnimatedStyle(() => {
-    const input = [(index - 1) * SLIDE_WIDTH, index * SLIDE_WIDTH, (index + 1) * SLIDE_WIDTH];
+  const input = [(index - 1) * SLIDE_WIDTH, index * SLIDE_WIDTH, (index + 1) * SLIDE_WIDTH];
+
+  const animStyle = useAnimatedStyle(() => {
+    const pageX = index * SLIDE_WIDTH;
+    const diff = scrollX.value - pageX;
     return {
-      opacity: interpolate(scrollX.value, input, [0, 1, 0], Extrapolation.CLAMP),
-      transform: [
-        {
-          translateX: interpolate(
-            scrollX.value,
-            input,
-            [SLIDE_WIDTH * 0.24, 0, -SLIDE_WIDTH * 0.24],
-            Extrapolation.CLAMP,
-          ),
-        },
-        {
-          scale: interpolate(scrollX.value, input, [1.04, 1, 1.04], Extrapolation.CLAMP),
-        },
-      ],
+      opacity: interpolate(
+        Math.abs(diff),
+        [0, SLIDE_WIDTH * 0.75, SLIDE_WIDTH],
+        [1, 0.4, 0],
+        Extrapolation.CLAMP
+      ),
     };
   });
 
-  const copyStyle = useAnimatedStyle(() => {
-    const input = [(index - 1) * SLIDE_WIDTH, index * SLIDE_WIDTH, (index + 1) * SLIDE_WIDTH];
+  const bgStyle = useAnimatedStyle(() => {
     return {
-      opacity: interpolate(
-        scrollX.value,
-        [input[0] + SLIDE_WIDTH * 0.14, input[1], input[2] - SLIDE_WIDTH * 0.14],
-        [0, 1, 0],
-        Extrapolation.CLAMP,
-      ),
       transform: [
         {
           translateX: interpolate(
             scrollX.value,
             input,
-            [SLIDE_WIDTH * 0.56, 0, -SLIDE_WIDTH * 0.56],
+            [-SLIDE_WIDTH * 0.15, 0, SLIDE_WIDTH * 0.15],
             Extrapolation.CLAMP,
           ),
+        },
+        {
+          scale: interpolate(scrollX.value, input, [1.06, 1, 1.06], Extrapolation.CLAMP),
         },
       ],
     };
   });
 
   const frontStyle = useAnimatedStyle(() => {
-    const input = [(index - 1) * SLIDE_WIDTH, index * SLIDE_WIDTH, (index + 1) * SLIDE_WIDTH];
     return {
-      opacity: interpolate(
-        scrollX.value,
-        [input[0] + SLIDE_WIDTH * 0.08, input[1], input[2] - SLIDE_WIDTH * 0.08],
-        [0, 1, 0],
-        Extrapolation.CLAMP,
-      ),
       transform: [
         {
           translateX: interpolate(
             scrollX.value,
             input,
-            [SLIDE_WIDTH * 0.82, 0, -SLIDE_WIDTH * 0.82],
+            [SLIDE_WIDTH * 0.42, 0, -SLIDE_WIDTH * 0.42],
             Extrapolation.CLAMP,
           ),
         },
         {
-          scale: interpolate(scrollX.value, input, [0.93, 1, 0.93], Extrapolation.CLAMP),
+          scale: interpolate(scrollX.value, input, [0.94, 1, 0.94], Extrapolation.CLAMP),
         },
       ],
     };
   });
+
+  const copyStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        {
+          translateX: interpolate(
+            scrollX.value,
+            input,
+            [SLIDE_WIDTH * 0.75, 0, -SLIDE_WIDTH * 0.75],
+            Extrapolation.CLAMP,
+          ),
+        },
+        {
+          scale: interpolate(scrollX.value, input, [0.94, 1, 0.94], Extrapolation.CLAMP),
+        },
+      ],
+    };
+  });
+
   const fallback = SLIDES[index % SLIDES.length] || SLIDES[0];
   const [bgErr, setBgErr] = useState(false);
   const [frontErr, setFrontErr] = useState(false);
@@ -636,10 +647,12 @@ function MergeSlide({ index, slide, scrollX }) {
     ? (typeof rawFront === 'string' ? { uri: rawFront } : rawFront)
     : (slide.isCustom ? null : fallback.front);
 
-  const isNavratri = slide.kind === 'navratri';
+  const subText = slide.sub || (Array.isArray(slide.subLines) ? slide.subLines.join(' ') : slide.subLines);
+  const hasText = Boolean(slide.tag || (slide.lines && slide.lines.length > 0) || subText || slide.cta);
 
   return (
-    <View pointerEvents="none" style={styles.slide}>
+    <Animated.View pointerEvents="none" style={[styles.slide, animStyle]}>
+      {/* LAYER 1: Background Image */}
       <Animated.View style={[styles.slideBgWrap, bgStyle]}>
         <Image
           source={bgSource}
@@ -647,79 +660,33 @@ function MergeSlide({ index, slide, scrollX }) {
           contentFit="cover"
           onError={() => setBgErr(true)}
         />
-        {!isNavratri ? (
+        {hasText ? (
           <LinearGradient
-            colors={['rgba(10, 12, 18, 0.62)', 'rgba(10, 12, 18, 0.24)', 'transparent']}
+            colors={[
+              'rgba(255, 255, 255, 0.78)',
+              'rgba(255, 255, 255, 0.56)',
+              'rgba(255, 255, 255, 0.22)',
+              'rgba(255, 255, 255, 0.0)',
+            ]}
+            locations={[0, 0.28, 0.55, 0.82]}
             start={{ x: 0, y: 0.5 }}
-            end={{ x: 0.78, y: 0.5 }}
-            style={StyleSheet.absoluteFillObject}
+            end={{ x: 1, y: 0.5 }}
+            pointerEvents="none"
+            style={styles.slideOverlayGradient}
           />
         ) : null}
       </Animated.View>
 
-      <Animated.View style={[styles.slideCopyWrap, copyStyle]}>
-        {isNavratri ? (
-          <View style={styles.navratriEmblem}>
-            <View style={styles.navratriArchRow}>
-              <View style={styles.navratriArchWing} />
-              <View style={styles.navratriArchDome}>
-                <Ionicons name="sparkles" size={12} color="#B51F38" />
-              </View>
-              <View style={styles.navratriArchWing} />
-            </View>
-            <Text style={styles.navratriHelloText}>HELLO,</Text>
-            <Text style={styles.navratriMainText}>NAVRATRI</Text>
-            <View style={styles.navratriSwirlBar} />
-          </View>
-        ) : (
-          <View style={styles.slideHeadlineBlock}>
-            {slide.tag ? (
-              <View style={styles.slideTagPill}>
-                <View style={styles.slideAccentDot} />
-                <Text style={styles.slideTagText}>{slide.tag}</Text>
-              </View>
-            ) : (
-              <View style={styles.slideAccentVector}>
-                <View style={styles.slideAccentDot} />
-                <View style={styles.slideAccentLine} />
-              </View>
-            )}
-            {slide.lines?.map((line) => (
-              <Text key={line} style={styles.slideHeadlineText}>
-                {line}
-              </Text>
-            ))}
-            {slide.subLines ? (
-              <View style={styles.slideSubBlock}>
-                {slide.subLines.map((sub) => (
-                  <Text key={sub} style={styles.slideSubText}>
-                    {sub}
-                  </Text>
-                ))}
-              </View>
-            ) : null}
-          </View>
-        )}
-
-        <View
-          style={[
-            styles.slideCtaBtn,
-            isNavratri && styles.slideCtaBtnGold,
-          ]}
-        >
-          <Text style={styles.slideCtaText}>{slide.cta || 'Rent EV'}</Text>
-        </View>
-      </Animated.View>
-
+      {/* LAYER 2: Foreground Cutout Image (Scooter & Rider) */}
       {frontSource ? (
         <Animated.View
           style={[
             styles.slideFrontWrap,
             {
-              width: slide.frontWidth || fallback.frontWidth,
-              height: slide.frontHeight || fallback.frontHeight,
-              right: slide.frontRight ?? fallback.frontRight ?? 0,
-              bottom: slide.frontBottom ?? fallback.frontBottom,
+              width: slide.frontWidth || CUTOUT_W,
+              height: slide.frontHeight || CUTOUT_H,
+              right: slide.frontRight ?? 0,
+              bottom: slide.frontBottom ?? 28,
             },
             frontStyle,
           ]}
@@ -732,7 +699,33 @@ function MergeSlide({ index, slide, scrollX }) {
           />
         </Animated.View>
       ) : null}
-    </View>
+
+      {/* LAYER 3: Text Lines, Tag, Subtext & CTA Button */}
+      {hasText ? (
+        <Animated.View style={[styles.slideCopyWrap, copyStyle]}>
+          <View style={styles.slideHeadlineBlock}>
+            {slide.tag ? (
+              <View style={styles.slideTagPill}>
+                <View style={styles.slideAccentDot} />
+                <Text style={styles.slideTagText}>{slide.tag}</Text>
+              </View>
+            ) : null}
+            {slide.lines?.map((line, i) => (
+              <Text key={`${line}-${i}`} style={styles.slideHeadlineText}>
+                {line}
+              </Text>
+            ))}
+            {subText ? (
+              <Text style={styles.slideSubText}>{subText}</Text>
+            ) : null}
+          </View>
+
+          <View style={styles.slideCtaBtn}>
+            <Text style={styles.slideCtaText}>{slide.cta || 'Rent EV'}</Text>
+          </View>
+        </Animated.View>
+      ) : null}
+    </Animated.View>
   );
 }
 
@@ -1816,6 +1809,7 @@ export default function HomeScreen({
   }, []);
 
   const [homeSliderList, setHomeSliderList] = useState(SLIDES);
+  const [activeSlideIndex, setActiveSlideIndex] = useState(0);
   const homeSliderLoop = useMemo(() => [...homeSliderList, homeSliderList[0]], [homeSliderList]);
 
   // Dynamic Slider Fetch from Backend (Live auto-sync)
@@ -1856,27 +1850,25 @@ export default function HomeScreen({
                 subLines = fallback.subLines || [];
               }
 
-              const hasCustomText = Boolean((s.title && s.title.trim()) || (s.subtitle && s.subtitle.trim()) || (s.lines && s.lines.length > 0));
-              let kind = s.kind;
-              if (!kind) {
-                kind = (hasCustomText || hasCustomBg) ? 'headline' : fallback.kind;
-              } else if (kind === 'navratri' && hasCustomText) {
-                kind = 'headline';
-              }
+              const sub = s.sub !== undefined && s.sub !== ''
+                ? s.sub
+                : (s.subtitle !== undefined && s.subtitle !== '' ? s.subtitle : (hasCustomBg ? '' : fallback.sub));
+              const cta = s.cta !== undefined && s.cta !== '' ? s.cta : (hasCustomBg ? 'Rent EV' : fallback.cta);
+              const tag = s.tag !== undefined && s.tag !== '' ? s.tag : (hasCustomBg ? '' : fallback.tag);
 
               return {
                 id: s.id || `home-${idx}`,
-                kind,
+                kind: s.kind || (hasCustomBg ? 'custom' : fallback.kind),
                 bg: hasCustomBg ? resolveMediaUrl(bannerImg) : fallback.bg,
                 front: hasCustomFront ? resolveMediaUrl(frontImg) : (hasCustomBg ? null : fallback.front),
-                frontWidth: s.frontWidth || fallback.frontWidth,
-                frontHeight: s.frontHeight || fallback.frontHeight,
-                frontRight: s.frontRight ?? fallback.frontRight,
-                frontBottom: s.frontBottom ?? fallback.frontBottom,
-                tag: s.tag !== undefined && s.tag !== '' ? s.tag : (hasCustomBg ? '' : fallback.tag),
+                frontWidth: s.frontWidth || CUTOUT_W,
+                frontHeight: s.frontHeight || CUTOUT_H,
+                frontRight: s.frontRight ?? 0,
+                frontBottom: s.frontBottom ?? 28,
+                tag,
                 lines,
-                subLines,
-                cta: s.cta !== undefined && s.cta !== '' ? s.cta : (hasCustomBg ? 'Rent EV' : fallback.cta),
+                sub,
+                cta,
                 isCustom: hasCustomBg,
               };
             });
@@ -1899,9 +1891,11 @@ export default function HomeScreen({
       pageRef.current = 0;
       scrollX.value = 0;
       scrollRef.current?.scrollTo({ x: 0, animated: false });
+      setActiveSlideIndex(0);
     } else {
       pageRef.current = targetPage;
       scrollRef.current?.scrollTo({ x: targetPage * SLIDE_WIDTH, animated: false });
+      setActiveSlideIndex(targetPage);
     }
   };
 
@@ -1967,9 +1961,11 @@ export default function HomeScreen({
                 pageRef.current = 0;
                 scrollX.value = 0;
                 scrollRef.current?.scrollTo({ x: 0, animated: false });
+                setActiveSlideIndex(0);
               } else {
                 pageRef.current = page;
                 scrollX.value = page * SLIDE_WIDTH;
+                setActiveSlideIndex(page);
               }
               isUserDragging.value = false;
               startAuto();
@@ -1987,21 +1983,34 @@ export default function HomeScreen({
             ))}
           </Animated.ScrollView>
 
+          {/* Slider Pagination Dots */}
+          <View style={styles.sliderDotsOverlay}>
+            {homeSliderList.map((_, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.sliderDot,
+                  activeSlideIndex === i && styles.sliderDotActive,
+                ]}
+              />
+            ))}
+          </View>
+
           <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
             <View style={styles.headerTopRow}>
               <View style={styles.headerLeft}>
                 <Pressable hitSlop={12} onPress={() => onOpenLocation?.()} style={styles.location}>
-                  <Ionicons name="location-sharp" size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
+                  <Ionicons name="location-sharp" size={15} color="#0F172A" style={{ marginRight: 4 }} />
                   <Text style={styles.locationText}>
                     {isZoneSelected
                       ? `${activeZoneShort}${effectiveZone?.city ? `, ${effectiveZone.city}` : ''}`
                       : 'Select Zone'}
                   </Text>
-                  <Ionicons name="chevron-down" size={16} color="#FFFFFF" />
+                  <Ionicons name="chevron-down" size={15} color="#0F172A" />
                 </Pressable>
               </View>
               <Pressable hitSlop={8} onPress={onOpenNotifications} style={styles.bell}>
-                <Ionicons name="notifications-outline" size={24} color="#FFFFFF" />
+                <Ionicons name="notifications-outline" size={20} color="#0F172A" />
                 {hasUnread ? <View style={styles.bellDot} /> : null}
               </Pressable>
             </View>
@@ -2534,10 +2543,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   bell: {
-    width: 28,
-    height: 28,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.88)',
+    borderWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.8)',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
   },
   bellDot: {
     position: 'absolute',
@@ -2566,18 +2584,56 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.88)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.8)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
   },
   locationText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
+    color: '#0F172A',
+    fontSize: 13,
+    fontWeight: '800',
   },
   slider: {
     width: SLIDE_WIDTH,
     height: SLIDE_HEIGHT,
-    backgroundColor: '#111111',
+    backgroundColor: '#F8FAFC',
     overflow: 'hidden',
     position: 'relative',
+  },
+  sliderDotsOverlay: {
+    position: 'absolute',
+    bottom: 38,
+    right: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    zIndex: 25,
+  },
+  sliderDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(15, 23, 42, 0.25)',
+  },
+  sliderDotActive: {
+    width: 18,
+    backgroundColor: '#1E1B4B',
+  },
+  slideOverlayGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    bottom: 0,
+    width: SLIDE_WIDTH * 0.72,
+    zIndex: 2,
   },
   sliderTouch: {
     ...StyleSheet.absoluteFillObject,
@@ -2610,10 +2666,11 @@ const styles = StyleSheet.create({
   },
   slideCopyWrap: {
     position: 'absolute',
-    left: 16,
-    bottom: 48,
-    maxWidth: SCREEN_W * 0.5,
-    zIndex: 2,
+    left: 18,
+    bottom: 46,
+    width: SCREEN_W * 0.58,
+    maxWidth: SCREEN_W * 0.58,
+    zIndex: 20,
   },
   navratriEmblem: {
     alignItems: 'center',
@@ -2676,18 +2733,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 3.5,
     borderRadius: 8,
-    backgroundColor: 'rgba(0, 210, 106, 0.15)',
+    backgroundColor: 'rgba(30, 27, 75, 0.08)',
     alignSelf: 'flex-start',
     marginBottom: 6,
     borderWidth: 1,
-    borderColor: 'rgba(0, 210, 106, 0.35)',
+    borderColor: 'rgba(30, 27, 75, 0.16)',
   },
   slideTagText: {
     fontSize: 10,
     fontWeight: '900',
-    color: '#00D26A',
+    color: '#1E1B4B',
     letterSpacing: 1.1,
     textTransform: 'uppercase',
+  },
+  slideAccentDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#1E1B4B',
   },
   slideAccentVector: {
     flexDirection: 'row',
@@ -2708,44 +2771,44 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.72)',
   },
   slideHeadlineText: {
-    fontSize: 23,
-    lineHeight: 28,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: -0.3,
-    textShadowColor: 'rgba(0, 0, 0, 0.35)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
-  },
-  slideSubBlock: {
-    marginTop: 5,
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#0F172A',
+    lineHeight: 27,
+    letterSpacing: -0.4,
   },
   slideSubText: {
-    fontSize: 13,
-    lineHeight: 17,
+    fontSize: 12,
     fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.92)',
+    color: '#475569',
+    marginTop: 4,
+    lineHeight: 16,
   },
   slideCtaBtn: {
-    marginTop: 14,
     alignSelf: 'flex-start',
-    backgroundColor: '#141414',
-    borderRadius: 999,
-    borderWidth: 1.2,
-    borderColor: 'rgba(255, 255, 255, 0.76)',
-    paddingHorizontal: 18,
+    backgroundColor: '#1E1B4B',
+    paddingHorizontal: 16,
     paddingVertical: 9,
+    borderRadius: 22,
+    marginTop: 12,
+    shadowColor: '#1E1B4B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
   },
   slideCtaBtnGold: {
     borderColor: '#D6A354',
   },
   slideCtaText: {
     color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
   slideFrontWrap: {
     position: 'absolute',
+    zIndex: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
