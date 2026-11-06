@@ -38,8 +38,8 @@ const H_PAD = 16;
 const TAB_PURPLE = '#4A168C';
 const SLIDE_WIDTH = SCREEN_W;
 const SLIDE_HEIGHT = Math.round(SCREEN_W * (375 / 390));
-const CUTOUT_W = Math.round(SCREEN_W * 0.65);
-const CUTOUT_H = Math.round(SLIDE_HEIGHT * 0.90);
+const CUTOUT_W = Math.round(SCREEN_W * 0.60);
+const CUTOUT_H = Math.round(SLIDE_HEIGHT * 0.82);
 const GARBA_W = CUTOUT_W;
 const GARBA_H = CUTOUT_H;
 const SLIDER2_FRONT_W = CUTOUT_W;
@@ -136,7 +136,7 @@ const SLIDES = [
     frontWidth: CUTOUT_W,
     frontHeight: CUTOUT_H,
     frontRight: 0,
-    frontBottom: 28,
+    frontBottom: 16,
     tag: '100% ELECTRIC',
     lines: ['Ride Smarter,', 'Go Farther'],
     sub: 'High-performance electric vehicles designed for daily city commute.',
@@ -149,7 +149,7 @@ const SLIDES = [
     frontWidth: CUTOUT_W,
     frontHeight: CUTOUT_H,
     frontRight: 0,
-    frontBottom: 28,
+    frontBottom: 16,
     tag: 'SMART SWAP',
     lines: ['Rent your EV', 'for the', 'Right price'],
     sub: 'Never wait for charging. Fast automated battery swapping.',
@@ -162,7 +162,7 @@ const SLIDES = [
     frontWidth: CUTOUT_W,
     frontHeight: CUTOUT_H,
     frontRight: 0,
-    frontBottom: 28,
+    frontBottom: 16,
     tag: 'COMMERCIAL EV',
     lines: ['Zero Emission,', 'Maximum Miles'],
     sub: 'Reduce carbon footprint with certified green energy battery swaps.',
@@ -686,7 +686,7 @@ function MergeSlide({ index, slide, scrollX }) {
               width: slide.frontWidth || CUTOUT_W,
               height: slide.frontHeight || CUTOUT_H,
               right: slide.frontRight ?? 0,
-              bottom: slide.frontBottom ?? 28,
+              bottom: slide.frontBottom ?? 16,
             },
             frontStyle,
           ]}
@@ -1864,7 +1864,7 @@ export default function HomeScreen({
                 frontWidth: s.frontWidth || CUTOUT_W,
                 frontHeight: s.frontHeight || CUTOUT_H,
                 frontRight: s.frontRight ?? 0,
-                frontBottom: s.frontBottom ?? 28,
+                frontBottom: s.frontBottom ?? 16,
                 tag,
                 lines,
                 sub,

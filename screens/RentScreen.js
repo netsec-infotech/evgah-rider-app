@@ -94,8 +94,8 @@ const VIDEO_MARKS = [0, 1.5, 3, 4.5, 6, 7.5, 9.2];
 // ============================================================================
 const SLIDE_WIDTH = SCREEN_W;
 const SLIDE_HEIGHT = Math.round(SCREEN_W * (375 / 390));
-const CUTOUT_W = Math.round(SCREEN_W * 0.65);
-const CUTOUT_H = Math.round(SLIDE_HEIGHT * 0.90);
+const CUTOUT_W = Math.round(SCREEN_W * 0.60);
+const CUTOUT_H = Math.round(SLIDE_HEIGHT * 0.82);
 
 const RENT_SLIDES = [
   {
@@ -105,7 +105,7 @@ const RENT_SLIDES = [
     frontWidth: CUTOUT_W,
     frontHeight: CUTOUT_H,
     frontRight: 0,
-    frontBottom: 10,
+    frontBottom: 4,
     tag: 'DAILY COMMUTE',
     lines: ['Smart Rides for', 'Corporate Pros'],
     sub: 'Zero petrol. 100% savings.',
@@ -118,7 +118,7 @@ const RENT_SLIDES = [
     frontWidth: CUTOUT_W,
     frontHeight: CUTOUT_H,
     frontRight: 0,
-    frontBottom: 10,
+    frontBottom: 4,
     tag: 'CAMPUS RIDES',
     lines: ['College Travel,', 'Made Effortless'],
     sub: 'Special student hourly rates.',
@@ -131,7 +131,7 @@ const RENT_SLIDES = [
     frontWidth: CUTOUT_W,
     frontHeight: CUTOUT_H,
     frontRight: 0,
-    frontBottom: 10,
+    frontBottom: 4,
     tag: 'DELIVERY FLEET',
     lines: ['Earn More With', 'Evegah EV Fleet'],
     sub: 'High range & zero maintenance.',
@@ -445,7 +445,7 @@ function MergeSlide({ index, slide, scrollX }) {
               width: slide.frontWidth || CUTOUT_W,
               height: slide.frontHeight || CUTOUT_H,
               right: slide.frontRight ?? 0,
-              bottom: slide.frontBottom ?? 10,
+              bottom: slide.frontBottom ?? 4,
             },
             frontStyle,
           ]}
@@ -1213,7 +1213,7 @@ export default function RentScreen({
                 frontWidth: s.frontWidth || CUTOUT_W,
                 frontHeight: s.frontHeight || CUTOUT_H,
                 frontRight: s.frontRight ?? 0,
-                frontBottom: s.frontBottom ?? 10,
+                frontBottom: s.frontBottom ?? 4,
                 tag,
                 lines,
                 sub,
