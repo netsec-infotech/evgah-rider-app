@@ -170,16 +170,19 @@ export function resolveMediaUrl(mediaPath) {
   const configuredBase = process.env.EXPO_PUBLIC_API_URL ? process.env.EXPO_PUBLIC_API_URL.replace(/\/+$/, '') : null;
   const activeBase = configuredBase || cachedWorkingLocalBase || REMOTE_BASE;
 
-  if (clean.startsWith('/uploads/')) {
-    const hostWithApi = activeBase.endsWith('/api') ? activeBase : `${activeBase}/api`;
-    return `${hostWithApi}${clean}`;
-  }
+  const host = activeBase.replace(/\/api\/?$/, '');
+  const hostWithApi = activeBase.endsWith('/api') ? activeBase : `${activeBase}/api`;
+
   if (clean.startsWith('/api/uploads/')) {
-    const host = activeBase.replace(/\/api\/?$/, '');
     return `${host}${clean}`;
   }
+  if (clean.startsWith('/uploads/')) {
+    return `${hostWithApi}${clean}`;
+  }
+  if (/\.(jpe?g|png|webp|gif|svg)$/i.test(clean)) {
+    return `${hostWithApi}/uploads${clean}`;
+  }
 
-  const host = activeBase.replace(/\/api\/?$/, '');
   return `${host}${clean}`;
 }
 

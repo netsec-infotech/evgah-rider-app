@@ -390,15 +390,33 @@ function MergeSlide({ index, slide, scrollX }) {
     };
   });
 
-  const bgSource = typeof slide.bg === 'string' ? { uri: resolveMediaUrl(slide.bg) } : slide.bg;
-  const frontSource = typeof slide.front === 'string' ? { uri: resolveMediaUrl(slide.front) } : slide.front;
+  const fallback = RENT_SLIDES[index % RENT_SLIDES.length] || RENT_SLIDES[0];
+  const [bgErr, setBgErr] = useState(false);
+  const [frontErr, setFrontErr] = useState(false);
+
+  const rawBg = typeof slide.bg === 'string' ? resolveMediaUrl(slide.bg) : slide.bg;
+  const rawFront = typeof slide.front === 'string' ? resolveMediaUrl(slide.front) : slide.front;
+
+  const bgSource = !bgErr && rawBg
+    ? (typeof rawBg === 'string' ? { uri: rawBg } : rawBg)
+    : fallback.bg;
+
+  const frontSource = !frontErr && rawFront
+    ? (typeof rawFront === 'string' ? { uri: rawFront } : rawFront)
+    : (slide.isCustom ? null : fallback.front);
+
   const hasText = Boolean(slide.tag || (slide.lines && slide.lines.length > 0) || slide.sub || slide.cta);
 
   return (
     <View pointerEvents="none" style={styles.slide}>
       {/* LAYER 1 & 2: Background Image */}
       <Animated.View style={[styles.slideBgWrap, bgStyle]}>
-        <Image source={bgSource} style={styles.slideImage} contentFit="cover" />
+        <Image
+          source={bgSource}
+          style={styles.slideImage}
+          contentFit="cover"
+          onError={() => setBgErr(true)}
+        />
         {hasText ? (
           <LinearGradient
             colors={[
@@ -430,7 +448,7 @@ function MergeSlide({ index, slide, scrollX }) {
             frontStyle,
           ]}
         >
-          <Image source={frontSource} style={styles.slideFrontImage} contentFit="contain" />
+          <Image source={frontSource} style={styles.slideFrontImage} contentFit="contain" onError={() => setFrontErr(true)} />
         </Animated.View>
       ) : null}
 
@@ -1174,9 +1192,11 @@ export default function RentScreen({
                 lines = fallback.lines || [];
               }
 
-              const sub = s.sub !== undefined ? s.sub : (s.subtitle !== undefined ? s.subtitle : (hasCustomBg ? '' : fallback.sub));
-              const cta = s.cta !== undefined ? s.cta : (hasCustomBg ? '' : fallback.cta);
-              const tag = s.tag !== undefined ? s.tag : (hasCustomBg ? '' : fallback.tag);
+              const sub = s.sub !== undefined && s.sub !== ''
+                ? s.sub
+                : (s.subtitle !== undefined && s.subtitle !== '' ? s.subtitle : (hasCustomBg ? '' : fallback.sub));
+              const cta = s.cta !== undefined && s.cta !== '' ? s.cta : (hasCustomBg ? 'Book EV' : fallback.cta);
+              const tag = s.tag !== undefined && s.tag !== '' ? s.tag : (hasCustomBg ? '' : fallback.tag);
 
               return {
                 id: s.id || `rent-${idx}`,

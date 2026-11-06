@@ -621,14 +621,33 @@ function MergeSlide({ index, slide, scrollX }) {
       ],
     };
   });
-  const bgSource = typeof slide.bg === 'string' ? { uri: resolveMediaUrl(slide.bg) } : slide.bg;
-  const frontSource = typeof slide.front === 'string' ? { uri: resolveMediaUrl(slide.front) } : slide.front;
+  const fallback = SLIDES[index % SLIDES.length] || SLIDES[0];
+  const [bgErr, setBgErr] = useState(false);
+  const [frontErr, setFrontErr] = useState(false);
+
+  const rawBg = typeof slide.bg === 'string' ? resolveMediaUrl(slide.bg) : slide.bg;
+  const rawFront = typeof slide.front === 'string' ? resolveMediaUrl(slide.front) : slide.front;
+
+  const bgSource = !bgErr && rawBg
+    ? (typeof rawBg === 'string' ? { uri: rawBg } : rawBg)
+    : fallback.bg;
+
+  const frontSource = !frontErr && rawFront
+    ? (typeof rawFront === 'string' ? { uri: rawFront } : rawFront)
+    : (slide.isCustom ? null : fallback.front);
+
+  const isNavratri = slide.kind === 'navratri';
 
   return (
     <View pointerEvents="none" style={styles.slide}>
       <Animated.View style={[styles.slideBgWrap, bgStyle]}>
-        <Image source={bgSource} style={styles.slideImage} contentFit="cover" />
-        {slide.kind !== 'navratri' ? (
+        <Image
+          source={bgSource}
+          style={styles.slideImage}
+          contentFit="cover"
+          onError={() => setBgErr(true)}
+        />
+        {!isNavratri ? (
           <LinearGradient
             colors={['rgba(10, 12, 18, 0.62)', 'rgba(10, 12, 18, 0.24)', 'transparent']}
             start={{ x: 0, y: 0.5 }}
@@ -639,7 +658,7 @@ function MergeSlide({ index, slide, scrollX }) {
       </Animated.View>
 
       <Animated.View style={[styles.slideCopyWrap, copyStyle]}>
-        {slide.kind === 'navratri' ? (
+        {isNavratri ? (
           <View style={styles.navratriEmblem}>
             <View style={styles.navratriArchRow}>
               <View style={styles.navratriArchWing} />
@@ -654,10 +673,17 @@ function MergeSlide({ index, slide, scrollX }) {
           </View>
         ) : (
           <View style={styles.slideHeadlineBlock}>
-            <View style={styles.slideAccentVector}>
-              <View style={styles.slideAccentDot} />
-              <View style={styles.slideAccentLine} />
-            </View>
+            {slide.tag ? (
+              <View style={styles.slideTagPill}>
+                <View style={styles.slideAccentDot} />
+                <Text style={styles.slideTagText}>{slide.tag}</Text>
+              </View>
+            ) : (
+              <View style={styles.slideAccentVector}>
+                <View style={styles.slideAccentDot} />
+                <View style={styles.slideAccentLine} />
+              </View>
+            )}
             {slide.lines?.map((line) => (
               <Text key={line} style={styles.slideHeadlineText}>
                 {line}
@@ -678,27 +704,32 @@ function MergeSlide({ index, slide, scrollX }) {
         <View
           style={[
             styles.slideCtaBtn,
-            slide.kind === 'navratri' && styles.slideCtaBtnGold,
+            isNavratri && styles.slideCtaBtnGold,
           ]}
         >
-          <Text style={styles.slideCtaText}>{slide.cta}</Text>
+          <Text style={styles.slideCtaText}>{slide.cta || 'Rent EV'}</Text>
         </View>
       </Animated.View>
 
-      {slide.front ? (
+      {frontSource ? (
         <Animated.View
           style={[
             styles.slideFrontWrap,
             {
-              width: slide.frontWidth,
-              height: slide.frontHeight,
-              right: slide.frontRight ?? 0,
-              bottom: slide.frontBottom,
+              width: slide.frontWidth || fallback.frontWidth,
+              height: slide.frontHeight || fallback.frontHeight,
+              right: slide.frontRight ?? fallback.frontRight ?? 0,
+              bottom: slide.frontBottom ?? fallback.frontBottom,
             },
             frontStyle,
           ]}
         >
-          <Image source={frontSource} style={styles.slideFrontImage} contentFit="contain" />
+          <Image
+            source={frontSource}
+            style={styles.slideFrontImage}
+            contentFit="contain"
+            onError={() => setFrontErr(true)}
+          />
         </Animated.View>
       ) : null}
     </View>
@@ -1825,19 +1856,27 @@ export default function HomeScreen({
                 subLines = fallback.subLines || [];
               }
 
+              const hasCustomText = Boolean((s.title && s.title.trim()) || (s.subtitle && s.subtitle.trim()) || (s.lines && s.lines.length > 0));
+              let kind = s.kind;
+              if (!kind) {
+                kind = (hasCustomText || hasCustomBg) ? 'headline' : fallback.kind;
+              } else if (kind === 'navratri' && hasCustomText) {
+                kind = 'headline';
+              }
+
               return {
                 id: s.id || `home-${idx}`,
-                kind: s.kind || (hasCustomBg ? 'headline' : fallback.kind),
+                kind,
                 bg: hasCustomBg ? resolveMediaUrl(bannerImg) : fallback.bg,
                 front: hasCustomFront ? resolveMediaUrl(frontImg) : (hasCustomBg ? null : fallback.front),
                 frontWidth: s.frontWidth || fallback.frontWidth,
                 frontHeight: s.frontHeight || fallback.frontHeight,
                 frontRight: s.frontRight ?? fallback.frontRight,
                 frontBottom: s.frontBottom ?? fallback.frontBottom,
-                tag: s.tag !== undefined ? s.tag : (hasCustomBg ? '' : fallback.tag),
+                tag: s.tag !== undefined && s.tag !== '' ? s.tag : (hasCustomBg ? '' : fallback.tag),
                 lines,
                 subLines,
-                cta: s.cta !== undefined ? s.cta : (hasCustomBg ? '' : fallback.cta),
+                cta: s.cta !== undefined && s.cta !== '' ? s.cta : (hasCustomBg ? 'Rent EV' : fallback.cta),
                 isCustom: hasCustomBg,
               };
             });
@@ -2629,6 +2668,26 @@ const styles = StyleSheet.create({
   },
   slideHeadlineBlock: {
     alignItems: 'flex-start',
+  },
+  slideTagPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 3.5,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0, 210, 106, 0.15)',
+    alignSelf: 'flex-start',
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 210, 106, 0.35)',
+  },
+  slideTagText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#00D26A',
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
   },
   slideAccentVector: {
     flexDirection: 'row',
