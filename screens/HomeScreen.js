@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Dimensions, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  useFonts,
+  Caveat_400Regular,
+  Caveat_600SemiBold,
+  Caveat_700Bold,
+} from '@expo-google-fonts/caveat';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -136,7 +142,7 @@ const SLIDES = [
     frontWidth: CUTOUT_W,
     frontHeight: CUTOUT_H,
     frontRight: 0,
-    frontBottom: 16,
+    frontBottom: 4,
     tag: '100% ELECTRIC',
     lines: ['Ride Smarter,', 'Go Farther'],
     sub: 'High-performance electric vehicles designed for daily city commute.',
@@ -149,7 +155,7 @@ const SLIDES = [
     frontWidth: CUTOUT_W,
     frontHeight: CUTOUT_H,
     frontRight: 0,
-    frontBottom: 16,
+    frontBottom: 4,
     tag: 'SMART SWAP',
     lines: ['Rent your EV', 'for the', 'Right price'],
     sub: 'Never wait for charging. Fast automated battery swapping.',
@@ -162,7 +168,7 @@ const SLIDES = [
     frontWidth: CUTOUT_W,
     frontHeight: CUTOUT_H,
     frontRight: 0,
-    frontBottom: 16,
+    frontBottom: 4,
     tag: 'COMMERCIAL EV',
     lines: ['Zero Emission,', 'Maximum Miles'],
     sub: 'Reduce carbon footprint with certified green energy battery swaps.',
@@ -1434,6 +1440,11 @@ function BookingCalendarModal({
 }
 
 export default function HomeScreen({
+  const [fontsLoaded] = useFonts({
+    Caveat_400Regular,
+    Caveat_600SemiBold,
+    Caveat_700Bold,
+  });
   selectedZone,
   calendarTriggerTick,
   onOpenLocation,
@@ -2771,18 +2782,26 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.72)',
   },
   slideHeadlineText: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: '#0F172A',
-    lineHeight: 27,
-    letterSpacing: -0.4,
+    color: '#242033',
+    fontSize: 28,
+    lineHeight: 36,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+    ...Platform.select({
+      web: { fontFamily: 'Caveat, cursive' },
+      default: { fontFamily: 'Caveat_700Bold' },
+    }),
   },
   slideSubText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#475569',
+    color: '#1E293B',
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
     marginTop: 4,
-    lineHeight: 16,
+    ...Platform.select({
+      web: { fontFamily: 'Caveat, cursive' },
+      default: { fontFamily: 'Caveat_600SemiBold' },
+    }),
   },
   slideCtaBtn: {
     alignSelf: 'flex-start',

@@ -54,9 +54,14 @@ function FloatingFieldBox({ label, children, style }) {
   );
 }
 
-export default function EditProfileScreen({ profile, onBack, onSave }) {
+export default function EditProfileScreen({ profile, onBack, onSave, isMandatory = false }) {
   const insets = useSafeAreaInsets();
-  const [name, setName] = useState(profile?.name || '');
+  const rawInitialName = (profile?.name || '').trim();
+  const cleanInitialName =
+    rawInitialName.toLowerCase() === 'evegah rider' || rawInitialName.toLowerCase() === 'rider'
+      ? ''
+      : rawInitialName;
+  const [name, setName] = useState(cleanInitialName);
   const [phone, setPhone] = useState(
     String(profile?.phone || '').replace(/^\+91\s*/, '')
   );
@@ -105,9 +110,25 @@ export default function EditProfileScreen({ profile, onBack, onSave }) {
     }
   };
 
+  const handleBack = () => {
+    const curName = name.trim();
+    if (isMandatory && (!curName || curName.toLowerCase() === 'evegah rider')) {
+      alert('Please enter your full name and complete your profile to continue.');
+      return;
+    }
+    onBack?.();
+  };
+
   const save = () => {
     const nextName = name.trim();
-    if (!nextName) return;
+    if (!nextName || nextName.toLowerCase() === 'evegah rider' || nextName.toLowerCase() === 'rider') {
+      alert('Please enter your actual full name to complete your profile.');
+      return;
+    }
+    if (isMandatory && !address.trim()) {
+      alert('Please provide your residential address.');
+      return;
+    }
     const cleanPhone = phone.trim().startsWith('+91')
       ? phone.trim()
       : `+91 ${phone.trim()}`;
@@ -133,7 +154,7 @@ export default function EditProfileScreen({ profile, onBack, onSave }) {
 
       {/* Top Bar: Circular Back Arrow + Centered "Your Profile" */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Pressable hitSlop={10} style={styles.backCircleBtn} onPress={onBack}>
+        <Pressable hitSlop={10} style={styles.backCircleBtn} onPress={handleBack}>
           <Ionicons name="arrow-back" size={20} color={DARK_TEXT} />
         </Pressable>
         <Text style={styles.headerTitle}>Your Profile</Text>
@@ -148,6 +169,21 @@ export default function EditProfileScreen({ profile, onBack, onSave }) {
           { paddingBottom: insets.bottom + 110 },
         ]}
       >
+        {/* Welcome & Profile Completion Banner */}
+        {isMandatory && (
+          <View style={styles.mandatoryNoticeBanner}>
+            <View style={styles.mandatoryNoticeIcon}>
+              <Ionicons name="sparkles" size={18} color={PURPLE} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.mandatoryNoticeTitle}>Welcome to Evegah!</Text>
+              <Text style={styles.mandatoryNoticeSub}>
+                Please fill in your name and address to complete your profile before riding.
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* Main Profile Card with Top Center Curved Dome / Arch for Avatar */}
         <View style={styles.profileCardContainer}>
           {/* Top Center Dome Arch + Circular Profile Pic + Edit Badge */}
@@ -733,5 +769,37 @@ const styles = StyleSheet.create({
     fontSize: 14.5,
     fontWeight: '600',
     color: DARK_TEXT,
+  },
+  mandatoryNoticeBanner: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: '#F3EEF8',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: '#DDD6FE',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  mandatoryNoticeIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mandatoryNoticeTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: DARK_TEXT,
+  },
+  mandatoryNoticeSub: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: SUB_TEXT,
+    marginTop: 2,
+    lineHeight: 16,
   },
 });

@@ -32,6 +32,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { apiGet, apiPost, getStoredRider } from '../services/api';
+import { bmsService } from '../services/bmsService';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -333,40 +334,43 @@ export default function RideScreen({
       -1,
       false
     );
-    triggerQuickAction('Scanning Bluetooth BLE & CAN bus for BMS...');
+    triggerQuickAction('Connecting to BMS Telemetry & Modbus Stream...');
 
-    setTimeout(() => {
-      setBmsStatus('connecting');
-      apiGet('/batteries/stats')
-        .then((body) => {
-          const liveSoc = body?.avg_soc ? Math.round(body.avg_soc) : 88;
-          setBmsSoc(liveSoc);
-        })
-        .catch(() => {});
-
-      apiGet('/batteries')
-        .then((rows) => {
-          if (Array.isArray(rows) && rows.length > 0) {
-            const first = rows[0];
-            if (first.battery_id) setBmsBatteryId(first.battery_id);
-            if (first.soc) setBmsSoc(Math.round(Number(first.soc)));
-            if (first.voltage) setBmsVoltage(Number(first.voltage));
-            if (first.temperature) setBmsTemp(Number(first.temperature));
-          }
-        })
-        .catch(() => {});
-
-      setTimeout(() => {
+    bmsService
+      .getLiveTelemetry(bmsBatteryId, vehicle?.code || vehicle?.vehicleNumber)
+      .then((telemetry) => {
+        if (telemetry) {
+          if (telemetry.batteryId) setBmsBatteryId(telemetry.batteryId);
+          if (telemetry.soc !== undefined) setBmsSoc(telemetry.soc);
+          if (telemetry.voltage !== undefined) setBmsVoltage(telemetry.voltage);
+          if (telemetry.temperature !== undefined) setBmsTemp(telemetry.temperature);
+          setBmsStatus('connected');
+          scanSpin.value = 0;
+          triggerQuickAction(`BMS Live Synced · ${telemetry.soc}% (${telemetry.batteryId})`);
+        }
+      })
+      .catch(() => {
         setBmsStatus('connected');
         scanSpin.value = 0;
-        triggerQuickAction(`BMS Synced · Live SOC: ${bmsSoc}% (${bmsBatteryId})`);
-      }, 900);
-    }, 1200);
+      });
   };
 
   useEffect(() => {
     runAutoScanBms();
-  }, []);
+    const interval = setInterval(() => {
+      bmsService
+        .getLiveTelemetry(bmsBatteryId, vehicle?.code || vehicle?.vehicleNumber)
+        .then((telemetry) => {
+          if (telemetry) {
+            if (telemetry.soc !== undefined) setBmsSoc(telemetry.soc);
+            if (telemetry.voltage !== undefined) setBmsVoltage(telemetry.voltage);
+            if (telemetry.temperature !== undefined) setBmsTemp(telemetry.temperature);
+          }
+        })
+        .catch(() => {});
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [bmsBatteryId]);
 
   // Live GPS Telemetry for Real Device Location
   const [liveGpsCoord, setLiveGpsCoord] = useState(null);

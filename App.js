@@ -198,6 +198,11 @@ export default function App() {
           if (kycStatus.includes('approv') || kycStatus.includes('verif')) {
             setKyc({ selfie: true, front: true, back: true });
           }
+          const restoredName = (storedRider.rider_name || storedRider.name || '').trim().toLowerCase();
+          if (!restoredName || restoredName === 'evegah rider' || restoredName === 'rider' || !storedRider.address) {
+            setEditProfileFrom('home');
+            setScreen('editProfile');
+          }
         }
       } catch (err) {
         console.warn('Session restore error:', err);
@@ -572,6 +577,12 @@ export default function App() {
       ) : screen === 'editProfile' ? (
         <EditProfileScreen
           profile={profile}
+          isMandatory={
+            !profile?.name ||
+            profile.name.trim().toLowerCase() === 'evegah rider' ||
+            profile.name.trim().toLowerCase() === 'rider' ||
+            !profile?.address
+          }
           onBack={() => {
             if (editProfileFrom === 'pendingBooking' && pendingBooking) {
               const pb = pendingBooking;
@@ -855,7 +866,20 @@ export default function App() {
               }
             }
 
-            if (pendingBooking) {
+            const resolvedName = (renter?.rider_name || renter?.name || '').trim().toLowerCase();
+            const isNewRider = Boolean(
+              authResult?.is_new_rider ||
+              !renter ||
+              !resolvedName ||
+              resolvedName === 'evegah rider' ||
+              resolvedName === 'rider' ||
+              !renter?.address
+            );
+
+            if (isNewRider) {
+              setEditProfileFrom('home');
+              setScreen('editProfile');
+            } else if (pendingBooking) {
               setEditProfileFrom('pendingBooking');
               setScreen('editProfile');
             } else if (loginReturnTo && loginReturnTo !== 'home') {

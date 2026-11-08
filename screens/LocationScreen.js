@@ -254,7 +254,7 @@ function MapRadar({ width, height, topInset, zones = [], onPinSelect }) {
               </View>
               <View style={styles.pinPill}>
                 <Text style={styles.pinText} numberOfLines={1}>
-                  {zone.shortName} · {zone.distance}
+                  {zone.city || 'Vadodara'} · {zone.distance}
                 </Text>
               </View>
             </PressScale>
@@ -391,6 +391,7 @@ export default function LocationScreen({ onBack, onSelectZone, selectedZone }) {
   const [currentAddress, setCurrentAddress] = useState('Detecting current GPS location...');
   const [isLocating, setIsLocating] = useState(false);
   const [selectedCity, setSelectedCity] = useState('All');
+  const [cityDropdownOpen, setCityDropdownOpen] = useState(false);
 
   const availableCities = useMemo(() => {
     const raw = zonesList.map((z) => (z.city ? String(z.city).trim() : '')).filter(Boolean);
@@ -617,34 +618,84 @@ export default function LocationScreen({ onBack, onSelectZone, selectedZone }) {
           </Pressable>
         </Animated.View>
 
-        {/* Auto-Selected Nearest Available Zone Banner */}
-        {nearestZone && (
+        {/* City-Based Dropdown Hub Picker */}
+        <View style={styles.cityDropdownWrapper}>
           <Pressable
-            style={styles.nearestDetectedBanner}
-            onPress={() => handleChooseZone(nearestZone)}
+            style={styles.cityDropdownCard}
+            onPress={() => setCityDropdownOpen((prev) => !prev)}
           >
-            <View style={styles.nearestIconBox}>
-              <Ionicons name="sparkles" size={15} color="#10B981" />
+            <View style={styles.cityDropdownIconBox}>
+              <Ionicons name="business" size={18} color={PURPLE} />
             </View>
             <View style={{ flex: 1 }}>
-              <View style={styles.nearestTitleRow}>
-                <Text style={styles.nearestKicker}>NEAREST AVAILABLE ZONE</Text>
-                <View style={styles.autoSelectPill}>
-                  <Text style={styles.autoSelectText}>Auto-Selected</Text>
-                </View>
-              </View>
-              <Text style={styles.nearestZoneTitle} numberOfLines={1}>
-                {nearestZone.name} · {nearestZone.distance} away
-              </Text>
-              <Text style={styles.nearestSubAddress} numberOfLines={1}>
-                {nearestZone.address} ({nearestZone.city || 'Vadodara'})
+              <Text style={styles.cityDropdownKicker}>FILTER HUBS BY CITY</Text>
+              <Text style={styles.cityDropdownValue}>
+                {selectedCity === 'All' ? 'All Cities' : selectedCity}
+                <Text style={styles.cityDropdownSub}>
+                  {' '}({filteredZones.length} {filteredZones.length === 1 ? 'hub' : 'hubs'} found)
+                </Text>
               </Text>
             </View>
-            <View style={styles.nearestPickArrow}>
-              <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
+            <View style={styles.cityDropdownChevron}>
+              <Ionicons
+                name={cityDropdownOpen ? 'chevron-up' : 'chevron-down'}
+                size={18}
+                color={PURPLE}
+              />
             </View>
           </Pressable>
-        )}
+
+          {/* Dropdown Options List */}
+          {cityDropdownOpen && (
+            <View style={styles.cityDropdownMenu}>
+              {availableCities.map((city) => {
+                const count =
+                  city === 'All'
+                    ? zonesList.length
+                    : zonesList.filter(
+                        (z) =>
+                          String(z.city || '')
+                            .toLowerCase()
+                            .trim() === city.toLowerCase().trim()
+                      ).length;
+                const isSelected = selectedCity === city;
+                return (
+                  <Pressable
+                    key={city}
+                    style={[
+                      styles.cityDropdownOption,
+                      isSelected && styles.cityDropdownOptionActive,
+                    ]}
+                    onPress={() => {
+                      setSelectedCity(city);
+                      setCityDropdownOpen(false);
+                    }}
+                  >
+                    <Ionicons
+                      name={city === 'All' ? 'globe-outline' : 'business-outline'}
+                      size={16}
+                      color={isSelected ? PURPLE : '#64748B'}
+                    />
+                    <Text
+                      style={[
+                        styles.cityDropdownOptionText,
+                        isSelected && styles.cityDropdownOptionTextActive,
+                      ]}
+                    >
+                      {city === 'All' ? 'All Cities' : city}
+                    </Text>
+                    <Text style={styles.cityDropdownOptionCount}>
+                      {count} {count === 1 ? 'hub' : 'hubs'}
+                    </Text>
+                    {isSelected && (
+                      <Ionicons name="checkmark-circle" size={17} color={PURPLE} />
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+        </View>
 
         {/* City Filter Tabs */}
         <View style={styles.cityPillWrap}>
@@ -697,7 +748,7 @@ export default function LocationScreen({ onBack, onSelectZone, selectedZone }) {
               </View>
               <View style={styles.zoneMain}>
                 <View style={styles.zoneTitleRow}>
-                  <Text style={styles.zoneName} numberOfLines={1}>
+                  <Text style={styles.zoneName}>
                     {zone.name}
                   </Text>
                   {isNearest && (
@@ -736,7 +787,7 @@ export default function LocationScreen({ onBack, onSelectZone, selectedZone }) {
                     </Text>
                   </View>
                 </View>
-                <Text style={styles.zoneAddress} numberOfLines={1}>
+                <Text style={styles.zoneAddress} numberOfLines={2}>
                   {zone.address} {zone.city ? `· ${zone.city}` : ''}
                 </Text>
               </View>
@@ -1197,5 +1248,101 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: PURPLE,
+  },
+
+  cityDropdownWrapper: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    zIndex: 10,
+  },
+  cityDropdownCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  cityDropdownIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#F3EEF8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cityDropdownKicker: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.5,
+  },
+  cityDropdownValue: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginTop: 2,
+  },
+  cityDropdownSub: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  cityDropdownChevron: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F3EEF8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cityDropdownMenu: {
+    marginTop: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  cityDropdownOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  cityDropdownOptionActive: {
+    backgroundColor: '#F5EFFE',
+  },
+  cityDropdownOptionText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1E293B',
+  },
+  cityDropdownOptionTextActive: {
+    fontWeight: '800',
+    color: PURPLE,
+  },
+  cityDropdownOptionCount: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+    marginRight: 4,
   },
 });
