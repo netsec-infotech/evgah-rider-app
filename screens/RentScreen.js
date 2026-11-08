@@ -57,6 +57,7 @@ import {
   getValidHoursForMeridiem,
 } from '../components/AnalogClockPicker';
 import {
+  cleanDay,
   isSameDay,
   isPastDay,
   isTimeBefore,

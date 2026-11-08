@@ -38,6 +38,7 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const BRAND_PURPLE = '#4A168C';
 const BRAND_PURPLE_LIGHT = '#7C3AED';
 const DARK_NAVY = '#0F172A';
+const GOOGLE_MAP_KEY = 'AIzaSyC_Pn12n9hRH5jQdxU7hQUOPDy820ehjwo';
 
 const PLACES = {
   Bill: { latitude: 22.2587, longitude: 73.1496 },
@@ -597,9 +598,9 @@ export default function RideScreen({
         });
 
         // Carto Voyager tiles with OpenStreetMap fallback
-        var tileLayer = L.tileLayer('https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        var tileLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&key=AIzaSyC_Pn12n9hRH5jQdxU7hQUOPDy820ehjwo', {
           maxZoom: 19,
-          attribution: 'Leaflet · © OpenStreetMap · © CARTO'
+          attribution: 'Map data © Google'
         });
         tileLayer.on('tileerror', function() {
           L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
@@ -1208,7 +1209,7 @@ export default function RideScreen({
           style={styles.deckScroll}
           contentContainerStyle={[
             styles.deckScrollContent,
-            { paddingBottom: Math.max(insets.bottom + 12, 24) },
+            { paddingBottom: Math.max(insets.bottom, 10) },
           ]}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -2267,7 +2268,8 @@ const styles = StyleSheet.create({
 
   /* Bottom Cockpit Deck Sheet */
   deckSheet: {
-    height: Math.round(SCREEN_H * 0.52),
+    maxHeight: Math.round(SCREEN_H * 0.46),
+    height: Math.round(SCREEN_H * 0.45),
     marginTop: -20,
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 30,
